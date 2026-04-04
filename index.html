@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ascii Airlines</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #hud {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: #00ff41;
+            font-size: 16px;
+            font-weight: bold;
+            pointer-events: none;
+            white-space: pre;
+            text-shadow: 0 0 5px #00ff41;
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">SCORE: 000000   HP: ██████████   WPN: LASER</div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const hud = document.getElementById('hud');
+
+        // Render Configuration
+        let DPR = Math.min(window.devicePixelRatio || 1, 2);
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+        let charW = 0, charH = 0;
+        const FONT_SIZE = 14;
+
+        // Physics Constants
+        const SPRING_CONST = 0.018;
+        const DAMPING = 0.912;
+        const CELL_SIZE = 20; 
+        const SCROLL_SPEED = 40; 
+        const HASH_SIZE = 80;
+
+        // Player Constants
+        const P_ACCEL = 5000;
+        const P_FRICTION = 0.95;
+        const P_MAX_SPEED = 960;
+        
+        // Colors
+        const COLORS = ['#003b00', '#005200', '#007a00', '#00c853', '#00ff41'];
+        
+        // State
+        let lastTime = performance.now();
+        let score = 0;
+        let hp = 10;
+        
+        // Input
+        const keys = { w: false, a: false, s: false, d: false, ' ': false };
+        window.addEventListener('keydown', e => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
+        window.addEventListener('keyup', e => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+
+        // Screen Shake
+        let shake = 0;
+        function addShake(amt) { shake = Math.min(shake + amt, 20); }
+
+        // Field Particle Arrays
+        let numParticles = 0;
+        let fpHX, fpHY, fpX, fpY, fpVX, fpVY, fpChar, fpColor, fpAlpha;
+
+        // Spatial Hash
+        let spatialHash = new Map();
+
+        // Player Entity
+        const player = {
+            x: width / 2, y: height * 0.8,
+            vx: 0, vy: 0,
+            sprites: {
+                center: [
+                    "  ^  ",
+                    " /|\\ ",
+                    "/ | \\",
+                    "|/|\\|",
+                    "\\_|_/"
+                ],
+                left: [
+                    " ^   ",
+                    "/|   ",
+                    " |   ",
+                    "||   ",
+                    "\\|   "
+                ],
+                right: [
+                    "   ^ ",
+                    "   |\\",
+                    "   | ",
+                    "   ||",
+                    "   |/"
+                ]
+            },
+            color: '#00ffee',
+            lastFire: 0
+        };
+
+        // Projectiles, Enemies, Debris, Thrusters
+        let lasers = [];
+        let enemies = [];
+        let debris = [];
+        let thrusterParticles = [];
+        
+        const ENEMY_SPRITE = [
+            "  ▄▄█▄▄  ",
+            " ▀▀███▀▀ ",
+            "   ▀█▀   "
+        ];
+
+        // Wave Manager
+        const WaveManager = {
+            currentWave: 0,
+            waves: [
+                { count: 3, color: '#ff4444', formation: (i) => ({ x: width / 2, y: -100 - i * 200 }) },
+                { count: 4, color: '#ff00ff', formation: (i) => ({ x: (i + 1) * (width / 5), y: -100 - i * 150 }) },
+                { count: 5, color: '#ffa500', formation: (i) => {
+                    const mid = 2;
+                    return { x: width / 2 + (i - mid) * 120, y: -100 - Math.abs(i - mid) * 120 };
+                }},
+                { count: 6, color: '#ffff00', formation: (i) => ({ x: (i % 2 === 0 ? 0.25 : 0.75) * width, y: -100 - i * 180 }) },
+                { count: 6, color: '#00ffff', formation: (i) => ({ x: (i + 1) * (width / 7), y: -100 }) }
+            ],
+            spawn() {
+                const w = this.waves[this.currentWave];
+                for (let i = 0; i < w.count; i++) {
+                    const pos = w.formation(i);
+                    enemies.push({ x: pos.x, y: pos.y, vx: 0, vy: 180, sprite: ENEMY_SPRITE, color: w.color });
+                }
+                this.currentWave = (this.currentWave + 1) % this.waves.length;
+            },
+            update() {
+                if (enemies.length === 0) this.spawn();
+            }
+        };
+
+        function explodeEnemy(enemy) {
+            const eW = enemy.sprite[0].length * charW;
+            const eH = enemy.sprite.length * charH;
+            const startX = enemy.x - eW / 2;
+            const startY = enemy.y - eH / 2;
+
+            for (let r = 0; r < enemy.sprite.length; r++) {
+                for (let c = 0; c < enemy.sprite[r].length; c++) {
+                    const char = enemy.sprite[r][c];
+                    if (char !== ' ') {
+                        debris.push({
+                            x: startX + c * charW,
+                            y: startY + r * charH,
+                            vx: (Math.random() - 0.5) * 600 + enemy.vx,
+                            vy: (Math.random() - 0.5) * 600 + enemy.vy,
+                            char,
+                            color: enemy.color,
+                            life: 1.0
+                        });
+                    }
+                }
+            }
+            addShake(5);
+            score += 100;
+            applyWakeForce(enemy.x, enemy.y, 150, 15);
+        }
+
+        function initArrays(size) {
+            fpHX = new Float32Array(size); fpHY = new Float32Array(size);
+            fpX = new Float32Array(size); fpY = new Float32Array(size);
+            fpVX = new Float32Array(size); fpVY = new Float32Array(size);
+            fpChar = new Uint8Array(size); fpColor = new Uint8Array(size);
+            fpAlpha = new Float32Array(size);
+        }
+
+        function pickMatrixColor() {
+            const r = Math.random();
+            if (r < 0.35) return 0;
+            if (r < 0.65) return 1;
+            if (r < 0.85) return 2;
+            if (r < 0.97) return 3;
+            return 4;
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width * DPR;
+            canvas.height = height * DPR;
+            ctx.scale(DPR, DPR);
+            ctx.font = `${FONT_SIZE}px Courier New`;
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'center';
+            
+            const metrics = ctx.measureText('0');
+            charW = metrics.width;
+            charH = FONT_SIZE * 1.2;
+
+            rebuildField();
+        }
+
+        function rebuildField() {
+            const cols = Math.ceil(width / CELL_SIZE) + 2;
+            const rows = Math.ceil(height / CELL_SIZE) + 2;
+            numParticles = Math.min(cols * rows, 8000);
+            initArrays(numParticles);
+
+            let i = 0;
+            for (let y = -1; y <= rows; y++) {
+                for (let x = -1; x <= cols; x++) {
+                    if (i >= numParticles) break;
+                    fpHX[i] = x * CELL_SIZE; fpHY[i] = y * CELL_SIZE;
+                    fpX[i] = fpHX[i]; fpY[i] = fpHY[i];
+                    fpChar[i] = Math.random() > 0.7 ? 1 : 0;
+                    fpColor[i] = pickMatrixColor();
+                    fpAlpha[i] = 0.5 + Math.random() * 0.5;
+                    i++;
+                }
+            }
+        }
+
+        function buildSpatialHash() {
+            spatialHash.clear();
+            for (let i = 0; i < numParticles; i++) {
+                const cx = Math.floor(fpX[i] / HASH_SIZE);
+                const cy = Math.floor(fpY[i] / HASH_SIZE);
+                const key = `${cx},${cy}`;
+                if (!spatialHash.has(key)) spatialHash.set(key, []);
+                spatialHash.get(key).push(i);
+            }
+        }
+
+        function applyWakeForce(px, py, radius, forceAmt) {
+            const rSq = radius * radius;
+            const minX = Math.floor((px - radius) / HASH_SIZE);
+            const maxX = Math.floor((px + radius) / HASH_SIZE);
+            const minY = Math.floor((py - radius) / HASH_SIZE);
+            const maxY = Math.floor((py + radius) / HASH_SIZE);
+
+            for (let x = minX; x <= maxX; x++) {
+                for (let y = minY; y <= maxY; y++) {
+                    const key = `${x},${y}`;
+                    const indices = spatialHash.get(key);
+                    if (!indices) continue;
+
+                    for (let i = 0; i < indices.length; i++) {
+                        const idx = indices[i];
+                        const dx = fpX[idx] - px;
+                        const dy = fpY[idx] - py;
+                        const distSq = dx * dx + dy * dy;
+                        
+                        if (distSq < rSq && distSq > 0.1) {
+                            const dist = Math.sqrt(distSq);
+                            const force = (1 - dist / radius) * forceAmt;
+                            fpVX[idx] += (dx / dist) * force;
+                            fpVY[idx] += (dy / dist) * force;
+                        }
+                    }
+                }
+            }
+        }
+
+        function updatePhysics(dt) {
+            const scrollAmt = SCROLL_SPEED * dt;
+            for (let i = 0; i < numParticles; i++) {
+                fpHY[i] += scrollAmt;
+                if (fpHY[i] > height + CELL_SIZE) {
+                    fpHY[i] -= (height + CELL_SIZE * 2);
+                    fpY[i] = fpHY[i]; fpX[i] = fpHX[i];
+                    fpChar[i] = Math.random() > 0.7 ? 1 : 0;
+                    fpColor[i] = pickMatrixColor();
+                }
+                fpVX[i] += (fpHX[i] - fpX[i]) * SPRING_CONST;
+                fpVY[i] += (fpHY[i] - fpY[i]) * SPRING_CONST;
+                fpVX[i] *= DAMPING; fpVY[i] *= DAMPING;
+                fpX[i] += fpVX[i]; fpY[i] += fpVY[i];
+            }
+
+            let inputX = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
+            let inputY = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
+            if(inputX !== 0 && inputY !== 0) { inputX *= 0.707; inputY *= 0.707; }
+
+            player.vx += inputX * P_ACCEL * dt;
+            player.vy += inputY * P_ACCEL * dt;
+            player.vx *= P_FRICTION;
+            player.vy *= P_FRICTION;
+
+            const speed = Math.hypot(player.vx, player.vy);
+            if (speed > P_MAX_SPEED) {
+                player.vx = (player.vx / speed) * P_MAX_SPEED;
+                player.vy = (player.vy / speed) * P_MAX_SPEED;
+            }
+
+            player.x += player.vx * dt;
+            player.y += player.vy * dt;
+            player.x = Math.max(50, Math.min(width - 50, player.x));
+            player.y = Math.max(50, Math.min(height - 50, player.y));
+
+            if (speed > 10) applyWakeForce(player.x, player.y, 80, (speed / P_MAX_SPEED) * 8);
+
+            // Thrusters
+            if (Math.random() > 0.4) {
+                thrusterParticles.push({
+                    x: player.x + (Math.random() - 0.5) * 6,
+                    y: player.y + 15,
+                    vx: (Math.random() - 0.5) * 30,
+                    vy: 200 + Math.random() * 100,
+                    char: ['^', '*', '.', 'v'][Math.floor(Math.random() * 4)],
+                    color: Math.random() > 0.5 ? '#ffa500' : '#ffff00',
+                    life: 1.0
+                });
+            }
+            for (let i = thrusterParticles.length - 1; i >= 0; i--) {
+                const t = thrusterParticles[i];
+                t.x += t.vx * dt; t.y += t.vy * dt;
+                t.life -= dt * 3;
+                applyWakeForce(t.x, t.y, 20, 0.8);
+                if (t.life <= 0) thrusterParticles.splice(i, 1);
+            }
+
+            if (keys[' '] && performance.now() - player.lastFire > 125) {
+                lasers.push({ x: player.x, y: player.y - 20 });
+                player.lastFire = performance.now();
+                addShake(1);
+            }
+
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                lasers[i].y -= 1200 * dt;
+                applyWakeForce(lasers[i].x, lasers[i].y, 30, 4);
+                if (lasers[i].y < -20) lasers.splice(i, 1);
+            }
+
+            WaveManager.update();
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.y += e.vy * dt;
+                for (let j = lasers.length - 1; j >= 0; j--) {
+                    const l = lasers[j];
+                    if (Math.abs(l.x - e.x) < 30 && Math.abs(l.y - e.y) < 30) {
+                        explodeEnemy(e);
+                        enemies.splice(i, 1);
+                        lasers.splice(j, 1);
+                        break;
+                    }
+                }
+                if (e.y > height + 100) enemies.splice(i, 1);
+            }
+
+            for (let i = debris.length - 1; i >= 0; i--) {
+                const d = debris[i];
+                d.x += d.vx * dt; d.y += d.vy * dt;
+                d.vx *= 0.98; d.vy *= 0.98;
+                d.life -= dt * 0.8;
+                applyWakeForce(d.x, d.y, 25, 2);
+                if (d.life <= 0) debris.splice(i, 1);
+            }
+
+            shake *= 0.85;
+        }
+
+        function draw() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.save();
+            if (shake > 0.5) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+
+            ctx.font = `${FONT_SIZE}px Courier New`;
+            for (let i = 0; i < numParticles; i++) {
+                ctx.fillStyle = COLORS[fpColor[i]];
+                ctx.globalAlpha = fpAlpha[i];
+                ctx.fillText(fpChar[i], fpX[i], fpY[i]);
+            }
+            ctx.globalAlpha = 1.0;
+
+            for (const t of thrusterParticles) {
+                ctx.fillStyle = t.color;
+                ctx.globalAlpha = t.life;
+                ctx.fillText(t.char, t.x, t.y);
+            }
+            ctx.globalAlpha = 1.0;
+
+            ctx.fillStyle = '#ffea00';
+            ctx.font = `bold 18px Courier New`;
+            for (const l of lasers) { ctx.fillText('|', l.x, l.y); ctx.fillText('|', l.x, l.y + 10); }
+
+            for (const e of enemies) {
+                ctx.fillStyle = e.color; ctx.font = `bold 16px Courier New`;
+                const eW = e.sprite[0].length * charW, eH = e.sprite.length * charH;
+                const eStartX = e.x - eW / 2, eStartY = e.y - eH / 2;
+                for (let r = 0; r < e.sprite.length; r++) {
+                    for (let c = 0; c < e.sprite[r].length; c++) {
+                        const char = e.sprite[r][c];
+                        if (char !== ' ') ctx.fillText(char, eStartX + c * charW, eStartY + r * charH);
+                    }
+                }
+            }
+
+            for (const d of debris) {
+                ctx.fillStyle = d.color; ctx.globalAlpha = d.life;
+                ctx.font = `bold 14px Courier New`;
+                ctx.fillText(d.char, d.x, d.y);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Player Rendering with Banking
+            ctx.fillStyle = player.color; ctx.font = `bold 16px Courier New`;
+            let sprite = player.sprites.center;
+            if (player.vx < -300) sprite = player.sprites.left;
+            else if (player.vx > 300) sprite = player.sprites.right;
+            
+            const pW = sprite[0].length * charW, pH = sprite.length * charH;
+            const startX = player.x - pW / 2, startY = player.y - pH / 2;
+            for (let r = 0; r < sprite.length; r++) {
+                for (let c = 0; c < sprite[r].length; c++) {
+                    const char = sprite[r][c];
+                    if (char !== ' ') ctx.fillText(char, startX + c * charW, startY + r * charH);
+                }
+            }
+            ctx.restore();
+        }
+
+        function updateHud() {
+            const hpStr = '█'.repeat(hp) + '░'.repeat(10 - hp);
+            hud.innerText = `SCORE: ${score.toString().padStart(6, '0')}   HP: ${hpStr}   WPN: LASER`;
+        }
+
+        function gameLoop() {
+            const now = performance.now();
+            let dt = (now - lastTime) / 1000;
+            if (dt > 0.05) dt = 0.05;
+            lastTime = now;
+
+            buildSpatialHash();
+            updatePhysics(dt);
+            draw();
+            updateHud();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+        document.fonts.ready.then(() => {
+            resize();
+            requestAnimationFrame(gameLoop);
+        });
+
+    </script>
+</body>
+</html>
