@@ -1,0 +1,216 @@
+        // Entity collections, input listeners, field particles, and spatial hash state.
+        // Arrays for Game Entities
+        let comboProjectiles = [];
+        let bombProjectiles = [];
+        let bombBlastRings = [];
+        let enemies = [];
+        let debris = [];
+        let thrusterParticles = [];
+        let xpOrbs = [];
+        let drops = [];
+        let enemyBullets = [];
+        let boss = null;
+        let deathTimer = 0;
+        let launchTimer = 0;
+        let playerExploded = false;
+        let currentHint = "";
+        
+        const GLITCH_CHARS = [..."ﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙ"];
+        
+        const RAGE_HINTS = [
+            "Tip: try not getting hit.",
+            "Reminder: you are not invincible.",
+            "Hint: press A to move left.",
+            "Did you know: enemy bullets deal damage.",
+            "Pro tip: the goal is to survive.",
+            "Strategy guide: dodge the purple round things.",
+            "Fun fact: exploding means you lose.",
+            "Advice: try shooting back.",
+            "Notice: the enemies are trying to kill you.",
+            "Tip: try and prevent your ship from exploding.",
+            "Pro tip: weapons only work if you fire them.",
+            "Hint: use your eyes to see the bullets.",
+            "Tip: dying lowers your chances of winning.",
+            "Reminder: dodging is highly recommended.",
+            "Reminder: you cannot win if you are dead.",
+            "Reminder: bullets travel toward you.",
+            "Pro tip: try getting better at the game.",
+            "Strategy: consider not flying into bullets.",
+            "Hint: the enemies shoot bullets that hurt you.",
+            "Fun fact: this game has a tutorial. You ignored it.",
+            "Fun fact: My 6 year old beat this game in one try.",
+            "Tip: the bullets are not power-ups.",
+            "Reminder: your ship is not supposed to catch every shot.",
+            "Pro tip: panic is not a movement ability.",
+            "Strategy guide: try dodging before the bullet touches you.",
+            "Fun fact: the walls are also not a safe place to live.",
+        ];
+
+        // Input Handling
+        const keys = { w: false, a: false, s: false, d: false, ' ': false, escape: false, arrowup: false, arrowdown: false, arrowleft: false, arrowright: false, b: false };
+        const mouse = { x: 0, y: 0, isDown: false, lastClick: 0 };
+        
+        window.addEventListener('keydown', e => { 
+            if (e.key === '`' || e.key === '~') {
+                consoleOpen = !consoleOpen; 
+                consoleInput = '';
+                Object.keys(keys).forEach(key => keys[key] = false); // clear held keys
+                
+                if (consoleOpen) {
+                    enterPauseMode();
+                }
+                e.preventDefault(); return;
+            }
+            if (consoleOpen) {
+                e.preventDefault();
+                if (e.key === 'Escape') { 
+                    consoleOpen = false; 
+                    consoleInput = ''; 
+                }
+                else if (e.key === 'Backspace') { consoleInput = consoleInput.slice(0, -1); }
+                else if (e.key === 'Enter') {
+                    const shouldCloseConsole = executeConsoleCommand(consoleInput);
+                    consoleInput = '';
+                    if (shouldCloseConsole) consoleOpen = false;
+                }
+                else if (e.key.length === 1) { consoleInput += e.key; }
+                return;
+            }
+
+            if (bossCinematic && bossCinematic.paused) {
+                e.preventDefault();
+                return;
+            }
+            
+            const k = e.key.toLowerCase();
+            if (keys.hasOwnProperty(k)) { 
+                keys[k] = true; 
+                // Prevent scrolling for game keys
+                if(k===' '||k==='arrowup'||k==='arrowdown'||k==='arrowleft'||k==='arrowright') {
+                    e.preventDefault(); 
+                }
+            }
+            
+            if (k === 'escape') {
+                if (gameState === 'PLAYING') {
+                    enterPauseMode();
+                } else if (gameState === 'PAUSED') {
+                    if (pauseState === 'SETTINGS') {
+                        pauseState = 'MAIN';
+                    } else {
+                        resumeFromPauseMode();
+                    }
+                }
+                e.preventDefault();
+                return;
+            }
+            if (gameState === 'START' && k === ' ') { 
+                restartLoadingSequence = false;
+                gameState = 'LAUNCHING'; 
+                launchTimer = 0; 
+                player.x = width / 2; 
+                player.y = height + 100;
+                startMusic(); 
+            }
+            if (gameState === 'GAMEOVER' && k === ' ') location.reload();
+            if (gameState === 'PAUSED') {
+                const pauseMenuOptions = ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
+                if (pauseState === 'MAIN') {
+                    if (k === 'arrowup' || k === 'w') pauseSelection = (pauseSelection === 0) ? pauseMenuOptions.length - 1 : pauseSelection - 1;
+                    if (k === 'arrowdown' || k === 's') pauseSelection = (pauseSelection === pauseMenuOptions.length - 1) ? 0 : pauseSelection + 1;
+                    
+                    if (pauseSelection === 2) {
+                        if (k === 'arrowleft' || k === 'a') {
+                            currentVolume = Math.max(0, Math.round((currentVolume - 0.1) * 10) / 10);
+                            previewPauseVolumeAdjustment();
+                        }
+                        if (k === 'arrowright' || k === 'd') {
+                            currentVolume = Math.min(1.0, Math.round((currentVolume + 0.1) * 10) / 10);
+                            previewPauseVolumeAdjustment();
+                        }
+                    }
+
+                    if (k === 'enter' || k === ' ') {
+                        if (pauseSelection === 0) {
+                            resumeFromPauseMode();
+                        }
+                        else if (pauseSelection === 1) resetGame();
+                        else if (pauseSelection === 2) {
+                            isMuted = !isMuted;
+                            clearPauseVolumePreview();
+                            applyCurrentVolume(gameState === 'PAUSED' ? PAUSE_VOLUME_SCALE : 1);
+                        }
+                        else if (pauseSelection === 3) {
+                            pauseState = 'SETTINGS';
+                            settingsSelection = 0;
+                        }
+                        else if (pauseSelection === 4) {
+                            const container = document.getElementById('game-container');
+                            if (!document.fullscreenElement) {
+                                container.requestFullscreen().catch(()=>{});
+                            } else {
+                                document.exitFullscreen().catch(()=>{});
+                            }
+                        }
+                        else if (pauseSelection === 5) location.reload();
+                    }
+                } else if (pauseState === 'SETTINGS') {
+                    if (k === 'arrowup' || k === 'w') settingsSelection = (settingsSelection === 0) ? 6 : settingsSelection - 1;
+                    if (k === 'arrowdown' || k === 's') settingsSelection = (settingsSelection === 6) ? 0 : settingsSelection + 1;
+                    
+                    if (k === 'arrowleft' || k === 'a' || k === 'arrowright' || k === 'd' || k === 'enter' || k === ' ') {
+                        if (settingsSelection === 0 && (k !== 'enter' && k !== ' ')) {
+                            if (k === 'arrowleft' || k === 'a') currentThemeIndex = (currentThemeIndex + 3) % 4;
+                            if (k === 'arrowright' || k === 'd') currentThemeIndex = (currentThemeIndex + 1) % 4;
+                            applyTheme();
+                        } else if (settingsSelection === 1 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+                            if (k === 'arrowleft' || k === 'a') renderStyleMode = (renderStyleMode + RENDER_STYLE_NAMES.length - 1) % RENDER_STYLE_NAMES.length;
+                            else renderStyleMode = (renderStyleMode + 1) % RENDER_STYLE_NAMES.length;
+                            sessionStorage.setItem('ascii_render_style', renderStyleMode.toString());
+                        } else if (settingsSelection === 2 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+                            showFpsCounter = !showFpsCounter;
+                            sessionStorage.setItem('ascii_show_fps', showFpsCounter.toString());
+                            applyFpsVisibility();
+                        } else if (settingsSelection === 3 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+                            userFpsCap = !userFpsCap;
+                        } else if (settingsSelection === 4 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+                            glowEnabled = !glowEnabled;
+                            applyTheme();
+                        } else if (settingsSelection === 5 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+                            crtFilterEnabled = !crtFilterEnabled;
+                            document.getElementById('crt-overlay').style.display = crtFilterEnabled ? 'block' : 'none';
+                        } else if (settingsSelection === 6 && (k === 'enter' || k === ' ')) {
+                            pauseState = 'MAIN';
+                            settingsSelection = 0;
+                        }
+                    }
+                }
+            }
+            if (gameState === 'LEVELUP' && levelUpState === 'OFFERING') {
+                if (k === 'arrowleft' || k === 'a') selectedOptionIndex = (selectedOptionIndex + 2) % 3;
+                if (k === 'arrowright' || k === 'd') selectedOptionIndex = (selectedOptionIndex + 1) % 3;
+                if (k === '1') { selectedOptionIndex = 0; levelUpState = 'ANIMATING'; levelUpTimer = 0; }
+                if (k === '2') { selectedOptionIndex = 1; levelUpState = 'ANIMATING'; levelUpTimer = 0; }
+                if (k === '3') { selectedOptionIndex = 2; levelUpState = 'ANIMATING'; levelUpTimer = 0; }
+                if (k === 'enter' || k === ' ') {
+                    levelUpState = 'ANIMATING';
+                    levelUpTimer = 0;
+                }
+            }
+        });
+        window.addEventListener('keyup', e => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+        window.addEventListener('mousemove', e => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = (e.clientX - rect.left) * (LOGICAL_W / rect.width);
+            mouse.y = (e.clientY - rect.top) * (LOGICAL_H / rect.height);
+        });
+        window.addEventListener('mousedown', () => { mouse.isDown = true; mouse.lastClick = performance.now(); });
+        window.addEventListener('mouseup', () => { mouse.isDown = false; });
+
+        // Field Particle System (Background)
+        let numParticles = 0;
+        let fpHX, fpHY, fpX, fpY, fpVX, fpVY, fpChar, fpColor, fpAlpha, fpHighlight;
+        const PARTICLE_CHARS = ['+', '=', ':', '.', '-', 'x'];
+
+        // Spatial Hash for performance
+        let spatialHash = new Map();
