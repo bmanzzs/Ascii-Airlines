@@ -85,14 +85,17 @@
         let autoLaunch = false;
         let pauseState = 'MAIN'; // 'MAIN' or 'SETTINGS'
         let pauseSelection = 0;
+        let pausePowerupSelection = 0;
         let settingsSelection = 0;
         let isMuted = false;
         let currentVolume = 0.4;
         let consoleOpen = false;
         let consoleInput = '';
-        const CONSOLE_HISTORY_LIMIT = 6;
+        const CONSOLE_HISTORY_LIMIT = 40;
         const CONSOLE_NOTIFICATION_LIMIT = 5;
         let consoleHistory = [];
+        let consoleHistoryIndex = -1;
+        let consoleHistoryDraft = '';
         let consoleNotifications = [];
         let consoleReferenceLines = [];
         let queuedConsoleLevels = 0;
@@ -144,6 +147,7 @@
             gameState = 'PAUSED';
             pauseState = 'MAIN';
             pauseSelection = 0;
+            pausePowerupSelection = 0;
             applyCurrentVolume(PAUSE_VOLUME_SCALE);
         }
 

@@ -233,11 +233,13 @@
             if (hpRatio < 0.3) hpColor = '#cc0000';
             else if (hpRatio <= 0.6) hpColor = '#ff8800';
             const hpBlocks = Math.ceil(hpRatio * HUD_BAR_BLOCKS);
+            const hpFull = hpRatio >= 0.999;
             
             const xpRatio = Math.max(0, Math.min(1, player.xp / player.xpNeeded));
             const xpPerc = Math.min(HUD_BAR_BLOCKS, Math.floor(xpRatio * HUD_BAR_BLOCKS));
+            const xpFull = xpRatio >= 0.999;
 
-            const bombCooldownTotal = Math.max(0.001, player.bombCooldown * player.modifiers.bombCooldown);
+            const bombCooldownTotal = Math.max(0.001, getPlayerBombCooldownTotal());
             const bombRatio = Math.max(0, Math.min(1, 1 - (Math.max(0, player.bombTimer) / bombCooldownTotal)));
             const bombBlocks = Math.ceil(bombRatio * HUD_BAR_BLOCKS);
             const bombReady = bombRatio >= 0.999;
@@ -250,11 +252,12 @@
                 hpBlocks,
                 hpColor,
                 Math.round(hpRatio * 100),
+                hpFull ? 1 : 0,
                 glowEnabled ? 1 : 0
             ].join('~');
             if (hpSignature !== lastHudHpSignature) {
                 syncMeterBar(hudRefs.hpBar, hpBlocks, HUD_BAR_BLOCKS, hpColor, hpColor, '#31413a', {
-                    effectClass: 'is-hp',
+                    effectClass: hpFull ? 'is-hp is-full' : 'is-hp',
                     glowAlpha: hpRatio * 0.8,
                     glowBlur: 8
                 });
@@ -264,11 +267,12 @@
             const xpSignature = [
                 xpPerc,
                 Math.round(xpRatio * 100),
+                xpFull ? 1 : 0,
                 glowEnabled ? 1 : 0
             ].join('~');
             if (xpSignature !== lastHudXpSignature) {
                 syncMeterBar(hudRefs.xpBar, xpPerc, HUD_BAR_BLOCKS, '#d2d2d2', '#8f8f8f', '#3a3a42', {
-                    effectClass: 'is-xp',
+                    effectClass: xpFull ? 'is-xp is-full' : 'is-xp',
                     glowAlpha: xpRatio * 0.8,
                     glowBlur: 8
                 });
@@ -283,7 +287,7 @@
             ].join('~');
             if (bombSignature !== lastHudBombSignature) {
                 syncMeterBar(hudRefs.bombBar, bombBlocks, HUD_BAR_BLOCKS, '#1e3da8', '#d12ad6', '#39428a', {
-                    effectClass: bombReady ? 'is-bomb is-bomb-ready' : 'is-bomb',
+                    effectClass: bombReady ? 'is-bomb is-bomb-ready is-full' : 'is-bomb',
                     glowAlpha: bombReady ? 0.88 : bombRatio * 0.8,
                     glowBlur: bombReady ? 9 : 8
                 });

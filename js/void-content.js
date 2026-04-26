@@ -115,7 +115,7 @@
         }
 
         function createLaneSweepEnemy(config = {}) {
-            return {
+            const enemy = {
                 x: config.startX || -40,
                 y: config.startY || -80,
                 vx: 0,
@@ -140,6 +140,7 @@
                 laneAmplitude: config.laneAmplitude || 46,
                 lanePhase: config.lanePhase || 0
             };
+            return configureEnemyShipVisual(enemy, config.enemyShipKind || (enemy.isElite ? 'elite' : (enemy.isArmored ? 'armored' : 'base')));
         }
 
         function createVoidSentinel(config = {}) {

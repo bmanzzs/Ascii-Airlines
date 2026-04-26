@@ -7,13 +7,15 @@
         const BOMB_BASE_COOLDOWN = 12;
         const BOMB_GRENADE_SPEED = 980;
         const BOMB_GRENADE_RANGE = 500;
-        const BOMB_EXPLOSION_RADIUS = 235;
-        const BOMB_EXPLOSION_DAMAGE = 125;
+        const BOMB_EXPLOSION_RADIUS = 164.5;
+        const BOMB_EXPLOSION_DAMAGE = 62.5;
         const BOMB_SHRAPNEL_COUNT = 14;
         const BOMB_SHRAPNEL_DAMAGE = 9;
         const BOMB_SHRAPNEL_SPEED_MIN = 520;
         const BOMB_SHRAPNEL_SPEED_MAX = 840;
         const BOMB_SHRAPNEL_LIFE = 0.5;
+        const GOD_MODE_DAMAGE_MULT = 10;
+        const GOD_MODE_BOMB_COOLDOWN = 0.1;
         const PLAYER_SHIP_MODELS = {
             center: {
                 body: { x: 0, y: -8, rotation: 0 },
@@ -67,6 +69,60 @@
             ]
         };
 
+        function createBaseWeaponStats() {
+            return {
+                damageMult: 1, fireRateMult: 1, speedMult: 1, sizeMult: 1,
+                pierceCount: 0, splashRadius: 0, splashDamagePercent: 0, homing: false, homingStrength: 1,
+                chainCount: 0, chainChance: 1, pathFunction: 'straight', mode: 'projectile',
+                hasRearFire: false, rearFireEvery: 2, rearFireFan: 1, rearFireSpread: 0.22,
+                hasOrbitalDrones: false, pelletCount: 1, spreadAngle: 0, inaccuracy: 0,
+                returning: false, returnAfter: 0.5, orbitDelay: 0, orbitRadiusMult: 1,
+                orbitReleaseCenter: false, lightningBall: false, splashVisualDebris: 20,
+                hitboxMult: 1, plasmaCloud: false, cloudDotMult: 0,
+                cloudStartScale: 1, cloudEndScale: 1, cloudGrowthDistance: 1,
+                cloudSpeedStartScale: 1, cloudSpeedEndScale: 1, cloudAccelTime: 1,
+                cloudCurveStrength: 0, cloudFadeTime: 0.45,
+                miniTorpedo: false, torpedoExplosionRadius: 0,
+                torpedoExplosionDamageMult: 0, torpedoRange: 0
+            };
+        }
+
+        function getPlasmaCloudGrowthFactor(projectile) {
+            const stats = projectile && projectile.stats ? projectile.stats : {};
+            if (!stats.plasmaCloud) return 1;
+            const startScale = stats.cloudStartScale || 0.3;
+            const endScale = stats.cloudEndScale || 1;
+            const growthDistance = Math.max(1, stats.cloudGrowthDistance || 460);
+            const x = typeof projectile.x === 'number' ? projectile.x : 0;
+            const y = typeof projectile.y === 'number' ? projectile.y : 0;
+            const startX = typeof projectile.startX === 'number' ? projectile.startX : x;
+            const startY = typeof projectile.startY === 'number' ? projectile.startY : y;
+            const dx = x - startX;
+            const dy = y - startY;
+            const progress = Math.max(0, Math.min(1, Math.hypot(dx, dy) / growthDistance));
+            const eased = progress * progress * (3 - progress * 2);
+            return startScale + (endScale - startScale) * eased;
+        }
+
+        function getPlasmaCloudFadeAlpha(projectile) {
+            const stats = projectile && projectile.stats ? projectile.stats : {};
+            if (!stats.plasmaCloud) return 1;
+            const fadeTime = Math.max(0.05, stats.cloudFadeTime || 0.45);
+            return Math.max(0, Math.min(1, (projectile.life || 0) / fadeTime));
+        }
+
+        function getPlasmaCloudSpeedFactor(projectile) {
+            const stats = projectile && projectile.stats ? projectile.stats : {};
+            if (!stats.plasmaCloud) return 1;
+            const startScale = stats.cloudSpeedStartScale || 0.45;
+            const endScale = stats.cloudSpeedEndScale || 1;
+            const accelTime = Math.max(0.1, stats.cloudAccelTime || 1.35);
+            const travelAge = Math.max(0, (projectile.age || 0) - (projectile.releaseAge || 0));
+            const progress = Math.max(0, Math.min(1, travelAge / accelTime));
+            const eased = progress * progress * (3 - progress * 2);
+            return startScale + (endScale - startScale) * eased;
+        }
+
         const player = {
             x: width / 2, y: height * 0.8,
             vx: 0, vy: 0,
@@ -83,16 +139,15 @@
                 invincibility: 0, 
                 adrenaline: 0, 
                 magnet: 0, 
-                bombCooldown: 1 
+                bombCooldown: 1,
+                bombDamage: 0,
+                bombRadius: 0,
+                momentumFireRate: 0,
+                xpHeal: 0
             },
-            weaponStats: {
-                damageMult: 1, fireRateMult: 1, speedMult: 1, sizeMult: 1,
-                pierceCount: 0, splashRadius: 0, splashDamagePercent: 0, homing: false,
-                chainCount: 0, pathFunction: 'straight', mode: 'projectile',
-                hasRearFire: false, hasOrbitalDrones: false, pelletCount: 1, spreadAngle: 0, inaccuracy: 0
-            },
+            weaponStats: createBaseWeaponStats(),
             weapons: [],
-            drones: [{angle: 0, timer: 0}, {angle: Math.PI, timer: 0}],
+            drones: [],
             isBeaming: false,
             beamAngle: -Math.PI / 2,
             beamTargetAngle: -Math.PI / 2,
@@ -102,10 +157,11 @@
             bombCooldown: BOMB_BASE_COOLDOWN,
             invincibilityTimer: 0,
             flashTimer: 0,
-            fireRate: 260, // base ~3.8 shots/sec
+            fireRate: 306, // base ~3.3 shots/sec
             color: '#00ffff',
             lastFire: 0,
-            isFiring: false
+            isFiring: false,
+            godMode: false
         };
 
         const PLAYER_FIRE_FORWARD_ANGLE = -Math.PI / 2;
@@ -298,22 +354,30 @@
             ctx.globalAlpha = 1;
         }
 
-        function drawBeamStrand(originX, originY, angle, sizeMult, phase, deployFactor = 1, beamMetrics = null) {
+        function drawBeamStrand(originX, originY, angle, sizeMult, phase, deployFactor = 1, beamMetrics = null, visualLoad = 1) {
             beamMetrics = beamMetrics || getBeamMetrics(sizeMult, deployFactor);
             if (beamMetrics.length <= 6) return;
+            const heavyBeam = visualLoad >= 10;
+            const extremeBeam = visualLoad >= 16;
+            const haloStride = extremeBeam ? 5 : (heavyBeam ? 3 : 2);
+            const detailStride = extremeBeam ? 4 : (heavyBeam ? 2 : 1);
             const previousFillStyle = ctx.fillStyle;
             ctx.save();
             ctx.translate(originX, originY);
             ctx.rotate(angle + Math.PI / 2);
             ctx.font = beamMetrics.font;
             ctx.fillStyle = '#ffd866';
-            drawBeamStrandLayer(angle, beamMetrics, phase - 14, -8, 0.22, 1.95, 2, true);
-            ctx.fillStyle = '#fff2aa';
-            drawBeamStrandLayer(angle, beamMetrics, phase + 7, 6, 0.14, 1.48, 2, true);
+            drawBeamStrandLayer(angle, beamMetrics, phase - 14, -8, extremeBeam ? 0.16 : 0.22, 1.95, haloStride, true);
+            if (!extremeBeam) {
+                ctx.fillStyle = '#fff2aa';
+                drawBeamStrandLayer(angle, beamMetrics, phase + 7, 6, heavyBeam ? 0.1 : 0.14, 1.48, haloStride, true);
+            }
             ctx.fillStyle = previousFillStyle;
-            drawBeamStrandLayer(angle, beamMetrics, phase, 0, 0.44, 1.18);
-            drawBeamStrandLayer(angle, beamMetrics, phase + 18, 11, 0.74, 0.92);
-            drawBeamStrandLayer(angle, beamMetrics, phase + 37, 24, 1, 0.68);
+            drawBeamStrandLayer(angle, beamMetrics, phase, 0, heavyBeam ? 0.54 : 0.44, 1.18, detailStride);
+            drawBeamStrandLayer(angle, beamMetrics, phase + 18, 11, extremeBeam ? 0.46 : 0.74, 0.92, detailStride);
+            if (!heavyBeam) {
+                drawBeamStrandLayer(angle, beamMetrics, phase + 37, 24, 1, 0.68);
+            }
             ctx.restore();
             ctx.fillStyle = previousFillStyle;
         }
@@ -435,6 +499,7 @@
             let minDistSq = Infinity;
             for (let i = 0; i < enemies.length; i++) {
                 const e = enemies[i];
+                if (typeof isEnemyDamageable === 'function' && !isEnemyDamageable(e)) continue;
                 const dx = e.x - x;
                 const dy = e.y - y;
                 const dSq = dx * dx + dy * dy;
@@ -459,34 +524,60 @@
         const POWERUP_POOL = [
             { id: 'afterburner', name: 'AFTERBURNER', cat: 'Utility', desc: 'Increases movement speed', baseVal: 0.05, type: 'additive' },
             { id: 'hull', name: 'HULL PLATING', cat: 'Defense', desc: 'Increases max health and heals', baseVal: 0.1, type: 'additive' },
-            { id: 'target', name: 'TARGETING COMP', cat: 'Offense', desc: 'Increases weapon damage', baseVal: 2.5, type: 'additive' },
+            { id: 'target', name: 'TARGETING COMP', cat: 'Offense', desc: 'Increases weapon damage', baseVal: 1, type: 'additive' },
             { id: 'evasion', name: 'EVASION PROTOCOL', cat: 'Utility', desc: 'Reduces ship hitbox size', baseVal: 0.95, type: 'multiplicative' },
             { id: 'overdrive', name: 'OVERDRIVE CELL', cat: 'Offense', desc: 'Increases weapon fire rate', baseVal: 0.075, type: 'additive' },
             { id: 'repair', name: 'REPAIR DRONES', cat: 'Defense', desc: 'Grants passive health regen', baseVal: 0.5, type: 'additive' },
             { id: 'shield', name: 'SHIELD MATRIX', cat: 'Defense', desc: 'Extends invincibility after hit', baseVal: 0.1, type: 'additive' },
             { id: 'adrenaline', name: 'ADRENALINE', cat: 'Risk', desc: 'Increases damage when below 50% HP', baseVal: 0.1, type: 'additive' },
             { id: 'scrap', name: 'SCRAP COLLECTOR', cat: 'Utility', desc: 'Increases XP orb magnet range', baseVal: 0.125, type: 'additive' },
-            { id: 'coolant', name: 'COOLANT FLUSH', cat: 'Offense', desc: 'Reduces bomb ability cooldown', baseVal: 0.925, type: 'multiplicative' }
+            { id: 'coolant', name: 'COOLANT FLUSH', cat: 'Offense', desc: 'Reduces bomb ability cooldown', baseVal: 0.925, type: 'multiplicative' },
+            { id: 'payload', name: 'PAYLOAD TUNING', cat: 'Offense', desc: 'Increases bomb explosion damage', baseVal: 0.18, type: 'additive' },
+            { id: 'blast', name: 'BLAST GEOMETRY', cat: 'Utility', desc: 'Expands bomb explosion radius', baseVal: 0.12, type: 'additive' },
+            { id: 'kinetic', name: 'KINETIC CAPACITOR', cat: 'Risk', desc: 'Moving fast increases fire rate', baseVal: 0.08, type: 'additive' },
+            { id: 'bioscrap', name: 'BIO-SCRAP FILTER', cat: 'Defense', desc: 'XP orbs restore a tiny amount of HP', baseVal: 0.0025, type: 'additive' }
         ];
 
         // Stacking Boss Weapon Pool
         const WEAPON_POOL = [
-            { name: "Lightning Ball", cat: "hybrid", glyph: "※", color: "#aa00ff", desc: "Pierces 2, small shock splash", mults: { damage: 0.8, fireRate: 0.7, pierceCount: 2, splashRadius: 1.0, splashPercent: 0.5 } },
-            { name: "Laser Cannon", cat: "offense", glyph: "▣", color: "#ff0000", desc: "Huge, heavy damage shots", mults: { damage: 3.5, fireRate: 0.3, size: 3.0 } },
+            { name: "Sphere Lightning", cat: "hybrid", glyph: "O", color: "#8ff7ff", desc: "Slow plasma sphere, full pierce, shock splash", mults: { damage: 0.8, fireRate: 0.441, speed: 0.462, size: 2.6, pierceCount: 999, splashRadius: 1.0, splashPercent: 0.5, lightningBall: true, splashVisualDebris: 6 } },
+            { name: "Laser Cannon", cat: "offense", glyph: "▣", color: "#ff0000", desc: "Huge, heavy damage shots", mults: { damage: 2.625, fireRate: 0.3, speed: 0.75, size: 3.0 } },
             { name: "Ray Beam", cat: "mode", glyph: "║", color: "#ffff00", desc: "Continuous raycast beam", mults: { mode: "beam" } },
-            { name: "Scatter Burst", cat: "hybrid", glyph: "⁂", color: "#aa00ff", desc: "Fires 5 shots in a cone", mults: { damage: 0.35, fireRate: 0.8, pellets: 5, spread: Math.PI/6 } },
+            { name: "Scatter Burst", cat: "hybrid", glyph: ":", color: "#aa00ff", desc: "Fires 2 angled shots at 75% damage", mults: { damage: 0.75, fireRate: 0.8, pellets: 2, spread: Math.PI/7 } },
             { name: "Mortar Shells", cat: "mode", glyph: "◓", color: "#ffff00", desc: "Slow, huge explosive splash", mults: { damage: 4.0, fireRate: 0.25, speed: 0.5, splashRadius: 3.0, splashPercent: 0.75, path: "parabolic" } },
             { name: "Piercing Lance", cat: "offense", glyph: "⇡", color: "#ff0000", desc: "Infinite pierce, large size", mults: { damage: 2.0, fireRate: 0.5, pierceCount: 999, size: 1.5 } },
-            { name: "Rear Turret", cat: "hybrid", glyph: "⇕", color: "#aa00ff", desc: "Fires backward as well", mults: { rearFire: true } },
+            { name: "Rear Turret", cat: "hybrid", glyph: "⇕", color: "#aa00ff", desc: "Fires a rear fan every volley", mults: { rearFire: true, rearFireEvery: 1, rearFireFan: 3, rearFireSpread: 0.34 } },
             { name: "Wave Cannon", cat: "control", glyph: "∿", color: "#00ffff", desc: "Sine-wave path projectiles", mults: { path: "sine" } },
-            { name: "Chain Lightning", cat: "control", glyph: "⚡", color: "#00ffff", desc: "Chains to nearby enemies", mults: { damage: 0.8, chainCount: 3 } },
-            { name: "Orbital Drones", cat: "hybrid", glyph: "⟳", color: "#aa00ff", desc: "Two auto-firing drones", mults: { drones: true } },
-            { name: "Homing Swarm", cat: "control", glyph: "⌖", color: "#00ffff", desc: "Projectiles track targets", mults: { damage: 1.2, fireRate: 0.6, speed: 0.7, homing: true } },
-            { name: "Gatling Array", cat: "offense", glyph: "▒", color: "#ff0000", desc: "Extremely fast, weak shots", mults: { damage: 0.25, fireRate: 4.0, inaccuracy: 0.087 } }
+            { name: "Chain Lightning", cat: "control", glyph: "/\\/", icon: "chainLightning", color: "#00ffff", desc: "50% chance to arc lightning to nearby enemies", mults: { damage: 0.8, chainCount: 3, chainChance: 0.5 } },
+            { name: "Orbital Drones", cat: "hybrid", glyph: "⟳", color: "#aa00ff", desc: "Adds one auto-firing drone", mults: { drones: true } },
+            { name: "Homing Swarm", cat: "control", glyph: "⌖", color: "#00ffff", desc: "Projectiles lightly track targets", mults: { homing: true, homingStrength: 0.5 } },
+            { name: "Gatling Array", cat: "offense", glyph: "▒", color: "#ff0000", desc: "Extremely fast, weak shots", mults: { damage: 0.25, fireRate: 3.2, inaccuracy: 0.087 } },
+            { name: "Boomerang Cross", cat: "control", glyph: "✚", color: "#77ffe7", desc: "Shots return once for a weaker second pass", mults: { damage: 0.82, fireRate: 0.82, speed: 0.88, pierceCount: 1, returning: true, returnAfter: 0.48 } },
+            { name: "Aegis Halo", cat: "hybrid", glyph: "☼", color: "#ffcf6d", desc: "Larger shots orbit close once, then launch from center", mults: { damage: 1.08, fireRate: 0.74, speed: 0.72, size: 1.89, hitbox: 0.68, orbitDelay: 0.68, orbitRadiusMult: 3, orbitReleaseCenter: true } },
+            { name: "Plasma Cloud", cat: "hybrid", glyph: "~", color: "#66f2ff", desc: "Piercing storm clouds grow, curve, and accelerate as they travel", mults: { damage: 0.85, fireRate: 0.28, speed: 0.25, size: 2.25, pierceCount: 999, hitbox: 1.12, plasmaCloud: true, cloudDotMult: 6.8, cloudStartScale: 0.28, cloudEndScale: 1.15, cloudGrowthDistance: 480, cloudSpeedStartScale: 0.42, cloudSpeedEndScale: 1.18, cloudAccelTime: 1.35, cloudCurveStrength: 52, cloudFadeTime: 0.5 } },
+            { name: "Explosive Torpedo", cat: "offense", glyph: "o", color: "#ffb347", desc: "Slow mini-bombs burst in a compact blast", mults: { damage: 1.4175, fireRate: 0.638, speed: 0.82, size: 1.25, hitbox: 0.82, miniTorpedo: true, torpedoExplosionRadius: 75.4, torpedoExplosionDamageMult: 0.85, torpedoRange: 520, splashVisualDebris: 8 } }
         ];
 
         let weaponWeights = {};
         WEAPON_POOL.forEach(w => weaponWeights[w.name] = 1.0);
+
+        function addPlayerDrone() {
+            player.drones.push({ angle: 0, timer: 0 });
+            const count = player.drones.length;
+            for (let i = 0; i < count; i++) {
+                player.drones[i].angle = (Math.PI * 2 * i) / count;
+            }
+        }
+
+        function getPlayerDamageScale() {
+            return player.godMode ? GOD_MODE_DAMAGE_MULT : 1;
+        }
+
+        function getPlayerBombCooldownTotal() {
+            return player.godMode
+                ? GOD_MODE_BOMB_COOLDOWN
+                : player.bombCooldown * player.modifiers.bombCooldown;
+        }
 
         function applyWeapon(w) {
             let s = player.weaponStats;
@@ -495,21 +586,57 @@
             if(m.fireRate) s.fireRateMult *= m.fireRate;
             if(m.speed) s.speedMult *= m.speed;
             if(m.size) s.sizeMult *= m.size;
+            if(m.hitbox) s.hitboxMult *= m.hitbox;
             if(m.pierceCount) s.pierceCount += m.pierceCount;
             if(m.splashRadius) s.splashRadius = Math.max(s.splashRadius, m.splashRadius);
             if(m.splashPercent) s.splashDamagePercent = Math.max(s.splashDamagePercent, m.splashPercent);
             if(m.homing) s.homing = true;
+            if(m.homingStrength) s.homingStrength = m.homingStrength;
             if(m.chainCount) s.chainCount += m.chainCount;
+            if(m.chainChance) s.chainChance = m.chainChance;
             if(m.path) s.pathFunction = m.path;
             if(m.mode) s.mode = m.mode;
             if(m.rearFire) s.hasRearFire = true;
-            if(m.drones) s.hasOrbitalDrones = true;
+            if(m.rearFireEvery) s.rearFireEvery = Math.min(s.rearFireEvery || m.rearFireEvery, m.rearFireEvery);
+            if(m.rearFireFan) s.rearFireFan = Math.max(s.rearFireFan || 1, m.rearFireFan);
+            if(m.rearFireSpread) s.rearFireSpread = Math.max(s.rearFireSpread || 0, m.rearFireSpread);
+            if(m.drones) { s.hasOrbitalDrones = true; addPlayerDrone(); }
+            if(m.returning) s.returning = true;
+            if(m.returnAfter) s.returnAfter = Math.min(s.returnAfter || m.returnAfter, m.returnAfter);
+            if(m.orbitDelay) s.orbitDelay = Math.max(s.orbitDelay || 0, m.orbitDelay);
+            if(m.orbitRadiusMult) s.orbitRadiusMult *= m.orbitRadiusMult;
+            if(m.orbitReleaseCenter) s.orbitReleaseCenter = true;
+            if(m.lightningBall) s.lightningBall = true;
+            if(m.plasmaCloud) s.plasmaCloud = true;
+            if(m.cloudDotMult) s.cloudDotMult = Math.max(s.cloudDotMult || 0, m.cloudDotMult);
+            if(m.cloudStartScale) s.cloudStartScale = Math.min(s.cloudStartScale || m.cloudStartScale, m.cloudStartScale);
+            if(m.cloudEndScale) s.cloudEndScale = Math.max(s.cloudEndScale || 1, m.cloudEndScale);
+            if(m.cloudGrowthDistance) s.cloudGrowthDistance = Math.max(s.cloudGrowthDistance || 1, m.cloudGrowthDistance);
+            if(m.cloudSpeedStartScale) s.cloudSpeedStartScale = Math.min(s.cloudSpeedStartScale || m.cloudSpeedStartScale, m.cloudSpeedStartScale);
+            if(m.cloudSpeedEndScale) s.cloudSpeedEndScale = Math.max(s.cloudSpeedEndScale || 1, m.cloudSpeedEndScale);
+            if(m.cloudAccelTime) s.cloudAccelTime = Math.max(s.cloudAccelTime || 0.1, m.cloudAccelTime);
+            if(m.cloudCurveStrength) s.cloudCurveStrength = Math.max(s.cloudCurveStrength || 0, m.cloudCurveStrength);
+            if(m.cloudFadeTime) s.cloudFadeTime = Math.max(s.cloudFadeTime || 0.05, m.cloudFadeTime);
+            if(m.miniTorpedo) s.miniTorpedo = true;
+            if(m.torpedoExplosionRadius) s.torpedoExplosionRadius = Math.max(s.torpedoExplosionRadius || 0, m.torpedoExplosionRadius);
+            if(m.torpedoExplosionDamageMult) s.torpedoExplosionDamageMult = Math.max(s.torpedoExplosionDamageMult || 0, m.torpedoExplosionDamageMult);
+            if(m.torpedoRange) s.torpedoRange = Math.max(s.torpedoRange || 0, m.torpedoRange);
+            if(m.splashVisualDebris) s.splashVisualDebris = Math.min(s.splashVisualDebris || m.splashVisualDebris, m.splashVisualDebris);
             if(m.pellets) {
                 if(s.pelletCount === 1) s.pelletCount = m.pellets;
                 else s.pelletCount += (m.pellets - 1);
             }
             if(m.spread) s.spreadAngle = Math.max(s.spreadAngle, m.spread);
             if(m.inaccuracy) s.inaccuracy = Math.max(s.inaccuracy, m.inaccuracy);
+        }
+
+        function rebuildPlayerWeaponStats() {
+            const activeWeapons = player.weapons.slice();
+            player.weaponStats = createBaseWeaponStats();
+            player.drones = [];
+            for (let i = 0; i < activeWeapons.length; i++) {
+                applyWeapon(activeWeapons[i]);
+            }
         }
 
         function drawWeapons() {
@@ -589,6 +716,10 @@
             else if (opt.id === 'adrenaline') player.modifiers.adrenaline += opt.value;
             else if (opt.id === 'scrap') player.modifiers.magnet += opt.value;
             else if (opt.id === 'coolant') player.modifiers.bombCooldown *= opt.value;
+            else if (opt.id === 'payload') player.modifiers.bombDamage += opt.value;
+            else if (opt.id === 'blast') player.modifiers.bombRadius += opt.value;
+            else if (opt.id === 'kinetic') player.modifiers.momentumFireRate += opt.value;
+            else if (opt.id === 'bioscrap') player.modifiers.xpHeal += opt.value;
         }
 
         function pushConsoleHistory(text) {
@@ -618,6 +749,7 @@
         function buildConsoleWeaponHelpLines() {
             const lines = [
                 'wep <number|weapon name> : apply a weapon instantly',
+                'remwep <active slot|weapon name> : remove one active weapon',
                 'Examples: wep 3 | wep ray beam'
             ];
             for (let i = 0; i < WEAPON_POOL.length; i += 2) {
@@ -652,12 +784,39 @@
         function buildConsoleGeneralHelpLines() {
             return [
                 'Commands:',
-                'help [wave|lvl|wep]',
+                'help [wave|lvl|wep|remwep]',
                 'wave <n>',
                 'lvl [n]',
                 'wep <n|weapon name>',
+                'remwep <active slot|weapon name>',
+                'gm [on|off]',
                 'Try: help wep'
             ];
+        }
+
+        function removePlayerWeapon(argString) {
+            if (!argString) return { ok: false, message: 'Usage: remwep <active slot|weapon name>' };
+
+            const rawArg = argString.trim();
+            const loweredArg = rawArg.toLowerCase();
+            let removeIndex = -1;
+            const activeNum = parseInt(loweredArg, 10);
+            if (!isNaN(activeNum) && activeNum > 0 && activeNum <= player.weapons.length) {
+                removeIndex = activeNum - 1;
+            } else {
+                removeIndex = player.weapons.findIndex(w => w.name.toLowerCase() === loweredArg);
+                if (removeIndex === -1) {
+                    removeIndex = player.weapons.findIndex(w => w.name.toLowerCase().includes(loweredArg));
+                }
+            }
+
+            if (removeIndex === -1) {
+                return { ok: false, message: `Active weapon not found: ${rawArg}` };
+            }
+
+            const removed = player.weapons.splice(removeIndex, 1)[0];
+            rebuildPlayerWeaponStats();
+            return { ok: true, message: `Removed weapon: ${removed.name}` };
         }
 
         function getXpNeededForLevel(level) {
@@ -712,6 +871,8 @@
                 stopMusic();
                 WaveManager.currentWave = targetWave - 1;
                 WaveManager.waveDelay = 0;
+                WaveManager.hasSpawnedWave = false;
+                WaveManager.interWaveDelayQueued = false;
                 WaveManager.pendingFormationUnits = 0;
                 enemies = [];
                 boss = null;
@@ -729,6 +890,26 @@
                 }
                 pushConsoleNotification(`Jumped to wave ${targetWave}.`, 'success');
                 return true;
+            }
+
+            if (command === 'gm') {
+                const mode = argString.toLowerCase();
+                if (mode === 'on' || mode === '1' || mode === 'true') {
+                    player.godMode = true;
+                } else if (mode === 'off' || mode === '0' || mode === 'false') {
+                    player.godMode = false;
+                } else {
+                    player.godMode = !player.godMode;
+                }
+
+                if (player.godMode) {
+                    player.hp = player.maxHp;
+                    player.bombTimer = 0;
+                    pushConsoleNotification(`God mode ON: no bullet damage, ${GOD_MODE_DAMAGE_MULT}x damage, ${GOD_MODE_BOMB_COOLDOWN}s bombs.`, 'success');
+                } else {
+                    pushConsoleNotification('God mode OFF.', 'warn');
+                }
+                return false;
             }
 
             if (command === 'wep') {
@@ -755,6 +936,18 @@
                 applyWeapon(foundWep);
                 if (player.weapons.length < 10) player.weapons.push(foundWep);
                 pushConsoleNotification(`Applied weapon: ${foundWep.name}`, 'success');
+                return false;
+            }
+
+            if (command === 'remwep') {
+                if (!argString) {
+                    setConsoleReference(buildConsoleWeaponHelpLines());
+                    pushConsoleNotification('Showing weapon reference.', 'info');
+                    return false;
+                }
+
+                const result = removePlayerWeapon(argString);
+                pushConsoleNotification(result.message, result.ok ? 'success' : 'error');
                 return false;
             }
 
@@ -793,7 +986,7 @@
                     pushConsoleNotification('Showing command reference.', 'info');
                     return false;
                 }
-                if (topic === 'wep' || topic === 'weapon' || topic === 'weapons') {
+                if (topic === 'wep' || topic === 'weapon' || topic === 'weapons' || topic === 'remwep') {
                     setConsoleReference(buildConsoleWeaponHelpLines());
                     pushConsoleNotification('Showing weapon reference.', 'info');
                     return false;

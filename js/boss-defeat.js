@@ -1,6 +1,13 @@
         // Boss defeat freeze/explosion sequence and reward handoff.
         // Boss Defeat Sequence
         const BOSS_CINEMATIC_FIREWALL_CORE_SCALE = 3.8;
+        const FIREWALL_BOSS_RENDER_SCALE = 0.6;
+        const FIREWALL_BOSS_CORE_FONT_SIZE = 58;
+        const FIREWALL_BOSS_CORE_OFFSET_Y = 12;
+        const FIREWALL_BOSS_EXPLOSION_DEBRIS_CAP = 240;
+        const BOSS_EXPLOSION_DEBRIS_CAP_DEFAULT = 180;
+        const BOSS_DEFEAT_BULLET_DISSOLVE_CAP = 60;
+        const BOSS_DEFEAT_BULLET_SPARK_CAP = 24;
         const BOSS_DEFEAT_FREEZE_TIME = 1.0;
         const BOSS_DEFEAT_BOSS_FADE_OUT = 2.0;
         const BOSS_DEFEAT_BGM_DELAY = 1.0;
@@ -12,8 +19,93 @@
         const FIREWALL_CHAR_MAP = {' ':0, '░':1, '▒':2, '▓':3, '█':4};
         const FIREWALL_FIRE_CHARS = [' ', '░', '▒', '▓', '█'];
 
+        const BOSS_EXPLOSION_PROFILES = {
+            'NULL PHANTOM': {
+                debrisCap: 200,
+                preserveSourceColor: true,
+                debrisLife: 1.65,
+                debrisVelocity: 980,
+                rings: [
+                    { color: '#f6b5ff', maxRadius: 160, maxLife: 0.34, lineWidth: 5, shadowBlur: 16 },
+                    { color: '#8f5cff', maxRadius: 235, maxLife: 0.52, lineWidth: 4, shadowBlur: 14 },
+                    { color: '#ff4eda', maxRadius: 305, maxLife: 0.72, lineWidth: 3, shadowBlur: 12 }
+                ],
+                burstCount: 34,
+                burstColors: ['#ffffff', '#f6b5ff', '#b98cff', '#ff4eda'],
+                burstChars: ['*', '+', '#', '@']
+            },
+            'DISTORTED GLITCH': {
+                debrisCap: 120,
+                debrisLife: 1.35,
+                debrisVelocity: 1120,
+                rings: [
+                    { color: '#00ff41', maxRadius: 145, maxLife: 0.3, lineWidth: 5, shadowBlur: 16 },
+                    { color: '#ff00ff', maxRadius: 215, maxLife: 0.48, lineWidth: 3, shadowBlur: 12 }
+                ],
+                burstCount: 30,
+                burstColors: ['#ffffff', '#00ff41', '#ff00ff', '#00ffff'],
+                burstChars: ['#', '*', '+', 'x']
+            },
+            'GHOST SIGNAL': {
+                debrisCap: 90,
+                preserveSourceColor: true,
+                debrisLife: 1.35,
+                debrisVelocity: 940,
+                rings: [
+                    { color: '#f8fcff', maxRadius: 155, maxLife: 0.32, lineWidth: 5, shadowBlur: 16 },
+                    { color: '#8fdcff', maxRadius: 230, maxLife: 0.5, lineWidth: 4, shadowBlur: 14 },
+                    { color: '#b8c5ff', maxRadius: 300, maxLife: 0.7, lineWidth: 3, shadowBlur: 12 }
+                ],
+                burstCount: 24,
+                burstColors: ['#ffffff', '#dff6ff', '#9edfff', '#b8c5ff'],
+                burstChars: ['*', '+', '#', '.']
+            },
+            'OVERHEATING FIREWALL': {
+                debrisCap: FIREWALL_BOSS_EXPLOSION_DEBRIS_CAP,
+                debrisLife: 1.5,
+                debrisVelocity: 1040,
+                centerYOffset: FIREWALL_BOSS_CORE_OFFSET_Y,
+                rings: [
+                    { color: '#fff2a8', maxRadius: 170, maxLife: 0.32, lineWidth: 6, shadowBlur: 16 },
+                    { color: '#ff7a18', maxRadius: 245, maxLife: 0.48, lineWidth: 4, shadowBlur: 14 },
+                    { color: '#d91f11', maxRadius: 320, maxLife: 0.7, lineWidth: 3, shadowBlur: 12 }
+                ],
+                burstCount: 42,
+                burstColors: ['#ffffff', '#fff2a8', '#ff7a18', '#ff2f12'],
+                burstChars: ['*', '#', '+', 'x']
+            },
+            'BLACK VOID': {
+                debrisCap: 150,
+                debrisLife: 1.45,
+                debrisVelocity: 900,
+                rings: [
+                    { color: '#e4e8ff', maxRadius: 150, maxLife: 0.34, lineWidth: 5, shadowBlur: 16 },
+                    { color: '#806cff', maxRadius: 225, maxLife: 0.54, lineWidth: 4, shadowBlur: 14 },
+                    { color: '#24294f', maxRadius: 315, maxLife: 0.78, lineWidth: 4, shadowBlur: 10 }
+                ],
+                burstCount: 30,
+                burstColors: ['#ffffff', '#d7ddff', '#8170ff', '#2a315f'],
+                burstChars: ['*', '#', '@', '+']
+            }
+        };
+
         let bossCinematic = null;
         let lastBossRenderSnapshot = null;
+
+        function getBossExplosionProfile(bossObj) {
+            return BOSS_EXPLOSION_PROFILES[bossObj && bossObj.name] || {
+                debrisCap: BOSS_EXPLOSION_DEBRIS_CAP_DEFAULT,
+                debrisLife: 1.45,
+                debrisVelocity: 980,
+                rings: [
+                    { color: '#ffffff', maxRadius: 150, maxLife: 0.34, lineWidth: 5, shadowBlur: 14 },
+                    { color: '#ff6600', maxRadius: 230, maxLife: 0.52, lineWidth: 4, shadowBlur: 12 }
+                ],
+                burstCount: 28,
+                burstColors: ['#ffffff', '#ffaa00', '#ff6600', '#ff2200'],
+                burstChars: ['*', '#', '+', 'x']
+            };
+        }
 
         function recordBossRenderGlyph(entries, char, worldX, worldY, color, size = 1) {
             if (!entries) return;
@@ -62,12 +154,17 @@
                     }
                 }
             } else if (sprite.length > 0) {
-                const startX = bossObj.x - (sprite[0].length * charW) / 2;
-                const startY = bossObj.y - (sprite.length * charH) / 2;
+                const renderScale = bossObj && bossObj.name === 'OVERHEATING FIREWALL'
+                    ? FIREWALL_BOSS_RENDER_SCALE
+                    : 1;
+                const cellW = charW * renderScale;
+                const cellH = charH * renderScale;
+                const startX = bossObj.x - (sprite[0].length * cellW) / 2;
+                const startY = bossObj.y - (sprite.length * cellH) / 2;
                 for (let r = 0; r < sprite.length; r++) {
                     for (let c = 0; c < sprite[r].length; c++) {
                         if (sprite[r][c] !== ' ') {
-                            recordBossRenderGlyph(entries, sprite[r][c], (startX + c * charW) | 0, (startY + r * charH) | 0, fallbackColor);
+                            recordBossRenderGlyph(entries, sprite[r][c], (startX + c * cellW) | 0, (startY + r * cellH) | 0, fallbackColor);
                         }
                     }
                 }
@@ -78,7 +175,7 @@
                     entries,
                     '@',
                     bossObj.x,
-                    bossObj.y + 20,
+                    bossObj.y + FIREWALL_BOSS_CORE_OFFSET_Y,
                     bossObj.isVulnerable ? '#00ffff' : '#ff0000',
                     BOSS_CINEMATIC_FIREWALL_CORE_SCALE
                 );
@@ -138,6 +235,69 @@
             source.start(audioCtx.currentTime);
         }
 
+        function markBossBulletForDissolve(bullet, index) {
+            if (!bullet) return;
+            const startedAt = currentFrameNow || performance.now();
+            const wasHuge = !!bullet.isHuge;
+            bullet.isDyingBullet = true;
+            bullet.harmless = true;
+            bullet.isHuge = false;
+            bullet.bossClearStart = startedAt;
+            bullet.bossClearDuration = 0.42 + (index % 5) * 0.035;
+            bullet.bossClearSize = wasHuge ? 34 : (bullet.isLargeFlame || bullet.isLargeWraith ? 30 : 22);
+            bullet.bossClearChar = wasHuge ? '*' : (bullet.char || '✦');
+            bullet.bossClearColor = bullet.color || '#ffffff';
+            bullet.bossClearGlow = index < 36;
+            bullet.vx = (bullet.vx || 0) * 0.14;
+            bullet.vy = (bullet.vy || 0) * 0.14;
+            bullet.life = 1;
+            bullet.decay = 0;
+        }
+
+        function clearBossHazardsOnDeath(defeatedBoss) {
+            if (!defeatedBoss || defeatedBoss.hazardsClearedOnDeath) return;
+            defeatedBoss.hazardsClearedOnDeath = true;
+
+            const originalBulletCount = enemyBullets.length;
+            const retainedBullets = [];
+            const sparkEvery = Math.max(1, Math.ceil(originalBulletCount / BOSS_DEFEAT_BULLET_SPARK_CAP));
+            for (let i = 0; i < originalBulletCount; i++) {
+                const b = enemyBullets[i];
+                if (i < BOSS_DEFEAT_BULLET_DISSOLVE_CAP) {
+                    markBossBulletForDissolve(b, i);
+                    retainedBullets.push(b);
+                }
+                if (i < 32 || (i % sparkEvery === 0 && i / sparkEvery < BOSS_DEFEAT_BULLET_SPARK_CAP)) {
+                    debris.push({
+                        x: b.x,
+                        y: b.y,
+                        vx: (Math.random() - 0.5) * 95,
+                        vy: (Math.random() - 0.5) * 95,
+                        char: ['✦', '*', '·'][i % 3],
+                        color: '#ffffff',
+                        life: 0.18 + Math.random() * 0.18,
+                        isImpact: true
+                    });
+                }
+            }
+            enemyBullets = retainedBullets;
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                const belongsToBoss = enemy && (
+                    enemy.isBossMinion ||
+                    (defeatedBoss.name === 'GHOST SIGNAL' && enemy.isWraith)
+                );
+                if (!belongsToBoss) continue;
+
+                resolveWaveEnemy(enemy);
+                explodeEnemy(enemy);
+                enemies.splice(i, 1);
+            }
+
+            if (originalBulletCount > 0 || enemies.length > 0) addShake(6);
+        }
+
         function finalizeBossDefeat(defeatedBoss) {
             if (!defeatedBoss) return;
 
@@ -146,6 +306,7 @@
             drops.push({ x: defeatedBoss.x, y: defeatedBoss.y, vy: 30, vx: 0, isWeapon: true, options: opts, cycleTimer: 0, currentIndex: 0 });
             boss = null;
             WaveManager.waveDelay = 8.5;
+            WaveManager.interWaveDelayQueued = true;
         }
 
         function teardownBossCinematic() {
@@ -185,9 +346,24 @@
             lastRafTime = startTime;
         }
 
+        function updateBossCinematicDebris(dt) {
+            if (dt <= 0) return;
+            const drag = Math.pow(0.98, dt * 60);
+            for (let i = debris.length - 1; i >= 0; i--) {
+                const d = debris[i];
+                d.x += d.vx * dt;
+                d.y += d.vy * dt;
+                d.vx *= drag;
+                d.vy *= drag;
+                d.life -= dt * 0.9;
+                if (d.life <= 0) debris.splice(i, 1);
+            }
+        }
+
         function maybeTriggerBossDeathCinematic(bossObj) {
             if (!bossObj || bossCinematic || bossObj.hp > 0) return false;
             bossObj.hp = 0;
+            clearBossHazardsOnDeath(bossObj);
             triggerBossCinematic(bossObj, () => finalizeBossDefeat(bossObj));
             return true;
         }
@@ -196,10 +372,12 @@
             if (!bossCinematic) return;
 
             const elapsed = (now - bossCinematic.startTime) / 1000;
+            const dt = Math.min((now - (bossCinematic.lastNow || now)) / 1000, 0.05);
             bossCinematic.lastNow = now;
             const defeatedBoss = bossCinematic.defeatedBoss;
 
             if (!bossCinematic.hasExploded && defeatedBoss) {
+                updateBossCinematicDebris(dt);
                 const blinkWhite = Math.floor(elapsed / BOSS_DEFEAT_BLINK_RATE) % 2 === 0;
                 const shakeProgress = Math.min(1, elapsed / BOSS_DEFEAT_FREEZE_TIME);
                 const shakeX = Math.sin(elapsed * 72) * BOSS_DEFEAT_SHAKE_X * shakeProgress + (Math.random() - 0.5) * 2.5;

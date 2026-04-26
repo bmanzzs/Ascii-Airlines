@@ -1,3 +1,99 @@
+        function getComboProjectileHitboxRadius(p) {
+            const stats = p.stats || {};
+            const sizeMult = stats.sizeMult || 1;
+            const hitboxMult = stats.hitboxMult || 1;
+            const growth = stats.plasmaCloud ? getPlasmaCloudGrowthFactor(p) : 1;
+            let radius = 20 * sizeMult * hitboxMult * growth;
+            if (stats.plasmaCloud) radius = Math.max(8, 26 * sizeMult * hitboxMult * growth);
+            if (stats.miniTorpedo) radius = Math.max(12, radius);
+            if (stats.pathFunction === 'parabolic') radius *= 1.5;
+            return radius;
+        }
+
+        function emitProjectileImpactDebris(p, count = null) {
+            const stats = p.stats || {};
+            const impactDebrisCount = count ?? (stats.lightningBall ? 2 : 6 + Math.floor(Math.random() * 3));
+            for (let k = 0; k < impactDebrisCount; k++) {
+                const ang = Math.random() * Math.PI * 2;
+                const spd = 60 + Math.random() * 40;
+                debris.push({
+                    x: p.x,
+                    y: p.y,
+                    vx: Math.cos(ang) * spd,
+                    vy: Math.sin(ang) * spd,
+                    char: IMPACT_DEBRIS_CHARS[Math.floor(Math.random() * IMPACT_DEBRIS_CHARS.length)],
+                    color: IMPACT_DEBRIS_COLORS[Math.floor(Math.random() * IMPACT_DEBRIS_COLORS.length)],
+                    life: 0.2,
+                    isImpact: true
+                });
+            }
+        }
+
+        function triggerProjectileChain(p, e) {
+            const stats = p.stats || {};
+            if ((stats.chainCount || 0) <= 0 || Math.random() >= (stats.chainChance ?? 1)) return;
+            let nearest = null;
+            let minDist = Infinity;
+            for (let otherIndex = 0; otherIndex < enemies.length; otherIndex++) {
+                const other = enemies[otherIndex];
+                if (other === e) continue;
+                if (!isEnemyDamageable(other)) continue;
+                let distSq = (other.x - e.x)**2 + (other.y - e.y)**2;
+                if (distSq < 150*150 && distSq < minDist) {
+                    minDist = distSq;
+                    nearest = other;
+                }
+            }
+            if (!nearest) return;
+            comboProjectiles.push({
+                x: e.x, y: e.y,
+                vx: (nearest.x - e.x) * 5, vy: (nearest.y - e.y) * 5,
+                baseVx: (nearest.x - e.x) * 5, baseVy: (nearest.y - e.y) * 5,
+                startX: e.x, startY: e.y,
+                targetX: nearest.x, targetY: nearest.y,
+                sprite: '', color: '#8ff7ff',
+                stats: { ...stats, chainCount: stats.chainCount - 1, splashRadius: 0, lightningBall: false, plasmaCloud: false, miniTorpedo: false },
+                life: 0.42, maxLife: 0.42, damage: p.damage * 0.5,
+                pierceHits: [e], pierceCount: 0,
+                isChainLightning: true,
+                jitterSeed: Math.random() * 1000
+            });
+        }
+
+        function triggerProjectileSplash(p) {
+            const stats = p.stats || {};
+            if ((stats.splashRadius || 0) <= 0) return;
+            radialExplosion(p.x, p.y, stats.splashRadius * 22, p.damage * stats.splashDamagePercent, stats.splashVisualDebris ?? 20);
+        }
+
+        const ELEMENTAL_TRAIL_SOFT_CAP = 210;
+        const ELEMENTAL_TRAIL_HARD_CAP = 300;
+
+        function emitElementalBulletTrail(b, dt, isWraith = false) {
+            if (gameState !== 'PLAYING') return;
+            if (thrusterParticles.length > ELEMENTAL_TRAIL_HARD_CAP) return;
+
+            b.trailTimer = (b.trailTimer || 0) + dt;
+            const interval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.085 : 0.052;
+            if (b.trailTimer < interval) return;
+            b.trailTimer %= interval;
+
+            const speed = Math.max(1, Math.hypot(b.vx || 0, b.vy || 0));
+            const backX = -(b.vx || 0) / speed;
+            const backY = -(b.vy || 0) / speed;
+            thrusterParticles.push({
+                x: b.x + backX * 7 + (Math.random() - 0.5) * 8,
+                y: b.y + backY * 7 + (Math.random() - 0.5) * 8,
+                vx: backX * (24 + Math.random() * 28) + (Math.random() - 0.5) * 22,
+                vy: backY * (24 + Math.random() * 28) + (Math.random() - 0.5) * 22,
+                char: ELEMENTAL_TRAIL_CHARS[Math.floor(Math.random() * ELEMENTAL_TRAIL_CHARS.length)],
+                color: null,
+                life: 0.56,
+                isGuardianFlame: !isWraith,
+                isWraithFlame: isWraith
+            });
+        }
+
         // Main simulation update loop.
         function updatePhysics(dt) {
             if (window.innerHeight < 700 || window.innerWidth < 525) return;
@@ -133,10 +229,13 @@
             player.vy = (player.vy + inputY * P_ACCEL * (1 + player.modifiers.moveSpeed) * dt) * P_FRICTION;
             player.x = Math.max(50, Math.min(width - 50, player.x + player.vx * dt));
             player.y = Math.max(50, Math.min(getGameplayBottomLimit(50), player.y + player.vy * dt));
-            applyWakeForce(player.x, player.y, 110, (Math.sqrt(player.vx * player.vx + player.vy * player.vy) / P_MAX_SPEED) * 14);
+            const playerSpeedRatio = Math.min(1, Math.sqrt(player.vx * player.vx + player.vy * player.vy) / P_MAX_SPEED);
+            applyWakeForce(player.x, player.y, 110, playerSpeedRatio * 14);
             const playerLayout = getPlayerRenderLayout(player);
 
-            const actualFireRate = (player.fireRate / player.weaponStats.fireRateMult) / (1 + player.modifiers.fireRate);
+            const momentumFireRate = (player.modifiers.momentumFireRate || 0) * playerSpeedRatio;
+            const totalFireRateBonus = player.modifiers.fireRate + momentumFireRate;
+            const actualFireRate = (player.fireRate / player.weaponStats.fireRateMult) / (1 + totalFireRateBonus);
             player.isBeaming = player.weaponStats.mode === 'beam';
             player.isFiring = isPlayerFirePressed();
             const beamDeployFactor = updateBeamDeploy(dt);
@@ -149,13 +248,16 @@
 
             if (player.isBeaming && player.isFiring) {
                 let s = player.weaponStats;
-                let baseDmg = (60 * s.damageMult + player.modifiers.laserDamage * 6) * dt;
+                let baseDmg = (60 * s.damageMult + player.modifiers.laserDamage * 6) * getPlayerDamageScale() * dt;
                 if (player.hp < player.maxHp * 0.5) baseDmg *= (1 + player.modifiers.adrenaline);
 
                 const beamOrigin = getPlayerWeaponOrigin(playerLayout);
                 const beamMetrics = getBeamMetrics(s.sizeMult, beamDeployFactor);
                 const beamHitLength = beamMetrics.length * BEAM_HIT_LENGTH_MULT;
                 const angles = getFirePatternAngles(s, beamBaseAngle, true);
+                const beamVisualLoad = angles.length * Math.max(1, s.sizeMult);
+                const beamSplashChance = beamVisualLoad >= 16 ? 0.015 : (beamVisualLoad >= 10 ? 0.035 : 0.1);
+                const beamSplashDebris = beamVisualLoad >= 10 ? 0 : Math.min(6, s.splashVisualDebris ?? 20);
                 const activeBoss = boss && boss.phase === 'ACTIVE' ? boss : null;
 
                 for (let angleIndex = 0; angleIndex < angles.length; angleIndex++) {
@@ -164,13 +266,13 @@
                     let hitEnemies = [];
                     for (let enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
                         const e = enemies[enemyIndex];
+                        if (!isEnemyDamageable(e)) continue;
                         let ex = e.x - beamOrigin.x, ey = e.y - beamOrigin.y;
                         let t = ex * dx + ey * dy;
                         if (t > 0 && t <= beamHitLength) {
-                            let px = beamOrigin.x + t * dx, py = beamOrigin.y + t * dy;
-                            let distSq = (e.x - px)**2 + (e.y - py)**2;
-                            let hitRadius = beamMetrics.halfWidth + getBeamTargetRadius(e);
-                            if (distSq < hitRadius * hitRadius) hitEnemies.push({e, t});
+                            if (doesBeamHitTargetMask(beamOrigin.x, beamOrigin.y, dx, dy, beamHitLength, beamMetrics.halfWidth, e)) {
+                                hitEnemies.push({e, t});
+                            }
                         }
                     }
                     if (activeBoss) {
@@ -178,10 +280,9 @@
                         let ex = e.x - beamOrigin.x, ey = e.y - beamOrigin.y;
                         let t = ex * dx + ey * dy;
                         if (t > 0 && t <= beamHitLength) {
-                            let px = beamOrigin.x + t * dx, py = beamOrigin.y + t * dy;
-                            let distSq = (e.x - px)**2 + (e.y - py)**2;
-                            let hitRadius = beamMetrics.halfWidth + getBeamTargetRadius(e);
-                            if (distSq < hitRadius * hitRadius) hitEnemies.push({e, t});
+                            if (doesBeamHitTargetMask(beamOrigin.x, beamOrigin.y, dx, dy, beamHitLength, beamMetrics.halfWidth, e)) {
+                                hitEnemies.push({e, t});
+                            }
                         }
                     }
                     hitEnemies.sort((A,B) => A.t - B.t);
@@ -206,8 +307,8 @@
                         e.hp -= appliedDamage;
                         e.flashTimer = 0.15;
                         if (e === boss && maybeTriggerBossDeathCinematic(e)) return;
-                        if (s.splashRadius > 0 && Math.random() < 0.1) {
-                            radialExplosion(e.x, e.y, s.splashRadius * 22, baseDmg * s.splashDamagePercent * 5);
+                        if (s.splashRadius > 0 && Math.random() < beamSplashChance) {
+                            radialExplosion(e.x, e.y, s.splashRadius * 22, baseDmg * s.splashDamagePercent * 5, beamSplashDebris);
                             if (bossCinematic && bossCinematic.paused) return;
                         }
                         if (e.hp <= 0 && !e.name) {
@@ -230,20 +331,20 @@
 
                     d.timer -= dt;
                     if (d.timer <= 0) {
-                        d.timer = 0.2 / player.weaponStats.fireRateMult / (1 + player.modifiers.fireRate) * 1.66;
+                        d.timer = 0.2 / player.weaponStats.fireRateMult / (1 + totalFireRateBonus) * 1.66;
                         const nearestInfo = findNearestActiveTarget(d.x, d.y);
                         const nearest = nearestInfo.target;
                         const minDist = nearestInfo.distSq;
                         if (nearest) {
                             let angle = Math.atan2(nearest.y - d.y, nearest.x - d.x);
                             let speed = 1000;
-                            let droneDmg = (10 * player.weaponStats.damageMult + player.modifiers.laserDamage) * 0.3;
+                            let droneDmg = (10 * player.weaponStats.damageMult + player.modifiers.laserDamage) * getPlayerDamageScale() * 0.3;
                             if (player.hp < player.maxHp * 0.5) droneDmg *= (1 + player.modifiers.adrenaline);
                             comboProjectiles.push({
                                 x: d.x, y: d.y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
                                 baseVx: Math.cos(angle)*speed, baseVy: Math.sin(angle)*speed, startX: d.x, startY: d.y,
                                 sprite: '•', color: '#aa00ff',
-                                stats: { ...player.weaponStats, sizeMult: 0.5, pierceCount: 0, splashRadius: 0, chainCount: 0, pathFunction: 'straight', homing: false },
+                                stats: { ...player.weaponStats, sizeMult: 0.5, pierceCount: 0, splashRadius: 0, chainCount: 0, chainChance: 1, pathFunction: 'straight', homing: false, homingStrength: 1, returning: false, orbitDelay: 0, orbitRadiusMult: 1, orbitReleaseCenter: false, lightningBall: false, splashVisualDebris: 20, hitboxMult: 1, plasmaCloud: false, cloudDotMult: 0, cloudStartScale: 1, cloudEndScale: 1, cloudGrowthDistance: 1, cloudSpeedStartScale: 1, cloudSpeedEndScale: 1, cloudAccelTime: 1, cloudCurveStrength: 0, miniTorpedo: false, torpedoExplosionRadius: 0, torpedoExplosionDamageMult: 0, torpedoRange: 0 },
                                 life: 1.0, maxLife: 1.0, damage: droneDmg,
                                 pierceHits: [], pierceCount: 0
                             });
@@ -280,8 +381,8 @@
                     for (let enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
                         const e = enemies[enemyIndex];
                         if (!e.onScreen) continue;
-                        const hitRadius = 18 + getBeamTargetRadius(e) * 0.42;
-                        if ((bomb.x - e.x) * (bomb.x - e.x) + (bomb.y - e.y) * (bomb.y - e.y) < hitRadius * hitRadius) {
+                        if (!isEnemyDamageable(e)) continue;
+                        if (doesCircleHitTargetMask(bomb.x, bomb.y, 18, e)) {
                             shouldExplode = true;
                             break;
                         }
@@ -292,14 +393,11 @@
                     if (boss.name === 'OVERHEATING FIREWALL') {
                         if (boss.isVulnerable) {
                             const dx = bomb.x - boss.x;
-                            const dy = bomb.y - (boss.y + 20);
+                            const dy = bomb.y - (boss.y + FIREWALL_BOSS_CORE_OFFSET_Y);
                             if (dx * dx + dy * dy < 65 * 65) shouldExplode = true;
                         }
                     } else {
-                        const hitRadius = 18 + getBeamTargetRadius(boss) * 0.5;
-                        const dx = bomb.x - boss.x;
-                        const dy = bomb.y - boss.y;
-                        if (dx * dx + dy * dy < hitRadius * hitRadius) shouldExplode = true;
+                        if (doesCircleHitTargetMask(bomb.x, bomb.y, 18, boss)) shouldExplode = true;
                     }
                 }
 
@@ -371,7 +469,11 @@
                 }
                 orb.x += orb.vx * dt; orb.y += orb.vy * dt;
                 if (distSq < 1600) {
-                    player.xp += (orb.xpValue || 1);
+                    const xpValue = orb.xpValue || 1;
+                    player.xp += xpValue;
+                    if (player.modifiers.xpHeal > 0 && player.hp < player.maxHp) {
+                        player.hp = Math.min(player.maxHp, player.hp + player.maxHp * player.modifiers.xpHeal * Math.max(1, xpValue));
+                    }
                     if (player.xp >= player.xpNeeded && !boss) {
                         player.xp -= player.xpNeeded; 
                         player.level++; 
@@ -385,7 +487,14 @@
             // Enemies Firing
             for (let enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
                 const e = enemies[enemyIndex];
-                if (e.y > 0 && !e.isFlameGuardian && !e.isWraith && !e.isVoidSentinel && !e.disableRandomFire && Math.random() < 0.01) {
+                if (e.remasterFirePattern && e.onScreen && isEnemyDamageable(e)) {
+                    e.remasterFireTimer = (e.remasterFireTimer || 0) + dt;
+                    if (e.remasterFireTimer >= (e.remasterFireInterval || 2.6)) {
+                        e.remasterFireTimer = 0;
+                        fireRemasteredWavePattern(e);
+                    }
+                }
+                if (e.y > 0 && isEnemyDamageable(e) && !e.isFlameGuardian && !e.isWraith && !e.isVoidSentinel && !e.disableRandomFire && Math.random() < NON_BOSS_ENEMY_RANDOM_FIRE_CHANCE) {
                     const dx = player.x - e.x, dy = player.y - e.y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
                     enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*320, vy: (dy/dist)*320, char: 'o', color: '#ff00ff' });
@@ -394,6 +503,21 @@
 
             for (let i = enemyBullets.length - 1; i >= 0; i--) {
                 const b = enemyBullets[i]; 
+
+                if (b.isDyingBullet) {
+                    const startedAt = b.bossClearStart || currentFrameNow || performance.now();
+                    const elapsed = ((currentFrameNow || performance.now()) - startedAt) / 1000;
+                    if (elapsed >= (b.bossClearDuration || 0.5)) {
+                        enemyBullets.splice(i, 1);
+                        continue;
+                    }
+                    b.x += (b.vx || 0) * dt;
+                    b.y += (b.vy || 0) * dt;
+                    const damp = Math.pow(0.04, dt);
+                    b.vx = (b.vx || 0) * damp;
+                    b.vy = (b.vy || 0) * damp;
+                    continue;
+                }
                 
                 if (b.isGlitchBullet) {
                     b.morphTimer += dt;
@@ -429,6 +553,10 @@
                         b.vx = b.baseVx + perpX * amplitude * b.zigDir;
                         b.vy = b.baseVy + perpY * amplitude * b.zigDir;
                     }
+                }
+
+                if (b.isLargeFlame || b.isLargeWraith) {
+                    emitElementalBulletTrail(b, dt, !!b.isLargeWraith);
                 }
 
                 if (b.isOrbitShot) {
@@ -480,7 +608,7 @@
                 const hitboxR = 30 * player.modifiers.hitbox;
                 
                 if (dx * dx + dy * dy < hitboxR * hitboxR * (b.decay ? Math.max(0.1, b.life) : 1)) {
-                    if (player.invincibilityTimer <= 0) {
+                    if (!player.godMode && player.invincibilityTimer <= 0) {
                         player.hp -= 10; 
                         addShake(15); 
                         wobble = 1.0; 
@@ -564,7 +692,6 @@
                             boss.stage = 2;
                             boss.transitionFlash = 0.3;
                             boss.transitionTextTimer = 2.0;
-                            boss.hp = Math.min(boss.maxHp, boss.hp + boss.maxHp * 0.25);
                             boss.x = width / 2;
                             boss.y = height / 3;
                             boss.sprite = GLITCH_SPRITE_2;
@@ -776,7 +903,7 @@
                             boss.y += 65 * dt;
                         } else {
                             const firewallIntroDuration = 6.9;
-                            const firewallIntroTargetY = 80 + (boss.sprite.length * charH) / 2;
+                            const firewallIntroTargetY = 80 + (boss.sprite.length * charH * FIREWALL_BOSS_RENDER_SCALE) / 2;
                             const firewallIntroStartY = typeof boss.introStartY === 'number' ? boss.introStartY : -200;
                             const introProgress = Math.max(0, Math.min(1, boss.timer / firewallIntroDuration));
                             boss.y = firewallIntroStartY + (firewallIntroTargetY - firewallIntroStartY) * introProgress;
@@ -786,12 +913,18 @@
                         const introDuration = boss.name === 'GHOST SIGNAL' ? 7.5 : (boss.name === 'OVERHEATING FIREWALL' ? 6.9 : 4);
                         if (boss.name === 'GHOST SIGNAL' && boss.timer >= 5.0 && !boss.addsSpawned) {
                             boss.addsSpawned = true;
-                            enemies.push(createGhostSignalWraith(-50, boss.y, 150, width * 0.2));
-                            enemies.push(createGhostSignalWraith(width + 50, boss.y, -150, width * 0.8));
+                            const leftWraith = createGhostSignalWraith(-50, boss.y, 150, width * 0.2);
+                            const rightWraith = createGhostSignalWraith(width + 50, boss.y, -150, width * 0.8);
+                            leftWraith.isBossMinion = true;
+                            rightWraith.isBossMinion = true;
+                            leftWraith.bossMinionOwner = 'GHOST SIGNAL';
+                            rightWraith.bossMinionOwner = 'GHOST SIGNAL';
+                            enemies.push(leftWraith);
+                            enemies.push(rightWraith);
                         }
                         if (boss.timer > introDuration) {
                             if (boss.name === 'OVERHEATING FIREWALL') {
-                                boss.y = 80 + (boss.sprite.length * charH) / 2;
+                                boss.y = 80 + (boss.sprite.length * charH * FIREWALL_BOSS_RENDER_SCALE) / 2;
                             } else if (boss.name === 'NULL PHANTOM') {
                                 boss.y = (typeof boss.introStartY === 'number' ? boss.introStartY : -200) + 65 * introDuration + height * NULL_PHANTOM_REST_OFFSET_Y;
                             }
@@ -801,6 +934,8 @@
                             if (boss.name === 'OVERHEATING FIREWALL') {
                                 boss.coreTimer = 3.0;
                                 boss.isVulnerable = true;
+                                boss.fireGuardianSpawned = true;
+                                enemies.push(createFirewallGuardianMinion());
                             }
                             boss.startX = boss.x;
                             boss.startY = boss.y;
@@ -843,7 +978,10 @@
                             boss.driftTimer = (boss.driftTimer || 0) + dt;
                             boss.x = width / 2 + Math.sin(boss.driftTimer * 0.5) * 50;
 
-                            if (Math.random() > 0.4) {
+                            boss.smokeTimer = (boss.smokeTimer || 0) + dt;
+                            const smokeInterval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.11 : 0.065;
+                            if (boss.smokeTimer >= smokeInterval && thrusterParticles.length < ELEMENTAL_TRAIL_HARD_CAP) {
+                                boss.smokeTimer %= smokeInterval;
                                 thrusterParticles.push({
                                     x: boss.x + (Math.random() - 0.5) * 150,
                                     y: boss.y - 100 - Math.random() * 50,
@@ -870,7 +1008,7 @@
                         if (boss.name === 'OVERHEATING FIREWALL') {
                             const bossFire = (vx, vy, huge, isFlame) => enemyBullets.push({
                                 x: boss.x,
-                                y: boss.y + 20,
+                                y: boss.y + FIREWALL_BOSS_CORE_OFFSET_Y,
                                 vx,
                                 vy,
                                 char: isFlame ? '\u274B' : '*',
@@ -976,14 +1114,38 @@
             for (let i = comboProjectiles.length - 1; i >= 0; i--) {
                 const p = comboProjectiles[i];
                 p.life -= dt;
+                p.age = (p.age || 0) + dt;
                 
-                if (p.stats.homing) {
+                if (p.orbitTime > 0) {
+                    p.orbitTime -= dt;
+                    p.orbitAngle += (p.orbitSpin || 8.5) * dt;
+                    const radiusPulse = Math.sin(p.age * 18) * 3;
+                    const orbitRadius = (p.orbitRadius || 34) + radiusPulse;
+                    p.x = player.x + Math.cos(p.orbitAngle) * orbitRadius;
+                    p.y = player.y + Math.sin(p.orbitAngle) * orbitRadius * 0.72;
+                    if (p.orbitTime <= 0) {
+                        const releaseAngle = p.releaseAngle ?? -Math.PI / 2;
+                        const releaseSpeed = p.releaseSpeed || (1400 * p.stats.speedMult);
+                        if (p.stats.orbitReleaseCenter) {
+                            p.x = player.x;
+                            p.y = player.y;
+                        }
+                        p.baseVx = Math.cos(releaseAngle) * releaseSpeed;
+                        p.baseVy = Math.sin(releaseAngle) * releaseSpeed;
+                        p.vx = p.baseVx;
+                        p.vy = p.baseVy;
+                        p.startX = p.x;
+                        p.startY = p.y;
+                        p.releaseAge = p.age;
+                        p.maxLife = Math.max(0.1, p.life);
+                    }
+                } else if (p.stats.homing) {
                     const nearestInfo = findNearestActiveTarget(p.x, p.y);
                     const nearest = nearestInfo.target;
                     const minDistSq = nearestInfo.distSq;
                     if (nearest) {
                         const dx = nearest.x - p.x, dy = nearest.y - p.y, dist = Math.sqrt(minDistSq);
-                        const steerStr = 3000 * dt;
+                        const steerStr = 3000 * (p.stats.homingStrength || 1) * dt;
                         p.baseVx += (dx / dist) * steerStr;
                         p.baseVy += (dy / dist) * steerStr;
                         const speed = Math.sqrt(p.baseVx*p.baseVx + p.baseVy*p.baseVy);
@@ -992,8 +1154,49 @@
                         p.baseVy = (p.baseVy / speed) * desiredSpeed;
                     }
                 }
-                
-                if (p.stats.pathFunction === 'sine') {
+
+                const returnReadyAt = (p.orbitHoldTime || 0) + (p.stats.returnAfter || 0.5);
+                if (p.stats.returning && !p.hasReturned && p.age >= returnReadyAt) {
+                    p.hasReturned = true;
+                    p.damage *= 0.68;
+                    p.pierceHits = [];
+                    p.pierceCount = Math.max(p.pierceCount, (p.stats.pierceCount || 0) + 1);
+                    p.sprite = '✚';
+                    p.color = '#77ffe7';
+                }
+
+                if (p.hasReturned) {
+                    const dx = player.x - p.x;
+                    const dy = player.y - p.y;
+                    const dist = Math.max(1, Math.hypot(dx, dy));
+                    const returnSpeed = 1200 * p.stats.speedMult;
+                    p.baseVx = (dx / dist) * returnSpeed;
+                    p.baseVy = (dy / dist) * returnSpeed;
+                    p.x += p.baseVx * dt;
+                    p.y += p.baseVy * dt;
+                    if (dist < 24 && p.age > returnReadyAt + 0.16) {
+                        comboProjectiles.splice(i, 1);
+                        continue;
+                    }
+                } else if (p.orbitTime > 0) {
+                    // Held orbit shots still use collision below, but do not advance linearly yet.
+                } else if (p.stats.plasmaCloud) {
+                    const releaseAngle = p.releaseAngle ?? Math.atan2(p.baseVy || -1, p.baseVx || 0);
+                    const releaseSpeed = p.releaseSpeed || Math.hypot(p.baseVx || 0, p.baseVy || 0);
+                    const speed = releaseSpeed * getPlasmaCloudSpeedFactor(p);
+                    const travelAge = Math.max(0, (p.age || 0) - (p.releaseAge || 0));
+                    const curvePhase = travelAge * (p.cloudCurveFrequency || 2.1) + (p.cloudCurveSeed || 0);
+                    const curveGrowth = Math.min(1, travelAge / 0.7);
+                    const lateralSpeed = Math.sin(curvePhase) * (p.cloudCurveStrength || 0) * curveGrowth;
+                    const forwardX = Math.cos(releaseAngle);
+                    const forwardY = Math.sin(releaseAngle);
+                    const sideX = -forwardY;
+                    const sideY = forwardX;
+                    p.baseVx = forwardX * speed + sideX * lateralSpeed;
+                    p.baseVy = forwardY * speed + sideY * lateralSpeed;
+                    p.x += p.baseVx * dt;
+                    p.y += p.baseVy * dt;
+                } else if (p.stats.pathFunction === 'sine') {
                     let t = p.maxLife - p.life;
                     let perpX = -p.baseVy / (1400 * p.stats.speedMult);
                     let perpY = p.baseVx / (1400 * p.stats.speedMult);
@@ -1007,7 +1210,7 @@
                     p.y += p.baseVy * dt;
                 }
                 
-                applyWakeForce(p.x, p.y, 45, 6);
+                applyWakeForce(p.x, p.y, p.stats.plasmaCloud ? 70 : 45, p.stats.plasmaCloud ? 4 : 6);
                 if (isBlackVoidBossActive() && boss.eventHorizonActive) {
                     const dxToBoss = boss.x - p.x;
                     const dyToBoss = boss.y - p.y;
@@ -1030,28 +1233,60 @@
                 }
                 
                 let hit = false;
-                let hitboxRadius = 20 * p.stats.sizeMult;
-                if (p.stats.pathFunction === 'parabolic') hitboxRadius *= 1.5;
+                const projectileStats = p.stats || createBaseWeaponStats();
+                const hitboxRadius = getComboProjectileHitboxRadius(p);
+                const targetMaskRadius = Math.max(4, hitboxRadius * (projectileStats.plasmaCloud ? 0.95 : (projectileStats.miniTorpedo ? 0.86 : 0.82)));
+                const torpedoRange = projectileStats.torpedoRange || 0;
+                const torpedoExpired = projectileStats.miniTorpedo && (p.orbitTime || 0) <= 0 && torpedoRange > 0
+                    && ((p.x - p.startX) * (p.x - p.startX) + (p.y - p.startY) * (p.y - p.startY)) >= torpedoRange * torpedoRange;
+                if (projectileStats.plasmaCloud) p.cloudSparkTimer = Math.max(0, (p.cloudSparkTimer || 0) - dt);
 
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     const e = enemies[j];
                     if (!e.onScreen) continue;
-                    if (p.pierceHits.includes(e)) continue;
+                    if (!isEnemyDamageable(e)) continue;
+                    const alreadyHit = p.pierceHits.includes(e);
+                    if (!projectileStats.plasmaCloud && alreadyHit) continue;
                     
-                    if (Math.abs(p.x - e.x) < hitboxRadius + 20 && Math.abs(p.y - e.y) < hitboxRadius + 20) {
+                    if (doesProjectileHitTargetMask(p, e, targetMaskRadius)) {
+                        if (projectileStats.plasmaCloud) {
+                            const cloudGrowth = getPlasmaCloudGrowthFactor(p);
+                            e.hp -= p.damage * (projectileStats.cloudDotMult || 6) * cloudGrowth * dt;
+                            if (!alreadyHit) {
+                                p.pierceHits.push(e);
+                                triggerProjectileChain(p, e);
+                            }
+                            if (p.cloudSparkTimer <= 0) {
+                                emitProjectileImpactDebris(p, 1);
+                                p.cloudSparkTimer = 0.08;
+                            }
+                            const enemyIndex = enemies.indexOf(e);
+                            if (e.hp <= 0) {
+                                if (enemyIndex > -1) {
+                                    resolveWaveEnemy(e);
+                                    explodeEnemy(e);
+                                    enemies.splice(enemyIndex, 1);
+                                }
+                            } else if (enemyIndex > -1) {
+                                e.flashTimer = Math.max(e.flashTimer || 0, 0.06);
+                            }
+                            continue;
+                        }
+
                         e.hp -= p.damage;
                         p.pierceHits.push(e);
                         
                         if (p.stats.splashRadius > 0) {
-                            radialExplosion(p.x, p.y, p.stats.splashRadius * 22, p.damage * p.stats.splashDamagePercent);
+                            radialExplosion(p.x, p.y, p.stats.splashRadius * 22, p.damage * p.stats.splashDamagePercent, p.stats.splashVisualDebris ?? 20);
                             if (bossCinematic && bossCinematic.paused) return;
                         }
                         
-                        if (p.stats.chainCount > 0) {
+                        if (p.stats.chainCount > 0 && Math.random() < (p.stats.chainChance ?? 1)) {
                             let nearest = null, minDist = Infinity;
                             for (let otherIndex = 0; otherIndex < enemies.length; otherIndex++) {
                                 const other = enemies[otherIndex];
                                 if (other === e) continue;
+                                if (!isEnemyDamageable(other)) continue;
                                 let distSq = (other.x - e.x)**2 + (other.y - e.y)**2;
                                 if (distSq < 150*150 && distSq < minDist) { minDist = distSq; nearest = other; }
                             }
@@ -1061,73 +1296,101 @@
                                     vx: (nearest.x - e.x) * 5, vy: (nearest.y - e.y) * 5,
                                     baseVx: (nearest.x - e.x) * 5, baseVy: (nearest.y - e.y) * 5,
                                     startX: e.x, startY: e.y,
-                                    sprite: '⚡', color: '#00ffff',
-                                    stats: { ...p.stats, chainCount: p.stats.chainCount - 1, splashRadius: 0 },
-                                    life: 0.5, maxLife: 0.5, damage: p.damage * 0.5,
-                                    pierceHits: [e], pierceCount: 0
+                                    targetX: nearest.x, targetY: nearest.y,
+                                    sprite: '', color: '#8ff7ff',
+                                    stats: { ...p.stats, chainCount: p.stats.chainCount - 1, splashRadius: 0, lightningBall: false, plasmaCloud: false, miniTorpedo: false },
+                                    life: 0.42, maxLife: 0.42, damage: p.damage * 0.5,
+                                    pierceHits: [e], pierceCount: 0,
+                                    isChainLightning: true,
+                                    jitterSeed: Math.random() * 1000
                                 });
                             }
                         }
 
-                        for (let k = 0; k < 6 + Math.floor(Math.random() * 3); k++) {
+                        const impactDebrisCount = p.stats.lightningBall ? 2 : 6 + Math.floor(Math.random() * 3);
+                        for (let k = 0; k < impactDebrisCount; k++) {
                             const ang = Math.random() * Math.PI * 2; const spd = 60 + Math.random() * 40;
                             debris.push({ x: p.x, y: p.y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, char: IMPACT_DEBRIS_CHARS[Math.floor(Math.random()*IMPACT_DEBRIS_CHARS.length)], color: IMPACT_DEBRIS_COLORS[Math.floor(Math.random()*IMPACT_DEBRIS_COLORS.length)], life: 0.2, isImpact: true });
                         }
+                        const enemyIndex = enemies.indexOf(e);
                         if (e.hp <= 0) {
-                            resolveWaveEnemy(e); explodeEnemy(e); enemies.splice(j, 1);
-                        } else {
+                            if (enemyIndex > -1) {
+                                resolveWaveEnemy(e);
+                                explodeEnemy(e);
+                                enemies.splice(enemyIndex, 1);
+                            }
+                        } else if (enemyIndex > -1) {
                             e.flashTimer = 0.15;
                         }
                         
-                        if (p.pierceCount-- <= 0) { hit = true; break; }
+                        if (projectileStats.miniTorpedo || p.pierceCount-- <= 0) { hit = true; break; }
                     }
                 }
-                if (!hit && boss && boss.phase === 'ACTIVE' && !p.pierceHits.includes(boss)) {
+                if (!hit && boss && boss.phase === 'ACTIVE' && (projectileStats.plasmaCloud || !p.pierceHits.includes(boss))) {
+                    const alreadyHitBoss = p.pierceHits.includes(boss);
                     let hitBoss = false;
                     if (boss.name === 'OVERHEATING FIREWALL') {
-                        if (boss.isVulnerable && Math.abs(p.x - boss.x) < 80 && Math.abs(p.y - (boss.y + 20)) < 80) {
-                            boss.hp -= p.damage;
+                        if (boss.isVulnerable && Math.abs(p.x - boss.x) < hitboxRadius + 60 && Math.abs(p.y - (boss.y + FIREWALL_BOSS_CORE_OFFSET_Y)) < hitboxRadius + 60) {
+                            boss.hp -= projectileStats.plasmaCloud ? p.damage * (projectileStats.cloudDotMult || 6) * getPlasmaCloudGrowthFactor(p) * dt : p.damage;
                             hitBoss = true;
-                        } else if (!boss.isVulnerable && Math.abs(p.x - boss.x) < 120 && Math.abs(p.y - boss.y) < 120) {
+                        } else if (!projectileStats.plasmaCloud && !boss.isVulnerable && Math.abs(p.x - boss.x) < 120 && Math.abs(p.y - boss.y) < 120) {
                             hit = true;
                         }
-                    } else if (Math.abs(p.x - boss.x) < 120 && Math.abs(p.y - boss.y) < 90) {
+                    } else if (doesProjectileHitTargetMask(p, boss, targetMaskRadius)) {
                         if (!boss.isDeadGlitching) {
                             const damageScale = getBlackVoidDamageScale(p.x, p.y);
-                            boss.hp -= p.damage * damageScale;
-                            if (damageScale < 1) absorbBlackVoidProjectile(p.x, p.y, 1);
+                            const bossDamage = projectileStats.plasmaCloud ? p.damage * (projectileStats.cloudDotMult || 6) * getPlasmaCloudGrowthFactor(p) * dt : p.damage;
+                            boss.hp -= bossDamage * damageScale;
+                            if (damageScale < 1 && !projectileStats.plasmaCloud) absorbBlackVoidProjectile(p.x, p.y, 1);
                             hitBoss = true;
-                        } else hit = true;
+                        } else if (!projectileStats.plasmaCloud) hit = true;
                     }
                     if (hitBoss) {
-                        p.pierceHits.push(boss);
-                        boss.flashTimer = 0.15;
+                        if (!alreadyHitBoss) p.pierceHits.push(boss);
+                        boss.flashTimer = projectileStats.plasmaCloud ? Math.max(boss.flashTimer || 0, 0.05) : 0.15;
                         if (maybeTriggerBossDeathCinematic(boss)) return;
+                        if (!projectileStats.plasmaCloud) {
                         if (p.stats.splashRadius > 0) {
-                            radialExplosion(p.x, p.y, p.stats.splashRadius * 22, p.damage * p.stats.splashDamagePercent);
+                            radialExplosion(p.x, p.y, p.stats.splashRadius * 22, p.damage * p.stats.splashDamagePercent, p.stats.splashVisualDebris ?? 20);
                             if (bossCinematic && bossCinematic.paused) return;
                         }
-                        for (let k = 0; k < 6 + Math.floor(Math.random() * 3); k++) {
+                        const impactDebrisCount = p.stats.lightningBall ? 2 : 6 + Math.floor(Math.random() * 3);
+                        for (let k = 0; k < impactDebrisCount; k++) {
                             const ang = Math.random() * Math.PI * 2; const spd = 60 + Math.random() * 40;
                             debris.push({ x: p.x, y: p.y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, char: ['·', '∙', '•', '░'][Math.floor(Math.random()*4)], color: ['#888888', '#666666', '#999999', '#aaaaaa'][Math.floor(Math.random()*4)], life: 0.2, isImpact: true });
                         }
-                        if (p.pierceCount-- <= 0) hit = true;
+                        if (projectileStats.miniTorpedo || p.pierceCount-- <= 0) hit = true;
+                        } else if (p.cloudSparkTimer <= 0) {
+                            emitProjectileImpactDebris(p, 1);
+                            p.cloudSparkTimer = 0.08;
+                        }
                     }
                 }
-                if (hit || p.life <= 0 || p.y < -60 || p.y > height + 60 || p.x < -60 || p.x > width + 60) {
-                    if (p.stats.pathFunction === 'parabolic') {
-                        radialExplosion(p.x, p.y, p.stats.splashRadius * 22, p.damage * p.stats.splashDamagePercent);
+                if (hit || torpedoExpired || p.life <= 0 || p.y < -60 || p.y > height + 60 || p.x < -60 || p.x > width + 60) {
+                    if (projectileStats.miniTorpedo && (hit || torpedoExpired || p.life <= 0)) {
+                        spawnMiniTorpedoExplosion(p.x, p.y, p);
+                        if (bossCinematic && bossCinematic.paused) return;
+                    } else if (projectileStats.pathFunction === 'parabolic') {
+                        triggerProjectileSplash(p);
                         if (bossCinematic && bossCinematic.paused) return;
                     }
                     comboProjectiles.splice(i, 1);
                 }
             }
 
+            if (!boss) WaveManager.syncFormationState(enemies);
+
             if (!boss && WaveManager.pendingFormationUnits <= 0) {
-                if (WaveManager.waveDelay > 0) {
-                    WaveManager.waveDelay -= dt;
-                } else {
+                if (enemies.length > 0 && WaveManager.hasSpawnedWave) {
+                    WaveManager.waveDelay = Math.max(WaveManager.waveDelay, WaveManager.interWaveDelay);
+                    WaveManager.interWaveDelayQueued = true;
+                } else if (WaveManager.waveDelay > 0) {
+                    WaveManager.waveDelay = Math.max(0, WaveManager.waveDelay - dt);
+                } else if (!WaveManager.hasSpawnedWave || WaveManager.interWaveDelayQueued) {
                     WaveManager.spawn();
+                } else {
+                    WaveManager.waveDelay = WaveManager.interWaveDelay;
+                    WaveManager.interWaveDelayQueued = true;
                 }
             }
             
@@ -1168,9 +1431,9 @@
                     }
 
                     e.fireTimer += dt;
-                    const fireInterval = e.voidAttackMode === 'anchor'
+                    const fireInterval = (e.voidAttackMode === 'anchor'
                         ? 2.2
-                        : (e.voidAttackMode === 'cross' ? 1.55 : (e.voidAttackMode === 'cinder' ? 2.0 : 1.85));
+                        : (e.voidAttackMode === 'cross' ? 1.55 : (e.voidAttackMode === 'cinder' ? 2.0 : 1.85))) * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT;
                     if (e.settled && e.fireTimer >= fireInterval) {
                         e.fireTimer = 0;
                         fireVoidSentinelAttack(e);
@@ -1183,15 +1446,17 @@
                     e.fireTimer += dt;
 
                     if (Math.random() > 0.6) {
+                        const frost = getWraithFrostEmitter(e);
                         thrusterParticles.push({
-                            x: e.x + (Math.random() - 0.5) * 20, y: e.y - 18,
+                            x: frost.x + (Math.random() - 0.5) * frost.spreadX,
+                            y: frost.y + (Math.random() - 0.5) * 4,
                             vx: (Math.random() - 0.5) * 42, vy: -56 - Math.random() * 36,
                             char: ['^', '*', '░', '▒'][Math.floor(Math.random() * 4)],
                             color: null, life: 1.0, isWraithFlame: true
                         });
                     }
 
-                    if (e.fireTimer > 2.1) {
+                    if (e.fireTimer > 2.1 * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT) {
                         e.fireTimer = 0;
                         const dx = player.x - e.x, dy = player.y - e.y;
                         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1218,8 +1483,12 @@
 
                 if (e.isFlameGuardian) {
                     e.color = frameCount % 40 < 20 ? '#e38914' : '#e01926';
+                    e.hoverTimer = (e.hoverTimer || 0) + dt;
                     
-                    if (Math.random() > 0.6) {
+                    e.flameTrailTimer = (e.flameTrailTimer || 0) + dt;
+                    const guardianTrailInterval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.12 : 0.075;
+                    if (e.flameTrailTimer >= guardianTrailInterval && thrusterParticles.length < ELEMENTAL_TRAIL_HARD_CAP) {
+                        e.flameTrailTimer %= guardianTrailInterval;
                         thrusterParticles.push({
                             x: e.x + (Math.random() - 0.5) * 20, y: e.y - 20,
                             vx: (Math.random() - 0.5) * 45, vy: -60 - Math.random() * 40,
@@ -1229,16 +1498,25 @@
                     }
 
                     e.fireTimer += dt;
-                    if (e.fireTimer > 2.5) {
+                    if (e.onScreen && e.fireTimer > (e.flameFireInterval || 2.5) * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT) {
                         e.fireTimer = 0;
                         const dx = player.x - e.x, dy = player.y - e.y;
                         const dist = Math.sqrt(dx * dx + dy * dy);
-                        enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*250, vy: (dy/dist)*250, char: '❋', color: '#e38914', isLargeFlame: true });
+                        const flameShotSpeed = e.flameShotSpeed || 250;
+                        enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*flameShotSpeed, vy: (dy/dist)*flameShotSpeed, char: '❋', color: '#e38914', isLargeFlame: true });
                     }
                     
                     // Allow Flame Guardian to follow path if one exists
                     if (!e.path) {
-                        if (Math.abs(e.x - e.hoverX) > 5) e.x += e.vx * dt;
+                        if (e.isBossMinion) {
+                            const targetX = (e.hoverX || width * 0.5) + Math.sin(e.hoverTimer * 1.1) * (e.hoverAmpX || 120);
+                            const targetY = (e.hoverY || height * 0.16) + Math.cos(e.hoverTimer * 1.7) * (e.hoverAmpY || 14);
+                            const blend = Math.min(1, dt * 2.1);
+                            e.x += (targetX - e.x) * blend;
+                            e.y += (targetY - e.y) * blend;
+                            e.vx = (targetX - e.x) * blend / Math.max(0.001, dt);
+                            e.vy = (targetY - e.y) * blend / Math.max(0.001, dt);
+                        } else if (Math.abs(e.x - e.hoverX) > 5) e.x += e.vx * dt;
                         else e.vx = 0;
                         continue;
                     }
@@ -1301,8 +1579,20 @@
                             const weaveAmplitude = e.weaveAmplitude || 150;
                             const weavePhase = e.weavePhase || 0;
                             const weaveVerticalSpeed = (e.weaveVerticalSpeed || 120) * e.speedMult;
-                            nx = e.startX + Math.sin(t * weaveFrequency + weavePhase) * weaveAmplitude;
-                            ny = e.startY + t * weaveVerticalSpeed;
+                            const baseX = e.sideEntry ? (e.weaveOriginX || width * 0.5) : e.startX;
+                            const baseY = e.sideEntry ? (e.weaveOriginY || e.startY) : e.startY;
+                            const pathX = baseX + Math.sin(t * weaveFrequency + weavePhase) * weaveAmplitude;
+                            const pathY = baseY + t * weaveVerticalSpeed;
+                            if (e.sideEntry && t < (e.sideEntryDuration || 1.8)) {
+                                const entryProgress = Math.max(0, Math.min(1, t / Math.max(0.01, e.sideEntryDuration || 1.8)));
+                                const ease = 1 - Math.pow(1 - entryProgress, 3);
+                                const arcLift = Math.sin(entryProgress * Math.PI) * height * 0.035;
+                                nx = e.startX + (pathX - e.startX) * ease;
+                                ny = e.startY + (pathY - e.startY) * ease - arcLift;
+                            } else {
+                                nx = pathX;
+                                ny = pathY;
+                            }
                             e.vx = (nx - oldX) / Math.max(0.001, dt);
                             e.vy = (ny - oldY) / Math.max(0.001, dt);
                         } else if (e.pathType === 'spiral') {
@@ -1310,6 +1600,23 @@
                             const theta = t * 2 + e.indexOffset;
                             nx = width/2 + r * Math.cos(theta);
                             ny = height/3 + r * Math.sin(theta);
+                        } else if (e.pathType === 'arcCascade') {
+                            const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
+                            const oldX = e.x;
+                            const oldY = e.y;
+                            const invProgress = 1 - progress;
+                            const phase = e.arcPhase || 0;
+                            const waveEase = Math.sin(progress * Math.PI);
+                            nx = invProgress * invProgress * e.startX
+                                + 2 * invProgress * progress * (e.arcControlX || width * 0.5)
+                                + progress * progress * (e.arcEndX || width * 0.5)
+                                + Math.sin(progress * Math.PI * 3.4 + phase) * (e.arcWaveAmpX || width * 0.04) * waveEase;
+                            ny = invProgress * invProgress * e.startY
+                                + 2 * invProgress * progress * (e.arcControlY || height * 0.15)
+                                + progress * progress * (e.arcEndY || height * 0.28)
+                                + Math.sin(progress * Math.PI * 2.2 + phase) * (e.arcWaveAmpY || height * 0.03) * waveEase;
+                            e.vx = (nx - oldX) / Math.max(0.001, dt);
+                            e.vy = (ny - oldY) / Math.max(0.001, dt);
                         } else if (e.pathType === 'orbitalDrift') {
                             const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
                             const oldX = e.x;
@@ -1331,31 +1638,92 @@
                             e.vx = (nx - oldX) / Math.max(0.001, dt);
                             e.vy = (ny - oldY) / Math.max(0.001, dt);
                         } else if (e.pathType === 'horizontalDrop') {
-                            if (t < 2.5) {
-                                nx += (e.startX < width/2 ? 180 : -180) * dt * e.speedMult;
+                            if (t < (e.horizontalHold || 2.5)) {
+                                nx += (e.startX < width/2 ? 1 : -1) * (e.horizontalLateralSpeed || 180) * dt * e.speedMult;
                             } else {
-                                ny += 250 * dt * e.speedMult;
+                                ny += (e.horizontalDropSpeed || 250) * dt * e.speedMult;
+                            }
+                        } else if (e.pathType === 'risingStar') {
+                            const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
+                            const riseProgress = Math.max(0, Math.min(1, t / Math.max(0.01, e.riseTime || 1.65)));
+                            const riseEase = 1 - Math.pow(1 - riseProgress, 3);
+                            const oldX = e.x;
+                            const oldY = e.y;
+                            const activeProgress = Math.max(0, (progress - 0.12) / 0.88);
+                            const drift = Math.sin(activeProgress * Math.PI * 1.35 + (e.risePhase || 0)) * (e.riseDriftX || width * 0.06);
+                            const shimmer = Math.sin((currentFrameNow || 0) * 0.01 + (e.risePhase || 0)) * 3 * riseProgress;
+                            nx = (e.riseTargetX || e.startX) + drift * Math.min(1, activeProgress * 1.6) + shimmer;
+                            ny = (e.riseTargetY || e.startY) + (1 - riseEase) * height * 0.085 + activeProgress * height * 0.22
+                                + Math.sin(activeProgress * Math.PI * 2 + (e.risePhase || 0)) * height * 0.018;
+                            e.risingProgress = riseProgress;
+                            e.risingAlpha = 0.16 + riseEase * 0.84;
+                            e.invulnerable = riseProgress < 1;
+                            e.risingVulnerable = !e.invulnerable;
+                            e.enemyShipVisualScale = (e.risingBaseVisualScale || 1.08) * (0.76 + riseEase * 0.24);
+                            e.vx = (nx - oldX) / Math.max(0.001, dt);
+                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                        } else if (e.pathType === 'constellationSweep') {
+                            const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
+                            const oldX = e.x;
+                            const oldY = e.y;
+                            const invProgress = 1 - progress;
+                            const phase = e.constellationPhase || 0;
+                            const loopEase = Math.sin(progress * Math.PI);
+                            nx = invProgress * invProgress * e.startX
+                                + 2 * invProgress * progress * (e.constellationControlX || width * 0.5)
+                                + progress * progress * (e.constellationEndX || width * 0.5)
+                                + Math.sin(progress * Math.PI * 4.2 + phase) * (e.constellationLoopAmp || width * 0.05) * loopEase;
+                            ny = invProgress * invProgress * e.startY
+                                + 2 * invProgress * progress * (e.constellationControlY || height * 0.16)
+                                + progress * progress * (e.constellationEndY || height * 0.34)
+                                + Math.cos(progress * Math.PI * 3.1 + phase) * height * 0.026 * loopEase;
+                            e.vx = (nx - oldX) / Math.max(0.001, dt);
+                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            if (e.constellationTrail && e.onScreen && Math.random() < 0.06) {
+                                debris.push({
+                                    x: nx + (Math.random() - 0.5) * 12,
+                                    y: ny + (Math.random() - 0.5) * 10,
+                                    vx: (Math.random() - 0.5) * 28,
+                                    vy: (Math.random() - 0.5) * 28,
+                                    char: Math.random() > 0.5 ? '.' : '+',
+                                    color: Math.random() > 0.5 ? '#ff7bff' : '#8ff7ff',
+                                    life: 0.2,
+                                    isImpact: true
+                                });
                             }
                         } else if (e.pathType === 'braidDive') {
                             const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
                             const oldX = e.x;
                             const oldY = e.y;
                             const phase = e.braidPhase || 0;
-                            const amplitude = (e.braidAmplitude || width * 0.16) + Math.sin(progress * Math.PI) * width * 0.10;
-                            const braidSwing = Math.sin(progress * Math.PI * 3.2 + phase) * amplitude;
-                            const peel = Math.max(0, (progress - 0.72) / 0.28);
-                            const verticalRipple = Math.sin(progress * Math.PI * 6 + phase) * 18 * Math.sin(progress * Math.PI);
-                            nx = width / 2 + (e.braidOffset || 0) + braidSwing + (e.braidLane || 1) * peel * peel * width * 0.20;
-                            ny = -70 + progress * height * 0.72 + verticalRipple;
+                            const amplitude = (e.braidAmplitude || width * 0.22) * (0.78 + Math.sin(progress * Math.PI) * 0.24);
+                            const braidSwing = Math.sin(progress * Math.PI * 2.45 + phase) * amplitude;
+                            const signalKink = Math.sin(progress * Math.PI * 7.1 + phase) * width * 0.035 * Math.sin(progress * Math.PI);
+                            const verticalRipple = Math.sin(progress * Math.PI * 5.2 + phase) * 14 * Math.sin(progress * Math.PI);
+                            nx = width / 2 + (e.braidOffset || 0) * Math.cos(progress * Math.PI * 0.7) + braidSwing + signalKink;
+                            ny = -70 + progress * height * 0.60 + verticalRipple;
                             e.vx = (nx - oldX) / Math.max(0.001, dt);
                             e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            if (e.braidTrail && e.onScreen && Math.random() < 0.09) {
+                                debris.push({
+                                    x: nx + (Math.random() - 0.5) * 10,
+                                    y: ny + (Math.random() - 0.5) * 8,
+                                    vx: -e.vx * 0.02 + (Math.random() - 0.5) * 35,
+                                    vy: -e.vy * 0.02 + (Math.random() - 0.5) * 35,
+                                    char: ['.', '+', '*'][Math.floor(Math.random() * 3)],
+                                    color: Math.random() > 0.35 ? '#ff7bff' : '#8ff7ff',
+                                    life: 0.22,
+                                    isImpact: true
+                                });
+                            }
                         } else if (e.pathType === 'erraticScatter') {
                             if (t < 1) {
                                 ny += 150 * dt;
                             } else if (t < 1.1) {
                                 if (!e.scatterSet) {
-                                    e.scatterVx = (Math.random() - 0.5) * 800;
-                                    e.scatterVy = (Math.random() - 0.5) * 800;
+                                    const scatterSpeed = e.scatterSpeed || 650;
+                                    e.scatterVx = (Math.random() - 0.5) * scatterSpeed;
+                                    e.scatterVy = (Math.random() - 0.5) * scatterSpeed;
                                     e.scatterSet = true;
                                 }
                             } else {
@@ -1366,7 +1734,7 @@
                             }
                         }
                         
-                        const routeElapsed = (e.pathType === 'flyby' || e.pathType === 'braidDive') ? t * e.speedMult : t;
+                        const routeElapsed = (e.pathType === 'flyby' || e.pathType === 'braidDive' || e.pathType === 'arcCascade' || e.pathType === 'risingStar' || e.pathType === 'constellationSweep') ? t * e.speedMult : t;
                         if (e.routeDuration > 0 && routeElapsed >= e.routeDuration) {
                             resolveWaveEnemy(e);
                             enemies.splice(i, 1);
@@ -1385,7 +1753,7 @@
 
                 if (e.orbiterFireInterval && e.onScreen) {
                     e.fireTimer += dt;
-                    if (e.fireTimer >= e.orbiterFireInterval) {
+                    if (e.fireTimer >= e.orbiterFireInterval * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT) {
                         e.fireTimer = 0;
                         const dx = player.x - e.x;
                         const dy = player.y - e.y;
@@ -1403,11 +1771,9 @@
                     }
                 }
 
-                if (e.isFlyBy && e.onScreen && player.invincibilityTimer <= 0) {
+                if (e.isFlyBy && e.onScreen && isEnemyDamageable(e) && !player.godMode && player.invincibilityTimer <= 0) {
                     const hitboxR = 30 * player.modifiers.hitbox;
-                    const flyByCollisionX = e.flyByCollisionX || 34;
-                    const flyByCollisionY = e.flyByCollisionY || 26;
-                    if (Math.abs(e.x - player.x) < hitboxR + flyByCollisionX && Math.abs(e.y - player.y) < hitboxR + flyByCollisionY) {
+                    if (doesCircleHitTargetMask(player.x, player.y, hitboxR, e)) {
                         player.hp -= e.flyByDamage || 12;
                         addShake(18);
                         wobble = 1.0;

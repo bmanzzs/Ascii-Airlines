@@ -54,6 +54,8 @@
             if (e.key === '`' || e.key === '~') {
                 consoleOpen = !consoleOpen; 
                 consoleInput = '';
+                consoleHistoryIndex = -1;
+                consoleHistoryDraft = '';
                 Object.keys(keys).forEach(key => keys[key] = false); // clear held keys
                 
                 if (consoleOpen) {
@@ -66,14 +68,49 @@
                 if (e.key === 'Escape') { 
                     consoleOpen = false; 
                     consoleInput = ''; 
+                    consoleHistoryIndex = -1;
+                    consoleHistoryDraft = '';
                 }
-                else if (e.key === 'Backspace') { consoleInput = consoleInput.slice(0, -1); }
+                else if (e.key === 'ArrowUp') {
+                    if (consoleHistory.length > 0) {
+                        if (consoleHistoryIndex === -1) {
+                            consoleHistoryDraft = consoleInput;
+                            consoleHistoryIndex = consoleHistory.length - 1;
+                        } else {
+                            consoleHistoryIndex = Math.max(0, consoleHistoryIndex - 1);
+                        }
+                        consoleInput = consoleHistory[consoleHistoryIndex] || '';
+                    }
+                }
+                else if (e.key === 'ArrowDown') {
+                    if (consoleHistoryIndex !== -1) {
+                        consoleHistoryIndex++;
+                        if (consoleHistoryIndex >= consoleHistory.length) {
+                            consoleHistoryIndex = -1;
+                            consoleInput = consoleHistoryDraft;
+                            consoleHistoryDraft = '';
+                        } else {
+                            consoleInput = consoleHistory[consoleHistoryIndex] || '';
+                        }
+                    }
+                }
+                else if (e.key === 'Backspace') {
+                    consoleInput = consoleInput.slice(0, -1);
+                    consoleHistoryIndex = -1;
+                    consoleHistoryDraft = consoleInput;
+                }
                 else if (e.key === 'Enter') {
                     const shouldCloseConsole = executeConsoleCommand(consoleInput);
                     consoleInput = '';
+                    consoleHistoryIndex = -1;
+                    consoleHistoryDraft = '';
                     if (shouldCloseConsole) consoleOpen = false;
                 }
-                else if (e.key.length === 1) { consoleInput += e.key; }
+                else if (e.key.length === 1) {
+                    consoleInput += e.key;
+                    consoleHistoryIndex = -1;
+                    consoleHistoryDraft = consoleInput;
+                }
                 return;
             }
 
@@ -116,8 +153,33 @@
             if (gameState === 'PAUSED') {
                 const pauseMenuOptions = ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
                 if (pauseState === 'MAIN') {
-                    if (k === 'arrowup' || k === 'w') pauseSelection = (pauseSelection === 0) ? pauseMenuOptions.length - 1 : pauseSelection - 1;
-                    if (k === 'arrowdown' || k === 's') pauseSelection = (pauseSelection === pauseMenuOptions.length - 1) ? 0 : pauseSelection + 1;
+                    const hasPowerups = player.weapons.length > 0;
+                    if (pauseSelection === -1 && hasPowerups) {
+                        if (k === 'arrowleft' || k === 'a') {
+                            pausePowerupSelection = (pausePowerupSelection + player.weapons.length - 1) % player.weapons.length;
+                        }
+                        if (k === 'arrowright' || k === 'd') {
+                            pausePowerupSelection = (pausePowerupSelection + 1) % player.weapons.length;
+                        }
+                        if (k === 'arrowdown' || k === 's') pauseSelection = 0;
+                        if (k === 'arrowup' || k === 'w') pauseSelection = pauseMenuOptions.length - 1;
+                        if (k === 'enter' || k === ' ') return;
+                    } else {
+                        if (k === 'arrowup' || k === 'w') {
+                            pauseSelection = pauseSelection === 0
+                                ? (hasPowerups ? -1 : pauseMenuOptions.length - 1)
+                                : pauseSelection - 1;
+                        }
+                        if (k === 'arrowdown' || k === 's') {
+                            pauseSelection = pauseSelection === pauseMenuOptions.length - 1 ? 0 : pauseSelection + 1;
+                        }
+                    }
+                    if (hasPowerups) {
+                        pausePowerupSelection = Math.max(0, Math.min(player.weapons.length - 1, pausePowerupSelection));
+                    } else if (pauseSelection === -1) {
+                        pauseSelection = 0;
+                        pausePowerupSelection = 0;
+                    }
                     
                     if (pauseSelection === 2) {
                         if (k === 'arrowleft' || k === 'a') {

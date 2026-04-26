@@ -1,18 +1,56 @@
         // Explosions, projectiles, resize/reset, spatial utilities, and combat helpers.
+        const ENEMY_EXPLOSION_DEBRIS_SOFT_CAP = 520;
+        const BOSS_MINION_EXPLOSION_DEBRIS_CAP = 64;
+
+        function isEnemyDamageable(enemy) {
+            return !(enemy && enemy.invulnerable);
+        }
+
+        function getEnemyExplosionDebrisBudget(enemy, visibleCount) {
+            let cap = enemy.explosionDebrisCap || (enemy.isBossMinion ? BOSS_MINION_EXPLOSION_DEBRIS_CAP : 0);
+            if (!cap || visibleCount <= cap) return visibleCount;
+            if (debris.length > ENEMY_EXPLOSION_DEBRIS_SOFT_CAP) {
+                const pressure = Math.min(0.45, (debris.length - ENEMY_EXPLOSION_DEBRIS_SOFT_CAP) / 650);
+                cap = Math.max(24, Math.floor(cap * (1 - pressure)));
+            }
+            return Math.max(1, Math.min(visibleCount, cap));
+        }
+
         function explodeEnemy(enemy) {
+            if (!enemy || !Array.isArray(enemy.sprite) || enemy.sprite.length === 0) return;
             const renderScale = enemy.renderScale || 1;
             const eW = enemy.sprite[0].length * charW * renderScale, eH = enemy.sprite.length * charH * renderScale;
             const startX = enemy.x - eW / 2, startY = enemy.y - eH / 2;
             const colors = enemy.debrisColors || (enemy.isFlameGuardian ? ['#e01926', '#e38914', '#ffdd00', '#ff5500'] : ['#ff4400', '#ff6600', '#ff2200', '#ffaa00']);
+            const debrisVelocity = enemy.explosionDebrisVelocity || 600;
+            const debrisLife = enemy.explosionDebrisLife || 1.0;
+            let visibleCount = 0;
+            for (let r = 0; r < enemy.sprite.length; r++) {
+                for (let c = 0; c < enemy.sprite[r].length; c++) {
+                    if (enemy.sprite[r][c] !== ' ') visibleCount++;
+                }
+            }
+            const debrisBudget = getEnemyExplosionDebrisBudget(enemy, visibleCount);
+            const sampleStride = visibleCount > debrisBudget ? Math.ceil(visibleCount / debrisBudget) : 1;
+            const sampleOffset = sampleStride > 1 ? Math.floor(Math.random() * sampleStride) : 0;
+            let visibleIndex = 0;
+            let spawnedDebris = 0;
             for (let r = 0; r < enemy.sprite.length; r++) {
                 for (let c = 0; c < enemy.sprite[r].length; c++) {
                     const char = enemy.sprite[r][c];
                     if (char !== ' ') {
+                        const shouldSpawn = sampleStride === 1 || ((visibleIndex + sampleOffset) % sampleStride === 0 && spawnedDebris < debrisBudget);
+                        visibleIndex++;
+                        if (!shouldSpawn) continue;
+                        const color = typeof enemy.spriteColorFn === 'function'
+                            ? enemy.spriteColorFn(enemy.sprite, r, c)
+                            : colors[Math.floor(Math.random() * colors.length)];
                         debris.push({
                             x: startX + c * charW * renderScale, y: startY + r * charH * renderScale,
-                            vx: (Math.random() - 0.5) * 600 + (enemy.vx || 0), vy: (Math.random() - 0.5) * 600 + (enemy.vy || 160),
-                            char, color: colors[Math.floor(Math.random() * colors.length)], life: 1.0
+                            vx: (Math.random() - 0.5) * debrisVelocity + (enemy.vx || 0), vy: (Math.random() - 0.5) * debrisVelocity + (enemy.vy || 160),
+                            char, color, life: debrisLife
                         });
+                        spawnedDebris++;
                     }
                 }
             }
@@ -36,34 +74,305 @@
             addShake(5); score += 150; applyWakeForce(enemy.x, enemy.y, 160, 18);
         }
 
+        const SPRITE_COLLISION_CACHE = new WeakMap();
+        const SPRITE_COLLISION_GLYPH_HALF_W = 0.42;
+        const SPRITE_COLLISION_GLYPH_HALF_H = 0.42;
+
+        function getCachedSpriteCollisionMetrics(sprite) {
+            if (!Array.isArray(sprite) || sprite.length === 0) return null;
+            const cached = SPRITE_COLLISION_CACHE.get(sprite);
+            if (cached) return cached;
+            const metrics = getSpriteVisibleMetrics(sprite);
+            const result = {
+                metrics,
+                width: sprite[0] ? sprite[0].length : 0,
+                height: sprite.length
+            };
+            SPRITE_COLLISION_CACHE.set(sprite, result);
+            return result;
+        }
+
+        function getEnemyShipCollisionBoxes(target) {
+            const profile = ENEMY_SHIP_VISUAL_PROFILES[target.enemyShipKind] || ENEMY_SHIP_VISUAL_PROFILES.base;
+            const visualScale = Math.max(0.85, Math.min(1.24, target.enemyShipVisualScale || 1));
+            const bodySize = profile.bodySize * visualScale;
+            const thrusterSize = profile.thrusterSize * visualScale;
+            const spread = profile.spread * visualScale;
+            const x = target.x;
+            const y = target.y;
+            const boxes = [];
+
+            function addBox(cx, cy, fontSize, widthScale = 0.34, heightScale = 0.39) {
+                boxes.push({
+                    x: cx,
+                    y: cy,
+                    halfW: fontSize * widthScale,
+                    halfH: fontSize * heightScale
+                });
+            }
+
+            const thrusterOffsets = profile.tier >= 3 ? [-spread, 0, spread] : [-spread, spread];
+            for (let i = 0; i < thrusterOffsets.length; i++) {
+                addBox(x + thrusterOffsets[i], y + profile.thrusterY * visualScale, thrusterSize, 0.3, 0.34);
+            }
+
+            addBox(x, y + profile.bodyY * visualScale, bodySize, 0.34, 0.38);
+            if (profile.tier >= 2) {
+                const armorSize = bodySize * 0.42;
+                addBox(x - 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, 0.34, 0.36);
+                addBox(x + 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, 0.34, 0.36);
+                addBox(x, y + (profile.bodyY + 0.5) * visualScale, bodySize * 0.34, 0.36, 0.36);
+            } else {
+                addBox(x - 3 * visualScale, y + (profile.bodyY - 2) * visualScale, bodySize * 0.42, 0.3, 0.32);
+            }
+            if (profile.tier >= 3) {
+                addBox(x, y + (profile.bodyY + 8) * visualScale, bodySize * 0.32, 0.34, 0.34);
+                addBox(x - 13 * visualScale, y + (profile.bodyY - 3) * visualScale, bodySize * 0.24, 0.3, 0.32);
+                addBox(x + 13 * visualScale, y + (profile.bodyY - 3) * visualScale, bodySize * 0.24, 0.3, 0.32);
+            }
+
+            return boxes;
+        }
+
+        function getTargetSpriteCollisionLayout(target) {
+            if (!target) return null;
+            if (target.enemyShipSprite) {
+                const boxes = getEnemyShipCollisionBoxes(target);
+                if (boxes.length === 0) return null;
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                for (let i = 0; i < boxes.length; i++) {
+                    const box = boxes[i];
+                    minX = Math.min(minX, box.x - box.halfW);
+                    maxX = Math.max(maxX, box.x + box.halfW);
+                    minY = Math.min(minY, box.y - box.halfH);
+                    maxY = Math.max(maxY, box.y + box.halfH);
+                }
+                return { mode: 'boxes', boxes, bounds: { minX, minY, maxX, maxY } };
+            }
+
+            const sprite = target.sprite;
+            const cached = getCachedSpriteCollisionMetrics(sprite);
+            if (!cached || cached.metrics.width <= 0 || cached.metrics.height <= 0) return null;
+
+            if (target.name === 'NULL PHANTOM' && typeof getNullPhantomRenderLayout === 'function') {
+                const layout = getNullPhantomRenderLayout(target);
+                return {
+                    mode: 'customGrid',
+                    sprite,
+                    metrics: cached.metrics,
+                    cellW: layout.cellW,
+                    cellH: layout.cellH,
+                    startX: layout.startX,
+                    startY: layout.startY,
+                    getCellPosition: (row, col) => getNullPhantomGlyphPosition(layout, row, col)
+                };
+            }
+
+            if (target.name === 'GHOST SIGNAL' && typeof getGhostSignalRenderLayout === 'function') {
+                const layout = getGhostSignalRenderLayout(target);
+                return {
+                    mode: 'customGrid',
+                    sprite,
+                    metrics: cached.metrics,
+                    cellW: layout.cellW,
+                    cellH: layout.cellH,
+                    startX: layout.startX,
+                    startY: layout.startY,
+                    getCellPosition: (row, col) => getGhostSignalGlyphPosition(layout, row, col)
+                };
+            }
+
+            const renderScale = target.renderScale || (target.isFlyBy ? (target.flyByScale || 1.55) : 1);
+            const cellW = charW * renderScale;
+            const cellH = charH * renderScale;
+            return {
+                mode: 'grid',
+                sprite,
+                metrics: cached.metrics,
+                cellW,
+                cellH,
+                startX: target.x - (cached.width * cellW) / 2,
+                startY: target.y - (cached.height * cellH) / 2,
+                extraBoxes: target.name === 'BLACK VOID'
+                    ? [{ x: target.x, y: target.y + 2, halfW: 24, halfH: 28 }]
+                    : null
+            };
+        }
+
+        function getTargetCollisionBounds(target, layout = getTargetSpriteCollisionLayout(target)) {
+            if (!layout) return null;
+            if (layout.bounds) return layout.bounds;
+            const m = layout.metrics;
+            const bounds = {
+                minX: layout.startX + m.minX * layout.cellW - layout.cellW * SPRITE_COLLISION_GLYPH_HALF_W,
+                maxX: layout.startX + m.maxX * layout.cellW + layout.cellW * SPRITE_COLLISION_GLYPH_HALF_W,
+                minY: layout.startY + m.minY * layout.cellH - layout.cellH * SPRITE_COLLISION_GLYPH_HALF_H,
+                maxY: layout.startY + m.maxY * layout.cellH + layout.cellH * SPRITE_COLLISION_GLYPH_HALF_H
+            };
+            if (layout.mode === 'customGrid') {
+                const customMargin = Math.max(layout.cellW, layout.cellH) * 2.2;
+                bounds.minX -= customMargin;
+                bounds.maxX += customMargin;
+                bounds.minY -= customMargin;
+                bounds.maxY += customMargin;
+            }
+            if (layout.extraBoxes) {
+                for (let i = 0; i < layout.extraBoxes.length; i++) {
+                    const box = layout.extraBoxes[i];
+                    bounds.minX = Math.min(bounds.minX, box.x - box.halfW);
+                    bounds.maxX = Math.max(bounds.maxX, box.x + box.halfW);
+                    bounds.minY = Math.min(bounds.minY, box.y - box.halfH);
+                    bounds.maxY = Math.max(bounds.maxY, box.y + box.halfH);
+                }
+            }
+            return bounds;
+        }
+
+        function circleIntersectsBox(cx, cy, radius, box) {
+            const nearX = Math.max(box.x - box.halfW, Math.min(cx, box.x + box.halfW));
+            const nearY = Math.max(box.y - box.halfH, Math.min(cy, box.y + box.halfH));
+            const dx = cx - nearX;
+            const dy = cy - nearY;
+            return dx * dx + dy * dy <= radius * radius;
+        }
+
+        function forEachTargetCollisionBox(target, callback, layout = getTargetSpriteCollisionLayout(target)) {
+            if (!layout) return false;
+            if (layout.mode === 'boxes') {
+                for (let i = 0; i < layout.boxes.length; i++) {
+                    if (callback(layout.boxes[i])) return true;
+                }
+                return false;
+            }
+
+            const m = layout.metrics;
+            for (let r = m.minY; r <= m.maxY; r++) {
+                const row = layout.sprite[r] || '';
+                for (let c = m.minX; c <= m.maxX; c++) {
+                    if (row[c] === ' ' || row[c] === undefined) continue;
+                    const pos = layout.getCellPosition
+                        ? layout.getCellPosition(r, c)
+                        : { x: layout.startX + c * layout.cellW, y: layout.startY + r * layout.cellH };
+                    if (callback({
+                        x: pos.x,
+                        y: pos.y,
+                        halfW: layout.cellW * SPRITE_COLLISION_GLYPH_HALF_W,
+                        halfH: layout.cellH * SPRITE_COLLISION_GLYPH_HALF_H
+                    })) return true;
+                }
+            }
+            if (layout.extraBoxes) {
+                for (let i = 0; i < layout.extraBoxes.length; i++) {
+                    if (callback(layout.extraBoxes[i])) return true;
+                }
+            }
+            return false;
+        }
+
+        function doesCircleHitTargetMask(x, y, radius, target) {
+            const layout = getTargetSpriteCollisionLayout(target);
+            const bounds = getTargetCollisionBounds(target, layout);
+            if (!bounds) return false;
+            if (x < bounds.minX - radius || x > bounds.maxX + radius || y < bounds.minY - radius || y > bounds.maxY + radius) {
+                return false;
+            }
+            return forEachTargetCollisionBox(target, box => circleIntersectsBox(x, y, radius, box), layout);
+        }
+
+        function doesCircleHitTargetBounds(x, y, radius, target) {
+            const bounds = getTargetCollisionBounds(target);
+            if (!bounds) return false;
+            return circleIntersectsBox(x, y, radius, {
+                x: (bounds.minX + bounds.maxX) * 0.5,
+                y: (bounds.minY + bounds.maxY) * 0.5,
+                halfW: (bounds.maxX - bounds.minX) * 0.5,
+                halfH: (bounds.maxY - bounds.minY) * 0.5
+            });
+        }
+
+        function doesProjectileHitTargetMask(projectile, target, radius) {
+            return doesCircleHitTargetMask(projectile.x, projectile.y, Math.max(4, radius || 0), target);
+        }
+
+        function doesBeamHitTargetMask(originX, originY, dirX, dirY, length, beamRadius, target) {
+            const layout = getTargetSpriteCollisionLayout(target);
+            const bounds = getTargetCollisionBounds(target, layout);
+            if (!bounds) return false;
+            const targetCenterX = (bounds.minX + bounds.maxX) * 0.5;
+            const targetCenterY = (bounds.minY + bounds.maxY) * 0.5;
+            const targetRadius = Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.5;
+            const centerT = (targetCenterX - originX) * dirX + (targetCenterY - originY) * dirY;
+            const closestX = originX + Math.max(0, Math.min(length, centerT)) * dirX;
+            const closestY = originY + Math.max(0, Math.min(length, centerT)) * dirY;
+            if (Math.hypot(targetCenterX - closestX, targetCenterY - closestY) > targetRadius + beamRadius) return false;
+
+            return forEachTargetCollisionBox(target, box => {
+                const toCellX = box.x - originX;
+                const toCellY = box.y - originY;
+                const t = toCellX * dirX + toCellY * dirY;
+                if (t < -Math.max(box.halfW, box.halfH) || t > length + Math.max(box.halfW, box.halfH)) return false;
+                const lineX = originX + t * dirX;
+                const lineY = originY + t * dirY;
+                const dist = Math.hypot(box.x - lineX, box.y - lineY);
+                return dist <= beamRadius + Math.min(box.halfW, box.halfH);
+            }, layout);
+        }
+
         function explodeBoss(bossObj) {
             const colors = ['#ff4400', '#ff6600', '#ff2200', '#ffaa00'];
+            const profile = getBossExplosionProfile(bossObj);
+            const centerX = bossObj.x;
+            const centerY = bossObj.y + (profile.centerYOffset || 0);
 
             const snapshot = buildFallbackBossSnapshot(bossObj);
             if (snapshot.entries.length > 0) {
-                const debrisCap = bossObj.name === 'NULL PHANTOM'
-                    ? 520
-                    : (bossObj.name === 'GHOST SIGNAL' ? 420 : 0);
+                const debrisCap = profile.debrisCap || BOSS_EXPLOSION_DEBRIS_CAP_DEFAULT;
                 const debrisEntries = debrisCap > 0 && snapshot.entries.length > debrisCap
                     ? snapshot.entries.filter((_, index) => index % Math.ceil(snapshot.entries.length / debrisCap) === 0)
                     : snapshot.entries;
                 debrisEntries.forEach(entry => {
-                    const pieceColor = (bossObj.name === 'GHOST SIGNAL' || bossObj.name === 'NULL PHANTOM')
+                    const pieceColor = profile.preserveSourceColor
                         ? entry.color
                         : colors[Math.floor(Math.random() * colors.length)];
-                    const burstCopies = (bossObj.name === 'GHOST SIGNAL' || bossObj.name === 'NULL PHANTOM') ? 1 : 2;
+                    const burstCopies = 1;
                     for (let j = 0; j < burstCopies; j++) {
                         debris.push({
                             x: entry.worldX,
                             y: entry.worldY,
-                            vx: (Math.random() - 0.5) * 1200,
-                            vy: (Math.random() - 0.5) * 1200,
+                            vx: (Math.random() - 0.5) * (profile.debrisVelocity || 1000),
+                            vy: (Math.random() - 0.5) * (profile.debrisVelocity || 1000),
                             char: entry.char,
                             color: pieceColor,
-                            life: 2.0
+                            life: profile.debrisLife || 1.5
                         });
                     }
                 });
+                const ringConfigs = profile.rings || [];
+                for (let i = 0; i < ringConfigs.length; i++) {
+                    bombBlastRings.push({
+                        x: centerX,
+                        y: centerY,
+                        life: 0,
+                        ...ringConfigs[i]
+                    });
+                }
+                const burstCount = profile.burstCount || 0;
+                const burstColors = profile.burstColors || colors;
+                const burstChars = profile.burstChars || ['*', '#', '+', 'x'];
+                for (let i = 0; i < burstCount; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 230 + Math.random() * 500;
+                    debris.push({
+                        x: centerX + Math.cos(angle) * (10 + Math.random() * 35),
+                        y: centerY + Math.sin(angle) * (10 + Math.random() * 35),
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        char: burstChars[i % burstChars.length],
+                        color: burstColors[i % burstColors.length],
+                        life: 0.5 + Math.random() * 0.32,
+                        isImpact: true
+                    });
+                }
             } else {
                 for (let j = 0; j < 50; j++) {
                     debris.push({
@@ -98,13 +407,16 @@
             applyWakeForce(bossObj.x, bossObj.y, 400, 50);
         }
 
-        function radialExplosion(x, y, radius, damage) {
-            applyWakeForce(x, y, radius, 35);
-            addShake(radius / 8);
+        function radialExplosion(x, y, radius, damage, visualDebrisCount = 20, options = {}) {
+            const wakeStrength = options.wakeStrength ?? 35;
+            const shakeAmount = options.shakeAmount ?? (radius / 8);
+            applyWakeForce(x, y, radius, wakeStrength);
+            if (shakeAmount > 0) addShake(shakeAmount);
             const colors = ['#ff4400', '#ff6600', '#ff2200', '#ffaa00'];
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const e = enemies[i];
-                if (Math.hypot(e.x - x, e.y - y) < radius) {
+                if (!isEnemyDamageable(e)) continue;
+                if (doesCircleHitTargetMask(x, y, radius, e)) {
                     e.hp -= damage;
                     e.flashTimer = 0.15;
                     if (e.hp <= 0) {
@@ -116,12 +428,14 @@
             }
             if (boss && boss.phase === 'ACTIVE') {
                 if (boss.name === 'OVERHEATING FIREWALL') {
-                    if (boss.isVulnerable && Math.hypot(boss.x - x, (boss.y + 20) - y) < radius + 40) {
+                    if (boss.isVulnerable && Math.hypot(boss.x - x, (boss.y + FIREWALL_BOSS_CORE_OFFSET_Y) - y) < radius + 40) {
                         boss.hp -= damage;
                         boss.flashTimer = 0.15;
                         if (maybeTriggerBossDeathCinematic(boss)) return;
                     }
-                } else if (Math.hypot(boss.x - x, boss.y - y) < radius) {
+                } else if ((boss.name === 'GHOST SIGNAL' && radius >= 60)
+                    ? doesCircleHitTargetBounds(x, y, radius, boss)
+                    : doesCircleHitTargetMask(x, y, radius, boss)) {
                     const damageScale = getBlackVoidDamageScale(x, y);
                     boss.hp -= damage * damageScale;
                     if (damageScale < 1) absorbBlackVoidProjectile(x, y, 2);
@@ -129,7 +443,7 @@
                     if (maybeTriggerBossDeathCinematic(boss)) return;
                 }
             }
-            for (let i = 0; i < 20; i++) {
+            for (let i = 0; i < visualDebrisCount; i++) {
                 debris.push({
                     x, y, vx: (Math.random()-0.5)*radius*4, vy: (Math.random()-0.5)*radius*4,
                     char: '#', color: colors[Math.floor(Math.random() * colors.length)], life: 0.8
@@ -137,33 +451,20 @@
             }
         }
 
-        const BOMB_SHRAPNEL_STATS = {
-            damageMult: 1,
-            fireRateMult: 1,
-            speedMult: 1,
-            sizeMult: 0.72,
-            pierceCount: 0,
-            splashRadius: 0,
-            splashDamagePercent: 0,
-            homing: false,
-            chainCount: 0,
-            pathFunction: 'straight',
-            mode: 'projectile',
-            hasRearFire: false,
-            hasOrbitalDrones: false,
-            pelletCount: 1,
-            spreadAngle: 0,
-            inaccuracy: 0
-        };
+        const BOMB_SHRAPNEL_STATS = { ...createBaseWeaponStats(), sizeMult: 0.72 };
 
         function spawnBombExplosion(x, y) {
-            radialExplosion(x, y, BOMB_EXPLOSION_RADIUS, BOMB_EXPLOSION_DAMAGE);
-            addShake(26);
+            const bombRadius = BOMB_EXPLOSION_RADIUS * (1 + (player.modifiers.bombRadius || 0));
+            const damageScale = getPlayerDamageScale();
+            const bombDamage = BOMB_EXPLOSION_DAMAGE * (1 + (player.modifiers.bombDamage || 0)) * damageScale;
+            const shrapnelDamage = BOMB_SHRAPNEL_DAMAGE * (1 + (player.modifiers.bombDamage || 0) * 0.5) * damageScale;
+            radialExplosion(x, y, bombRadius, bombDamage, 10);
+            addShake(16 + bombRadius * 0.04);
 
             const ringConfigs = [
-                { color: '#8ff7ff', maxRadius: BOMB_EXPLOSION_RADIUS * 0.92, maxLife: 0.34, lineWidth: 5 },
-                { color: '#4fb6ff', maxRadius: BOMB_EXPLOSION_RADIUS * 1.2, maxLife: 0.48, lineWidth: 3 },
-                { color: '#eaa4ff', maxRadius: BOMB_EXPLOSION_RADIUS * 1.42, maxLife: 0.58, lineWidth: 2 }
+                { color: '#8ff7ff', maxRadius: bombRadius * 0.92, maxLife: 0.34, lineWidth: 5, shadowBlur: 14 },
+                { color: '#4fb6ff', maxRadius: bombRadius * 1.2, maxLife: 0.48, lineWidth: 3, shadowBlur: 12 },
+                { color: '#eaa4ff', maxRadius: bombRadius * 1.42, maxLife: 0.58, lineWidth: 2, shadowBlur: 10 }
             ];
             for (let i = 0; i < ringConfigs.length; i++) {
                 bombBlastRings.push({
@@ -176,7 +477,7 @@
 
             const plasmaColors = ['#ffffff', '#8ff7ff', '#56a6ff', '#d986ff'];
             const plasmaChars = ['✦', '✧', '*', '•', '░'];
-            for (let i = 0; i < 52; i++) {
+            for (let i = 0; i < 34; i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = 120 + Math.random() * 520;
                 debris.push({
@@ -190,7 +491,7 @@
                 });
             }
 
-            for (let i = 0; i < 26; i++) {
+            for (let i = 0; i < 10; i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = 90 + Math.random() * 180;
                 thrusterParticles.push({
@@ -222,7 +523,7 @@
                     stats: { ...BOMB_SHRAPNEL_STATS },
                     life: BOMB_SHRAPNEL_LIFE,
                     maxLife: BOMB_SHRAPNEL_LIFE,
-                    damage: BOMB_SHRAPNEL_DAMAGE,
+                    damage: shrapnelDamage,
                     pierceHits: [],
                     pierceCount: 0,
                     isBombShrapnel: true
@@ -230,9 +531,65 @@
             }
         }
 
+        function spawnMiniTorpedoExplosion(x, y, projectile) {
+            const stats = projectile.stats || createBaseWeaponStats();
+            const radius = stats.torpedoExplosionRadius || 58;
+            const damage = (projectile.damage || 10) * (stats.torpedoExplosionDamageMult || 0.85);
+            const visualLoad = bombBlastRings.length + debris.length / 80;
+            const visualDebrisCount = visualLoad > 18 ? 2 : (visualLoad > 10 ? 4 : Math.min(stats.splashVisualDebris ?? 6, 6));
+            radialExplosion(x, y, radius, damage, visualDebrisCount, { shakeAmount: 0, wakeStrength: 18 });
+
+            let miniRingCount = 0;
+            for (let i = bombBlastRings.length - 1; i >= 0; i--) {
+                if (bombBlastRings[i].isMiniTorpedoRing) miniRingCount++;
+                if (miniRingCount > 22) bombBlastRings.splice(i, 1);
+            }
+
+            bombBlastRings.push({
+                x,
+                y,
+                life: 0,
+                color: '#ffb347',
+                maxRadius: radius * 1.05,
+                maxLife: 0.24,
+                lineWidth: 2,
+                shadowBlur: 10,
+                isMiniTorpedoRing: true
+            });
+            bombBlastRings.push({
+                x,
+                y,
+                life: 0,
+                color: '#ff5f57',
+                maxRadius: radius * 1.35,
+                maxLife: 0.34,
+                lineWidth: 1.5,
+                shadowBlur: 8,
+                isMiniTorpedoRing: true
+            });
+
+            const colors = ['#fff1a8', '#ffb347', '#ff5f57', '#f7f7ff'];
+            const chars = ['*', '+', '.', 'o'];
+            const sparkCount = visualLoad > 18 ? 3 : (visualLoad > 10 ? 5 : 8);
+            for (let i = 0; i < sparkCount; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 90 + Math.random() * 240;
+                debris.push({
+                    x,
+                    y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    char: chars[i % chars.length],
+                    color: colors[i % colors.length],
+                    life: 0.28 + Math.random() * 0.22,
+                    isImpact: true
+                });
+            }
+        }
+
         function fireCombo(baseAngle = getPlayerFireAngle()) {
             let s = player.weaponStats;
-            let baseDmg = 10 * s.damageMult + player.modifiers.laserDamage;
+            let baseDmg = (10 * s.damageMult + player.modifiers.laserDamage) * getPlayerDamageScale();
             if (player.hp < player.maxHp * 0.5) baseDmg *= (1 + player.modifiers.adrenaline);
 
             const speed = 1400 * s.speedMult;
@@ -242,14 +599,52 @@
 
             function spawnBullet(x, y, vx, vy, isRear) {
                 let pdmg = isRear ? baseDmg * 1.25 : baseDmg;
+                const projectileStats = { ...s };
+                const launchAngle = Math.atan2(vy, vx);
+                const orbitDelay = projectileStats.orbitDelay || 0;
+                const orbiting = orbitDelay > 0;
+                const returning = projectileStats.returning;
+                const projectileSpeed = Math.hypot(vx, vy);
+                const isPlasmaCloud = !!projectileStats.plasmaCloud;
+                const isMiniTorpedo = !!projectileStats.miniTorpedo;
+                const orbitSpin = isRear ? -9.5 : 9.5;
+                const projectileLife = orbiting ? Math.max(2.45, orbitDelay + 1.55) : (isPlasmaCloud ? 2.5 : (isMiniTorpedo ? 1.6 : 2.0));
                 comboProjectiles.push({
-                    x, y, vx, vy, baseVx: vx, baseVy: vy, startX: x, startY: y,
-                    sprite: s.pathFunction === 'parabolic' ? '◓' : '|',
-                    color: '#ffffff',
-                    stats: { ...s },
-                    life: 2.0, maxLife: 2.0, damage: pdmg,
+                    x, y,
+                    vx: orbiting ? 0 : vx,
+                    vy: orbiting ? 0 : vy,
+                    baseVx: orbiting ? 0 : vx,
+                    baseVy: orbiting ? 0 : vy,
+                    startX: x, startY: y,
+                    sprite: projectileStats.lightningBall || isPlasmaCloud ? '' : (isMiniTorpedo ? 'o' : (s.pathFunction === 'parabolic' ? '◓' : (orbiting ? '☼' : (returning ? '✚' : '|')))),
+                    color: isPlasmaCloud ? '#66f2ff' : (isMiniTorpedo ? '#ffb347' : (projectileStats.lightningBall ? '#8ff7ff' : (orbiting ? '#ffcf6d' : (returning ? '#77ffe7' : '#ffffff')))),
+                    stats: projectileStats,
+                    life: projectileLife,
+                    maxLife: projectileLife,
+                    damage: pdmg,
                     pierceHits: [],
-                    pierceCount: s.pierceCount
+                    pierceCount: isPlasmaCloud ? Math.max(s.pierceCount, 999) : s.pierceCount,
+                    isLightningBall: !!projectileStats.lightningBall,
+                    isPlasmaCloud,
+                    isMiniTorpedo,
+                    visualSeed: Math.random() * 1000,
+                    cloudSparkTimer: 0,
+                    releaseAge: 0,
+                    cloudCurveSeed: Math.random() * Math.PI * 2,
+                    cloudCurveFrequency: 1.6 + Math.random() * 1.1,
+                    cloudCurveStrength: isPlasmaCloud
+                        ? (projectileStats.cloudCurveStrength || 0) * (0.65 + Math.random() * 0.7) * (Math.random() < 0.5 ? -1 : 1)
+                        : 0,
+                    age: 0,
+                    spinSpeed: (isRear ? -1 : 1) * (8.5 + Math.random() * 2.5),
+                    orbitTime: orbitDelay,
+                    orbitHoldTime: orbitDelay,
+                    orbitAngle: launchAngle,
+                    orbitRadius: (isRear ? 42 : 34) * (projectileStats.orbitRadiusMult || 1),
+                    orbitSpin,
+                    releaseAngle: launchAngle,
+                    releaseSpeed: projectileSpeed,
+                    hasReturned: false
                 });
             }
 
@@ -260,10 +655,17 @@
                 spawnBullet(frontOrigin.x, frontOrigin.y, Math.cos(aSpread) * speed, Math.sin(aSpread) * speed, false);
             }
 
-            if (s.hasRearFire && (player.rearFireTicker++ % 2 === 0)) {
+            const rearEvery = Math.max(1, Math.floor(s.rearFireEvery || 2));
+            if (s.hasRearFire && (player.rearFireTicker++ % rearEvery === 0)) {
+                const rearFan = Math.max(1, Math.floor(s.rearFireFan || 1));
+                const rearSpread = s.rearFireSpread || 0;
+                const rearFanCount = angles.length <= 2 ? rearFan : 1;
                 for (let a of angles) {
-                    let ra = a + Math.PI + (Math.random() - 0.5) * s.inaccuracy;
-                    spawnBullet(rearOrigin.x, rearOrigin.y, Math.cos(ra) * speed, Math.sin(ra) * speed, true);
+                    for (let fanIndex = 0; fanIndex < rearFanCount; fanIndex++) {
+                        const fanOffset = rearFanCount === 1 ? 0 : ((fanIndex / (rearFanCount - 1)) - 0.5) * rearSpread;
+                        let ra = a + Math.PI + fanOffset + (Math.random() - 0.5) * s.inaccuracy;
+                        spawnBullet(rearOrigin.x, rearOrigin.y, Math.cos(ra) * speed, Math.sin(ra) * speed, true);
+                    }
                 }
             }
 
@@ -272,7 +674,7 @@
         }
 
         function fireBomb() {
-            player.bombTimer = player.bombCooldown * player.modifiers.bombCooldown;
+            player.bombTimer = getPlayerBombCooldownTotal();
             const origin = getPlayerWeaponOrigin(getPlayerRenderLayout(player, getPlayerFacing(player)));
             const angle = getPlayerFireAngle();
             const vx = Math.cos(angle) * BOMB_GRENADE_SPEED;
@@ -510,6 +912,8 @@
             score = 0;
             WaveManager.currentWave = 0;
             WaveManager.waveDelay = 0;
+            WaveManager.hasSpawnedWave = false;
+            WaveManager.interWaveDelayQueued = false;
             WaveManager.pendingFormationUnits = 0;
             WaveManager.activeFormationId = 0;
             WaveManager.formationId = 0;
@@ -525,22 +929,23 @@
             player.hp = 100; player.maxHp = 100;
             player.xp = 0; player.xpNeeded = 10; player.level = 1;
             player.stats = { L: 1, M: 0, B: 0 };
-            player.modifiers = { moveSpeed: 0, maxHp: 0, laserDamage: 0, hitbox: 1, fireRate: 0, hpRegen: 0, invincibility: 0, adrenaline: 0, magnet: 0, bombCooldown: 1 };
-            player.weaponStats = { damageMult: 1, fireRateMult: 1, speedMult: 1, sizeMult: 1, pierceCount: 0, splashRadius: 0, splashDamagePercent: 0, homing: false, chainCount: 0, pathFunction: 'straight', mode: 'projectile', hasRearFire: false, hasOrbitalDrones: false, pelletCount: 1, spreadAngle: 0, inaccuracy: 0 };
+            player.modifiers = { moveSpeed: 0, maxHp: 0, laserDamage: 0, hitbox: 1, fireRate: 0, hpRegen: 0, invincibility: 0, adrenaline: 0, magnet: 0, bombCooldown: 1, bombDamage: 0, bombRadius: 0, momentumFireRate: 0, xpHeal: 0 };
+            player.weaponStats = createBaseWeaponStats();
             player.weapons = [];
             weaponWeights = {};
             WEAPON_POOL.forEach(w => weaponWeights[w.name] = 1.0);
-            player.drones = [{angle: 0, timer: 0}, {angle: Math.PI, timer: 0}];
+            player.drones = [];
             player.isBeaming = false; player.isFiring = false; player.rearFireTicker = 0;
             player.beamAngle = PLAYER_FIRE_FORWARD_ANGLE; player.beamTargetAngle = PLAYER_FIRE_FORWARD_ANGLE;
             player.beamDeploy = 0;
             player.bombTimer = 0; player.bombCooldown = BOMB_BASE_COOLDOWN;
+            player.godMode = false;
             player.invincibilityTimer = 0; player.flashTimer = 0;
-            player.fireRate = 260; player.lastFire = 0; player.color = '#00ffff';
+            player.fireRate = 306; player.lastFire = 0; player.color = '#00ffff';
             stopMusic();
             clearPauseVolumePreview();
             applyCurrentVolume();
-            pauseState = 'MAIN'; pauseSelection = 0;
+            pauseState = 'MAIN'; pauseSelection = 0; pausePowerupSelection = 0;
             titleAlpha = 0; autoLaunch = true;
             restartLoadingSequence = true;
             postResumeBombLockTimer = 0;

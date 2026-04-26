@@ -1,4 +1,429 @@
         // Canvas UI, menus, title screen, overlays, and frame rendering.
+        function wrapPauseText(text, maxWidth, maxLines) {
+            const words = String(text || '').split(/\s+/).filter(Boolean);
+            const lines = [];
+            let line = '';
+            for (const word of words) {
+                const testLine = line ? `${line} ${word}` : word;
+                if (ctx.measureText(testLine).width <= maxWidth || !line) {
+                    line = testLine;
+                } else {
+                    lines.push(line);
+                    line = word;
+                    if (lines.length >= maxLines) break;
+                }
+            }
+            if (line && lines.length < maxLines) lines.push(line);
+            return lines;
+        }
+
+        function drawLightningBallProjectile(p, renderNow, scale) {
+            const age = p.age || 0;
+            const spin = age * (p.spinSpeed || 18) + renderNow * 0.01;
+            const wobble = 0.92 + Math.sin(renderNow * 0.018 + age * 13) * 0.08;
+            const flickerSeed = Math.sin(renderNow * 0.041 + age * 31) + Math.sin(renderNow * 0.073 + age * 19);
+            const flicker = 0.78 + Math.max(0, flickerSeed) * 0.11;
+            const plasmaScale = scale * wobble * flicker;
+
+            ctx.save();
+            ctx.translate(p.x | 0, p.y | 0);
+            ctx.scale(plasmaScale, plasmaScale);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = '#8ff7ff';
+                ctx.shadowBlur = 18 + flicker * 7;
+            }
+
+            ctx.font = `bold 28px "Courier New", monospace`;
+            ctx.fillStyle = 'rgba(93, 220, 255, 0.36)';
+            ctx.fillText('O', -0.6, 0.4);
+            ctx.fillStyle = '#f4ffff';
+            ctx.fillText('O', 0, 0);
+
+            const sparkChars = ['|', '/', '\\', '*'];
+            ctx.font = `bold 10px "Courier New", monospace`;
+            for (let i = 0; i < 4; i++) {
+                const a = spin * 0.42 + i * Math.PI * 0.5 + Math.sin(renderNow * 0.017 + i) * 0.3;
+                const r = 5.2 + Math.sin(renderNow * 0.023 + i * 2.1) * 1.5;
+                ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 128, 255, 0.72)' : 'rgba(145, 248, 255, 0.78)';
+                ctx.fillText(sparkChars[i], Math.cos(a) * r, Math.sin(a) * r);
+            }
+
+            ctx.rotate(spin);
+            ctx.font = `bold ${Math.round(14 + flicker * 3)}px "Courier New", monospace`;
+            ctx.fillStyle = '#ff9dff';
+            if (glowEnabled) {
+                ctx.shadowColor = '#ff7dff';
+                ctx.shadowBlur = 14 + flicker * 10;
+            }
+            ctx.fillText('*', 0, 0);
+            ctx.restore();
+            ctx.shadowBlur = 0;
+        }
+
+        function drawPlasmaCloudProjectile(p, renderNow, scale) {
+            const phase = renderNow * 0.006 + (p.visualSeed || 0);
+            const pulse = 0.92 + Math.sin(phase * 1.7) * 0.08;
+            const stormTick = Math.floor(renderNow / 85 + (p.visualSeed || 0));
+            const fadeAlpha = getPlasmaCloudFadeAlpha(p);
+            const cloudChars = ['~', 'o', '*', '.', '+'];
+            const cells = [
+                { x: -11, y: -5, a: 0.42 }, { x: 0, y: -9, a: 0.48 }, { x: 12, y: -5, a: 0.42 },
+                { x: -17, y: 3, a: 0.34 }, { x: -5, y: 2, a: 0.58 }, { x: 7, y: 3, a: 0.54 }, { x: 18, y: 4, a: 0.32 },
+                { x: -8, y: 11, a: 0.36 }, { x: 5, y: 12, a: 0.35 }
+            ];
+
+            ctx.save();
+            ctx.translate(p.x | 0, p.y | 0);
+            ctx.scale(scale * pulse, scale * pulse);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = '#66f2ff';
+                ctx.shadowBlur = 18 + Math.sin(phase * 2.4) * 4;
+            }
+
+            ctx.font = `bold 17px "Courier New", monospace`;
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                const driftX = Math.sin(phase + i * 1.7) * 1.6;
+                const driftY = Math.cos(phase * 1.2 + i) * 1.2;
+                const hot = (stormTick + i) % 5 === 0;
+                ctx.globalAlpha = (hot ? 0.72 : cell.a) * fadeAlpha;
+                ctx.fillStyle = hot ? '#f7fdff' : (i % 3 === 0 ? '#77e7ff' : '#9b7dff');
+                ctx.fillText(cloudChars[(stormTick + i) % cloudChars.length], cell.x + driftX, cell.y + driftY);
+            }
+
+            ctx.globalAlpha = 0.56 * fadeAlpha;
+            ctx.font = `bold 11px "Courier New", monospace`;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(stormTick % 2 === 0 ? '/' : '\\', Math.sin(phase * 2.1) * 5, 0);
+            ctx.fillText('*', Math.cos(phase * 1.4) * 7, Math.sin(phase * 1.9) * 5);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawMiniTorpedoProjectile(p, renderNow, scale) {
+            const phase = renderNow * 0.014 + (p.visualSeed || 0);
+            const pulse = 0.9 + Math.sin(phase) * 0.1;
+            const angle = Math.atan2(p.baseVy || p.vy || -1, p.baseVx || p.vx || 0);
+
+            ctx.save();
+            ctx.translate(p.x | 0, p.y | 0);
+            ctx.rotate(angle + Math.PI / 2);
+            ctx.scale(scale * pulse, scale * pulse);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = '#ffb347';
+                ctx.shadowBlur = 14 + pulse * 6;
+            }
+            ctx.font = `bold 22px "Courier New", monospace`;
+            ctx.fillStyle = '#fff1a8';
+            ctx.fillText('o', 0, 0);
+            ctx.font = `bold 10px "Courier New", monospace`;
+            ctx.fillStyle = '#ff5f57';
+            ctx.fillText('*', 0, 0);
+            ctx.globalAlpha = 0.55;
+            ctx.fillStyle = '#ffb347';
+            ctx.fillText('.', -4 + Math.sin(phase) * 1.5, 11);
+            ctx.fillText('.', 4 + Math.cos(phase) * 1.5, 15);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawEnemyBulletOrb(b, renderNow, color) {
+            const seed = (b.x || 0) * 0.017 + (b.y || 0) * 0.013;
+            const phase = renderNow * 0.008 + seed;
+            const pulse = 1 + Math.sin(phase) * 0.08;
+            const glint = Math.sin(phase * 1.7) > 0.2;
+            const x = b.x | 0;
+            const y = b.y | 0;
+
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(pulse, pulse);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            if (glowEnabled) {
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 10 + Math.sin(phase * 1.3) * 2;
+            }
+            ctx.font = `bold 21px Courier New`;
+            ctx.globalAlpha = 0.9;
+            ctx.fillStyle = color;
+            ctx.fillText('○', 0, 0);
+
+            ctx.shadowBlur = glowEnabled ? 5 : 0;
+            ctx.font = `bold 12px Courier New`;
+            ctx.globalAlpha = 0.78;
+            ctx.fillText('●', 0, 0);
+
+            ctx.shadowBlur = 0;
+            ctx.font = `bold 9px Courier New`;
+            ctx.globalAlpha = glint ? 0.72 : 0.38;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('•', 0, 0);
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawChainLightningProjectile(p, renderNow) {
+            const lifeRatio = Math.max(0, Math.min(1, p.life / (p.maxLife || 0.34)));
+            const alpha = Math.min(1, lifeRatio * 1.9);
+            const sx = p.startX ?? p.x;
+            const sy = p.startY ?? p.y;
+            const tx = p.targetX ?? p.x;
+            const ty = p.targetY ?? p.y;
+            const dx = tx - sx;
+            const dy = ty - sy;
+            const len = Math.max(1, Math.hypot(dx, dy));
+            const nx = -dy / len;
+            const ny = dx / len;
+            const segments = Math.max(7, Math.min(18, Math.ceil(len / 18)));
+            const seed = (p.jitterSeed || 0) + Math.floor(renderNow / 36) * 13;
+            const points = [{ x: sx, y: sy }];
+            for (let i = 1; i < segments; i++) {
+                const t = i / segments;
+                const jitter = (Math.sin(seed + i * 12.9898) * 0.5 + Math.cos(seed * 0.7 + i * 78.233) * 0.5) * 17 * (1 - Math.abs(t - 0.5) * 0.85);
+                points.push({ x: sx + dx * t + nx * jitter, y: sy + dy * t + ny * jitter });
+            }
+            points.push({ x: tx, y: ty });
+            const runeChars = ['<', '>', 'M'];
+
+            function getBoltChar(a, index) {
+                if (index % 4 === 2) return runeChars[(index + Math.floor(seed)) % runeChars.length];
+                const s = Math.sin(a);
+                const c = Math.cos(a);
+                if (Math.abs(s) > Math.abs(c) * 1.35) return '|';
+                return s * c >= 0 ? '\\' : '/';
+            }
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            for (let pass = 0; pass < 3; pass++) {
+                const isFlash = pass === 0;
+                ctx.font = `bold ${isFlash ? 24 : (pass === 1 ? 18 : 14)}px "Courier New", monospace`;
+                ctx.fillStyle = isFlash ? 'rgba(255, 255, 255, 0.28)' : (pass === 1 ? '#f7feff' : '#75f4ff');
+                if (glowEnabled) {
+                    ctx.shadowColor = pass === 2 ? '#3fe8ff' : '#ffffff';
+                    ctx.shadowBlur = isFlash ? 28 : (pass === 1 ? 20 : 10);
+                }
+                for (let i = 0; i < points.length - 1; i++) {
+                    const a = Math.atan2(points[i + 1].y - points[i].y, points[i + 1].x - points[i].x);
+                    const midX = (points[i].x + points[i + 1].x) * 0.5;
+                    const midY = (points[i].y + points[i + 1].y) * 0.5;
+                    const twitch = Math.sin(seed + i * 5.41 + renderNow * 0.03) * (isFlash ? 2.6 : 1.2);
+                    ctx.save();
+                    ctx.translate(midX + nx * twitch, midY + ny * twitch);
+                    ctx.rotate((i % 4 === 2) ? 0 : a);
+                    ctx.fillText(getBoltChar(a, i), 0, 0);
+                    ctx.restore();
+                }
+            }
+
+            ctx.globalAlpha = alpha * 0.72;
+            ctx.font = `bold 13px "Courier New", monospace`;
+            ctx.fillStyle = '#d8ffff';
+            if (glowEnabled) {
+                ctx.shadowColor = '#8ff7ff';
+                ctx.shadowBlur = 18;
+            }
+            ctx.fillText(runeChars[Math.floor(seed) % runeChars.length], sx, sy);
+            ctx.fillText(runeChars[(Math.floor(seed) + 1) % runeChars.length], tx, ty);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawChainLightningPowerupIcon(x, y, size, color, selected = false) {
+            const scale = size / 28;
+            const pulse = selected ? 1 + Math.sin(currentFrameNow * 0.014) * 0.08 : 1;
+            const jitterSeed = Math.floor(currentFrameNow / 72);
+            const chars = ['/', '\\', '/', '<', '>'];
+            const bolts = [
+                { x: -9, y: -9, r: -0.22, c: 0 },
+                { x: -3, y: -3, r: 0.2, c: 1 },
+                { x: 4, y: 3, r: -0.26, c: 2 },
+                { x: 10, y: 9, r: 0.18, c: 1 }
+            ];
+
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(scale * pulse, scale * pulse);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = color;
+                ctx.shadowBlur = selected ? 20 : 11;
+            }
+
+            ctx.font = `bold 18px "Courier New", monospace`;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.34)';
+            for (const b of bolts) {
+                ctx.save();
+                ctx.translate(b.x * 1.12, b.y * 1.12);
+                ctx.rotate(b.r);
+                ctx.fillText(chars[b.c], 0, 0);
+                ctx.restore();
+            }
+
+            ctx.font = `bold ${selected ? 20 : 18}px "Courier New", monospace`;
+            for (let i = 0; i < bolts.length; i++) {
+                const b = bolts[i];
+                const twitch = Math.sin(jitterSeed + i * 4.7 + currentFrameNow * 0.025) * (selected ? 1.7 : 0.8);
+                ctx.fillStyle = i % 2 === 0 ? '#f7feff' : color;
+                ctx.save();
+                ctx.translate(b.x + twitch, b.y - twitch * 0.35);
+                ctx.rotate(b.r);
+                ctx.fillText(chars[b.c], 0, 0);
+                ctx.restore();
+            }
+
+            ctx.font = `bold 9px "Courier New", monospace`;
+            ctx.fillStyle = '#d8ffff';
+            ctx.fillText(chars[(jitterSeed + 3) % chars.length], -13, -13);
+            ctx.fillText(chars[(jitterSeed + 1) % chars.length], 13, 13);
+            ctx.restore();
+            ctx.shadowBlur = 0;
+        }
+
+        function drawPowerupIcon(powerup, x, y, size, selected = false) {
+            if (powerup && powerup.icon === 'chainLightning') {
+                drawChainLightningPowerupIcon(x, y, size, powerup.color, selected);
+                return;
+            }
+            ctx.fillText(powerup ? powerup.glyph : '', x, y);
+        }
+
+        function drawPausePowerupDetail(powerup, panelX, panelY, panelW) {
+            if (!powerup) return;
+            const panelH = 76;
+
+            ctx.save();
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.66)';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.strokeStyle = powerup.color;
+            ctx.lineWidth = 1.5;
+            if (glowEnabled) {
+                ctx.shadowColor = powerup.color;
+                ctx.shadowBlur = 10;
+            }
+            ctx.strokeRect(panelX, panelY, panelW, panelH);
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = powerup.color;
+            ctx.font = `bold 14px 'Electrolize', sans-serif`;
+            ctx.fillText(powerup.name, panelX + 12, panelY + 9);
+
+            ctx.fillStyle = 'rgba(190, 230, 255, 0.78)';
+            ctx.font = `bold 10px Courier New`;
+            ctx.fillText(powerup.cat.toUpperCase(), panelX + 12, panelY + 29);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `12px 'Electrolize', sans-serif`;
+            const descLines = wrapPauseText(powerup.desc, panelW - 24, 2);
+            for (let i = 0; i < descLines.length; i++) {
+                ctx.fillText(descLines[i], panelX + 12, panelY + 47 + i * 15);
+            }
+            ctx.restore();
+        }
+
+        function drawPausePowerupBar(tableY = 62) {
+            const slotCount = 10;
+            const cols = 5;
+            const cell = 42;
+            const gap = 8;
+            const tableW = cols * cell + (cols - 1) * gap;
+            const tableH = 2 * cell + gap;
+            const tableX = Math.round(width / 2 - tableW / 2);
+            const focused = pauseSelection === -1 && player.weapons.length > 0;
+            const selectedIndex = Math.max(0, Math.min(Math.max(0, player.weapons.length - 1), pausePowerupSelection));
+            pausePowerupSelection = selectedIndex;
+            const detailH = player.weapons.length > 0 ? 86 : 0;
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.48)';
+            ctx.fillRect(tableX - 14, tableY - 30, tableW + 28, tableH + 44 + detailH);
+            ctx.strokeStyle = focused ? currentThemeColor : 'rgba(0, 255, 255, 0.28)';
+            ctx.lineWidth = focused ? 2 : 1;
+            if (focused && glowEnabled) {
+                ctx.shadowColor = currentThemeColor;
+                ctx.shadowBlur = 12;
+            }
+            ctx.strokeRect(tableX - 14, tableY - 30, tableW + 28, tableH + 44 + detailH);
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = focused ? currentThemeColor : 'rgba(170, 220, 255, 0.7)';
+            ctx.font = `bold 12px 'Electrolize', sans-serif`;
+            ctx.fillText('POWERUPS', tableX + tableW / 2, tableY - 15);
+
+            for (let i = 0; i < slotCount; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = tableX + col * (cell + gap);
+                const y = tableY + row * (cell + gap);
+                const powerup = player.weapons[i];
+                const isSelected = focused && i === selectedIndex && !!powerup;
+
+                ctx.fillStyle = powerup ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)';
+                ctx.fillRect(x, y, cell, cell);
+                ctx.strokeStyle = isSelected ? powerup.color : 'rgba(255,255,255,0.22)';
+                ctx.lineWidth = isSelected ? 2.5 : 1;
+                if (isSelected && glowEnabled) {
+                    ctx.shadowColor = powerup.color;
+                    ctx.shadowBlur = 14;
+                }
+                ctx.strokeRect(x, y, cell, cell);
+                ctx.shadowBlur = 0;
+
+                if (powerup) {
+                    ctx.fillStyle = powerup.color;
+                    const iconPulse = isSelected ? (0.5 + Math.sin(currentFrameNow * 0.012) * 0.5) : 0;
+                    const iconSize = isSelected ? Math.round(29 + iconPulse * 4) : 28;
+                    const iconSpin = isSelected ? Math.sin(currentFrameNow * 0.008) * 0.08 : 0;
+                    ctx.font = `bold ${iconSize}px Courier New`;
+                    if (glowEnabled) {
+                        ctx.shadowColor = powerup.color;
+                        ctx.shadowBlur = isSelected ? 14 + iconPulse * 10 : 7;
+                    }
+                    if (isSelected) {
+                        ctx.save();
+                        ctx.translate(x + cell / 2, y + cell / 2 + 1);
+                        ctx.rotate(iconSpin);
+                        drawPowerupIcon(powerup, 0, 0, iconSize, true);
+                        ctx.restore();
+                    } else {
+                        drawPowerupIcon(powerup, x + cell / 2, y + cell / 2 + 1, iconSize, false);
+                    }
+                    ctx.shadowBlur = 0;
+                } else {
+                    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+                    ctx.font = `bold 22px Courier New`;
+                    ctx.fillText('·', x + cell / 2, y + cell / 2);
+                }
+            }
+
+            if (focused && player.weapons.length > 0) {
+                drawPausePowerupDetail(player.weapons[selectedIndex], tableX, tableY + tableH + 14, tableW);
+            }
+            ctx.restore();
+        }
+
         function drawPauseMenu() {
             ctx.fillStyle = currentBgColor + 'dd';
             ctx.fillRect(0, 0, width | 0, height | 0);
@@ -7,8 +432,15 @@
             const border = `${lFrame}`;
 
             if (pauseState === 'MAIN') {
-                const midY = height / 2 - 200;
                 const options = ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
+                const pauseOptionGap = 80;
+                const powerupDetailReserve = player.weapons.length > 0 ? 86 : 0;
+                const powerupPanelH = 2 * 42 + 8 + 44 + powerupDetailReserve;
+                const powerupTableY = 58;
+                const powerupPanelBottom = powerupTableY - 30 + powerupPanelH;
+                const centeredMidY = Math.round(height / 2 - ((options.length - 1) * pauseOptionGap) / 2);
+                const midY = Math.max(centeredMidY, powerupPanelBottom + 52);
+                drawPausePowerupBar(powerupTableY);
                 options.forEach((opt, i) => {
                     const isSel = pauseSelection === i;
                     ctx.fillStyle = isSel ? currentThemeColor : '#444488';
@@ -23,19 +455,19 @@
                         const textW = ctx.measureText(displayText).width;
                         
                         ctx.font = `bold 28px Courier New`;
-                        ctx.fillText(border, (midX - textW/2 - 25) | 0, (midY + i * 80) | 0);
-                        ctx.fillText(border, (midX + textW/2 + 25) | 0, (midY + i * 80) | 0);
+                        ctx.fillText(border, (midX - textW/2 - 25) | 0, (midY + i * pauseOptionGap) | 0);
+                        ctx.fillText(border, (midX + textW/2 + 25) | 0, (midY + i * pauseOptionGap) | 0);
                     }
                     
                     ctx.font = `bold 28px 'Electrolize', sans-serif`;
-                    ctx.fillText(displayText, midX | 0, (midY + i * 80) | 0);
+                    ctx.fillText(displayText, midX | 0, (midY + i * pauseOptionGap) | 0);
                     
                     if (i === 2) {
                         ctx.font = `bold 18px Courier New`;
                         const blocks = Math.round(currentVolume * 10);
                         const barStr = '▓'.repeat(blocks) + '░'.repeat(10 - blocks);
                         const muteStr = isMuted ? ' 🔇M' : '';
-                        ctx.fillText(`[${barStr}]${muteStr}`, midX | 0, (midY + i * 80 + 25) | 0);
+                        ctx.fillText(`[${barStr}]${muteStr}`, midX | 0, (midY + i * pauseOptionGap + 25) | 0);
                     }
 
                     ctx.shadowBlur = 0;
@@ -156,6 +588,7 @@
             else if (opt.id === 'repair') valStr = `+${opt.value.toFixed(1)}/s`;
             else if (opt.id === 'shield') valStr = `+${opt.value.toFixed(2)}s`;
             else if (opt.id === 'target') valStr = `+${opt.value.toFixed(0)} DMG`;
+            else if (opt.id === 'bioscrap') valStr = `+${(opt.value * 100).toFixed(2)}% HP/ORB`;
             else valStr = `+${(opt.value * 100).toFixed(0)}%`;
             ctx.fillText(valStr, w / 2, h - 25);
             ctx.restore();
@@ -611,7 +1044,7 @@
                         ctx.font = 'bold 40px Courier New';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'middle';
-                        ctx.fillText(activeWp.glyph, d.x|0, d.y|0);
+                        drawPowerupIcon(activeWp, d.x | 0, d.y | 0, 40, true);
 
                         ctx.font = 'bold 12px "Electrolize", sans-serif';
                         ctx.fillStyle = activeWp.color;
@@ -645,6 +1078,27 @@
                 let hugeFontSet = false;
                 for (const b of enemyBullets) { 
                     let bulletColor = b.color;
+                    if (b.isDyingBullet) {
+                        const startedAt = b.bossClearStart || currentFrameNow || performance.now();
+                        const elapsed = ((currentFrameNow || performance.now()) - startedAt) / 1000;
+                        const duration = b.bossClearDuration || 0.5;
+                        const progress = Math.max(0, Math.min(1, elapsed / duration));
+                        const alpha = Math.pow(1 - progress, 1.35);
+                        const pop = Math.sin(progress * Math.PI);
+                        ctx.save();
+                        ctx.globalAlpha = alpha;
+                        ctx.fillStyle = progress < 0.22 ? '#ffffff' : (b.bossClearColor || b.color || '#ffffff');
+                        ctx.font = `bold ${Math.max(8, Math.round((b.bossClearSize || 22) * (0.8 + pop * 0.35)))}px Courier New`;
+                        if (glowEnabled && b.bossClearGlow !== false) {
+                            ctx.shadowColor = '#ffffff';
+                            ctx.shadowBlur = 18 * alpha + 8 * pop;
+                        }
+                        ctx.fillText(b.bossClearChar || '✦', b.x | 0, b.y | 0);
+                        ctx.restore();
+                        ctx.globalAlpha = 1.0;
+                        ctx.shadowBlur = 0;
+                        continue;
+                    }
                     if (b.isHuge) {
                         if (!hugeFontSet) {
                             ctx.font = `bold 120px Courier New`;
@@ -662,27 +1116,10 @@
                         continue;
                     }
                     if (b.isLargeFlame) {
-                        // Only spawn trail particles while the simulation is live.
-                        if (gameState === 'PLAYING' && Math.random() > 0.4) {
-                            thrusterParticles.push({
-                                x: b.x + (Math.random() - 0.5) * 10, y: b.y + (Math.random() - 0.5) * 10,
-                                vx: (Math.random() - 0.5) * 30, vy: -30 - Math.random() * 25,
-                                char: ELEMENTAL_TRAIL_CHARS[Math.floor(Math.random() * ELEMENTAL_TRAIL_CHARS.length)],
-                                color: null, life: 0.7, isGuardianFlame: true
-                            });
-                        }
                         // Fade between red and orange without mutating projectile state during pause.
                         const flameCycle = Math.sin(renderNow * 0.004);
                         bulletColor = flameCycle > 0 ? '#e01926' : '#e38914';
                     } else if (b.isLargeWraith) {
-                        if (gameState === 'PLAYING' && Math.random() > 0.4) {
-                            thrusterParticles.push({
-                                x: b.x + (Math.random() - 0.5) * 10, y: b.y + (Math.random() - 0.5) * 10,
-                                vx: (Math.random() - 0.5) * 30, vy: -30 - Math.random() * 25,
-                                char: ELEMENTAL_TRAIL_CHARS[Math.floor(Math.random() * ELEMENTAL_TRAIL_CHARS.length)],
-                                color: null, life: 0.7, isWraithFlame: true
-                            });
-                        }
                         const wraithCycle = Math.sin(renderNow * 0.004 + b.x * 0.01 + b.y * 0.01);
                         bulletColor = wraithCycle > 0.3 ? '#c8ffff' : (wraithCycle > -0.2 ? '#f4fbff' : '#101317');
                     }
@@ -723,6 +1160,14 @@
                         ctx.shadowColor = b.color;
                         ctx.shadowBlur = 14;
                     }
+                    const useOrbBulletVisual = !b.decay &&
+                        !b.isGlitchBullet && !b.isLargeFlame && !b.isLargeWraith &&
+                        !b.isWraithBolt && !b.isSignalYBullet && !b.isPhantomBullet &&
+                        !b.isVoidProjectile && !b.isFlyByBullet;
+                    if (useOrbBulletVisual) {
+                        drawEnemyBulletOrb(b, renderNow, bulletColor);
+                        continue;
+                    }
                     ctx.fillText(b.char, b.x | 0, b.y | 0);
                     if (b.isGlitchBullet || b.isWraithBolt || b.isFlyByBullet || b.isVoidProjectile) { ctx.shadowBlur = 0; }
                 }
@@ -734,7 +1179,18 @@
                     if (e.path && e.pathT < 0) continue;
                     if (e.lifeTime && e.lifeTime < 0) continue;
                     const flashColor = e.flashTimer > 0 ? '#ffffff' : null;
-                    if (e.isFlyBy) {
+                    if (e.enemyShipSprite) {
+                        if (e.isRisingStar) {
+                            const alpha = Math.max(0.12, Math.min(1, e.risingAlpha || 1));
+                            ctx.save();
+                            ctx.globalAlpha *= alpha;
+                            drawEnemyShipSprite(e, flashColor);
+                            ctx.restore();
+                            drawRisingStarThruster(e, renderNow, alpha);
+                        } else {
+                            drawEnemyShipSprite(e, flashColor);
+                        }
+                    } else if (e.isFlyBy) {
                         const flyByScale = e.flyByScale || 1.55;
                         const localX = -(e.sprite[0].length * charW) / 2;
                         const localY = -(e.sprite.length * charH) / 2;
@@ -798,11 +1254,14 @@
                         const fireLines = boss.sprite;
                         const renderBossX = snapSpriteCoord(boss.x);
                         const renderBossY = snapSpriteCoord(boss.y);
-                        const bSX = renderBossX - (fireLines[0].length * charW) / 2;
-                        const bSY = renderBossY - (fireLines.length * charH) / 2;
+                        const bSX = -(fireLines[0].length * charW) / 2;
+                        const bSY = -(fireLines.length * charH) / 2;
                         const firewallHasColor = boss.phase === 'ACTIVE';
                         
                         ctx.font = `bold 20px Courier New`;
+                        ctx.save();
+                        ctx.translate(renderBossX, renderBossY);
+                        ctx.scale(FIREWALL_BOSS_RENDER_SCALE, FIREWALL_BOSS_RENDER_SCALE);
                         
                         // Exact mathematical frame loop (300 frames = 5 seconds at 60FPS)
                         const LOOP_FRAMES = 300;
@@ -858,12 +1317,21 @@
                                     heat = Math.max(1, Math.min(4, heat)); 
                                     
                                     const animChar = FIREWALL_FIRE_CHARS[heat];
-                                    ctx.fillText(animChar, (bSX + c * charW) | 0, (bSY + r * charH) | 0);
-                                    recordBossRenderGlyph(bossRenderEntries, animChar, (bSX + c * charW) | 0, (bSY + r * charH) | 0, ctx.fillStyle);
+                                    const localX = bSX + c * charW;
+                                    const localY = bSY + r * charH;
+                                    ctx.fillText(animChar, localX | 0, localY | 0);
+                                    recordBossRenderGlyph(
+                                        bossRenderEntries,
+                                        animChar,
+                                        (renderBossX + localX * FIREWALL_BOSS_RENDER_SCALE) | 0,
+                                        (renderBossY + localY * FIREWALL_BOSS_RENDER_SCALE) | 0,
+                                        ctx.fillStyle
+                                    );
                                 }
                             }
                         }
                         ctx.shadowBlur = 0;
+                        ctx.restore();
                         
                         if (boss.phase === 'ACTIVE') {
                             if (gameState === 'PLAYING') {
@@ -873,9 +1341,9 @@
                             }
                             
                             const coreX = boss.x;
-                            const coreY = boss.y + 20;
+                            const coreY = boss.y + FIREWALL_BOSS_CORE_OFFSET_Y;
                             
-                            ctx.font = `bold 96px Courier New`; // 300% scale
+                            ctx.font = `bold ${FIREWALL_BOSS_CORE_FONT_SIZE}px Courier New`;
                             if (boss.isVulnerable) {
                                 ctx.fillStyle = '#00ffff';
                                 ctx.shadowColor = '#00ffff';
@@ -1009,9 +1477,14 @@
                             ctx.save();
                             ctx.globalAlpha = boss.glowIntensity * 0.8;
                             ctx.fillStyle = boss.color;
-                            ctx.beginPath();
-                            ctx.arc(boss.x, boss.y, 30 + boss.glowIntensity * 30, 0, Math.PI * 2);
-                            ctx.fill();
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.font = `bold ${(60 + boss.glowIntensity * 60) | 0}px "Courier New", monospace`;
+                            if (glowEnabled) {
+                                ctx.shadowColor = boss.color;
+                                ctx.shadowBlur = 20 + boss.glowIntensity * 18;
+                            }
+                            ctx.fillText('O', boss.x | 0, boss.y | 0);
                             ctx.restore();
                         }
 
@@ -1132,9 +1605,15 @@
                     const angles = getFirePatternAngles(s, beamAngle, true);
                     const beamPhase = renderNow;
                     const beamMetrics = getBeamMetrics(s.sizeMult, beamDeployFactor);
+                    const beamVisualLoad = angles.length * Math.max(1, s.sizeMult);
                     for (let angleIndex = 0; angleIndex < angles.length; angleIndex++) {
-                        drawBeamStrand(beamOrigin.x, beamOrigin.y, angles[angleIndex], s.sizeMult, beamPhase, beamDeployFactor, beamMetrics);
+                        drawBeamStrand(beamOrigin.x, beamOrigin.y, angles[angleIndex], s.sizeMult, beamPhase, beamDeployFactor, beamMetrics, beamVisualLoad);
                     }
+                }
+
+                let miniTorpedoRingRenderCount = 0;
+                for (let i = 0; i < bombBlastRings.length; i++) {
+                    if (bombBlastRings[i].isMiniTorpedoRing) miniTorpedoRingRenderCount++;
                 }
 
                 for (const ring of bombBlastRings) {
@@ -1143,15 +1622,39 @@
                     const alpha = (1 - t) * 0.9;
                     ctx.save();
                     ctx.globalAlpha = alpha;
-                    ctx.strokeStyle = ring.color;
-                    ctx.lineWidth = ring.lineWidth;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    if (ring.isMiniTorpedoRing) {
+                        ctx.strokeStyle = ring.color;
+                        ctx.lineWidth = Math.max(1.2, ring.lineWidth || 2);
+                        if (glowEnabled && miniTorpedoRingRenderCount < 18) {
+                            ctx.shadowColor = ring.color;
+                            ctx.shadowBlur = ring.shadowBlur || 8;
+                        }
+                        ctx.beginPath();
+                        ctx.arc(ring.x | 0, ring.y | 0, radius, 0, Math.PI * 2);
+                        ctx.stroke();
+                        if (t < 0.34 && miniTorpedoRingRenderCount < 14) {
+                            ctx.globalAlpha = alpha * 0.38;
+                            ctx.beginPath();
+                            ctx.arc(ring.x | 0, ring.y | 0, radius * 0.64, 0, Math.PI * 2);
+                            ctx.stroke();
+                        }
+                        ctx.restore();
+                        continue;
+                    }
+                    ctx.fillStyle = ring.color;
+                    ctx.font = `bold ${Math.max(18, radius * 2.08)}px "Courier New", monospace`;
                     if (glowEnabled) {
                         ctx.shadowColor = ring.color;
-                        ctx.shadowBlur = 18;
+                        ctx.shadowBlur = ring.shadowBlur || 18;
                     }
-                    ctx.beginPath();
-                    ctx.arc(ring.x | 0, ring.y | 0, radius, 0, Math.PI * 2);
-                    ctx.stroke();
+                    ctx.fillText(ring.glyph || 'O', ring.x | 0, ring.y | 0);
+                    if (t < 0.45) {
+                        ctx.globalAlpha = alpha * 0.45;
+                        ctx.font = `bold ${Math.max(14, radius * 1.55)}px "Courier New", monospace`;
+                        ctx.fillText(ring.glyph || 'O', ring.x | 0, ring.y | 0);
+                    }
                     ctx.restore();
                 }
 
@@ -1162,17 +1665,21 @@
                     ctx.fillStyle = '#ffffff';
                     if (glowEnabled) {
                         ctx.shadowColor = '#72e8ff';
-                        ctx.shadowBlur = 22 + pulse * 10;
+                        ctx.shadowBlur = 14 + pulse * 7;
                     }
-                    ctx.font = `bold 28px Courier New`;
-                    ctx.fillText('◉', 0, 0);
-                    ctx.fillStyle = '#8eeeff';
-                    ctx.font = `bold 18px Courier New`;
-                    ctx.fillText('•', 0, 0);
+                    ctx.font = `bold 22px Courier New`;
+                    ctx.fillText('O', 0, 0);
+                    ctx.fillStyle = '#9edfff';
+                    ctx.font = `bold 11px Courier New`;
+                    ctx.fillText('.', 0, 0);
                     ctx.restore();
                 }
                 
                 for (const p of comboProjectiles) { 
+                    if (p.isChainLightning) {
+                        drawChainLightningProjectile(p, renderNow);
+                        continue;
+                    }
                     ctx.fillStyle = p.color; 
                     if (p.isBombShrapnel) {
                         ctx.font = `bold 22px Courier New`;
@@ -1190,15 +1697,40 @@
                         let arc = Math.sin((p.life / p.maxLife) * Math.PI);
                         scale *= (1 + arc * 2);
                     }
+                    if (p.isPlasmaCloud || p.stats.plasmaCloud) {
+                        scale *= getPlasmaCloudGrowthFactor(p);
+                        ctx.restore();
+                        drawPlasmaCloudProjectile(p, renderNow, scale);
+                        continue;
+                    }
+                    if (p.isMiniTorpedo || p.stats.miniTorpedo) {
+                        ctx.restore();
+                        drawMiniTorpedoProjectile(p, renderNow, scale);
+                        continue;
+                    }
+                    if (p.isLightningBall || p.stats.lightningBall) {
+                        ctx.restore();
+                        drawLightningBallProjectile(p, renderNow, scale);
+                        continue;
+                    }
                     ctx.scale(scale, scale);
                     ctx.fillText(p.sprite, 0, 0); 
                     ctx.restore();
                     if (p.isBombShrapnel) ctx.shadowBlur = 0;
                 }
+                let lastDebrisColor = null;
+                let lastDebrisFont = null;
                 for (const d of debris) { 
-                    ctx.fillStyle = d.color; 
+                    if (d.color !== lastDebrisColor) {
+                        ctx.fillStyle = d.color;
+                        lastDebrisColor = d.color;
+                    }
                     ctx.globalAlpha = d.isImpact ? Math.max(0, Math.min(1, d.life * 5)) : d.life; 
-                    ctx.font = d.isImpact ? `bold 7px Courier New` : `bold 16px Courier New`; 
+                    const debrisFont = d.isImpact ? `bold 7px Courier New` : `bold 16px Courier New`;
+                    if (debrisFont !== lastDebrisFont) {
+                        ctx.font = debrisFont;
+                        lastDebrisFont = debrisFont;
+                    }
                     ctx.fillText(d.char, d.x | 0, d.y | 0); 
                 }
                 ctx.globalAlpha = 1.0;

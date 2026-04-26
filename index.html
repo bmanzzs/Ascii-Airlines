@@ -163,68 +163,62 @@
         }
         .hud-bar-block-filled {
             opacity: calc(0.38 + var(--fill-alpha) * 0.62);
-            will-change: opacity, filter, transform;
+            will-change: opacity, filter;
         }
-        .hud-meter-bar.is-xp .hud-bar-block-filled {
-            animation: hud-meter-shimmer-bomb-ready 1.4s ease-in-out infinite;
-            animation-delay: calc(var(--bar-idx, 0) * 64ms);
-        }
-        .hud-meter-bar.is-hp .hud-bar-block-filled {
-            animation: hud-meter-shimmer-bomb-ready 1.4s ease-in-out infinite;
-            animation-delay: calc(var(--bar-idx, 0) * 64ms);
-        }
-        .hud-meter-bar.is-bomb .hud-bar-block-filled {
-            animation: hud-meter-shimmer-bomb-ready 1.4s ease-in-out infinite;
-            animation-delay: calc(var(--bar-idx, 0) * 64ms);
-        }
-        .hud-meter-bar.is-bomb.is-bomb-ready .hud-bar-block-filled {
-            animation: hud-meter-shimmer-bomb-ready 1.4s ease-in-out infinite;
+        .hud-meter-bar.is-full .hud-bar-block-filled {
+            animation: hud-meter-full-shimmer 1.35s ease-in-out infinite;
             animation-delay: calc(var(--bar-idx, 0) * 64ms);
         }
         @keyframes hud-meter-shimmer {
             0%, 100% {
                 opacity: calc(0.42 + var(--fill-alpha) * 0.58);
                 filter: brightness(1);
-                transform: translateY(0) scale(1);
             }
             45% {
                 opacity: calc(0.52 + var(--fill-alpha) * 0.72);
                 filter: brightness(calc(1.12 + var(--fill-alpha) * 0.22));
-                transform: translateY(-0.5px) scale(1.01);
             }
             60% {
                 opacity: calc(0.62 + var(--fill-alpha) * 0.82);
                 filter: brightness(calc(1.22 + var(--fill-alpha) * 0.35));
-                transform: translateY(-1px) scale(1.03);
             }
         }
         @keyframes hud-meter-shimmer-soft {
             0%, 100% {
                 opacity: calc(0.46 + var(--fill-alpha) * 0.5);
                 filter: brightness(1);
-                transform: translateY(0) scale(1);
             }
             50% {
                 opacity: calc(0.56 + var(--fill-alpha) * 0.6);
                 filter: brightness(calc(1.08 + var(--fill-alpha) * 0.18));
-                transform: translateY(-0.5px) scale(1.01);
             }
         }
         @keyframes hud-meter-shimmer-bomb-ready {
             0%, 100% {
                 opacity: calc(0.48 + var(--fill-alpha) * 0.54);
                 filter: brightness(1.02);
-                transform: translateY(0) scale(1);
             }
             42% {
                 opacity: calc(0.58 + var(--fill-alpha) * 0.64);
                 filter: brightness(calc(1.12 + var(--fill-alpha) * 0.2));
-                transform: translateY(-0.5px) scale(1.01);
             }
             60% {
                 opacity: calc(0.64 + var(--fill-alpha) * 0.7);
                 filter: brightness(calc(1.18 + var(--fill-alpha) * 0.26));
-                transform: translateY(-0.8px) scale(1.02);
+            }
+        }
+        @keyframes hud-meter-full-shimmer {
+            0%, 100% {
+                opacity: calc(0.48 + var(--fill-alpha) * 0.54);
+                filter: brightness(1.02);
+            }
+            45% {
+                opacity: calc(0.58 + var(--fill-alpha) * 0.64);
+                filter: brightness(calc(1.14 + var(--fill-alpha) * 0.2));
+            }
+            62% {
+                opacity: calc(0.66 + var(--fill-alpha) * 0.68);
+                filter: brightness(calc(1.22 + var(--fill-alpha) * 0.24));
             }
         }
         .hud-weapon-wrap {
