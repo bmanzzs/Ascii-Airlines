@@ -436,9 +436,10 @@
                 } else if ((boss.name === 'GHOST SIGNAL' && radius >= 60)
                     ? doesCircleHitTargetBounds(x, y, radius, boss)
                     : doesCircleHitTargetMask(x, y, radius, boss)) {
-                    const damageScale = getBlackVoidDamageScale(x, y);
+                    const shieldBlocks = boss.isBattleStarship && boss.isShielded;
+                    const damageScale = shieldBlocks ? 0 : getBlackVoidDamageScale(x, y);
                     boss.hp -= damage * damageScale;
-                    if (damageScale < 1) absorbBlackVoidProjectile(x, y, 2);
+                    if (damageScale < 1 && !shieldBlocks) absorbBlackVoidProjectile(x, y, 2);
                     boss.flashTimer = 0.15;
                     if (maybeTriggerBossDeathCinematic(boss)) return;
                 }

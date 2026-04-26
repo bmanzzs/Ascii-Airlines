@@ -86,6 +86,19 @@
                 burstCount: 30,
                 burstColors: ['#ffffff', '#d7ddff', '#8170ff', '#2a315f'],
                 burstChars: ['*', '#', '@', '+']
+            },
+            'BATTLE STARSHIP': {
+                debrisCap: 220,
+                debrisLife: 1.55,
+                debrisVelocity: 1020,
+                rings: [
+                    { color: '#ffffff', maxRadius: 170, maxLife: 0.34, lineWidth: 5, shadowBlur: 18 },
+                    { color: '#9be3ff', maxRadius: 250, maxLife: 0.54, lineWidth: 4, shadowBlur: 14 },
+                    { color: '#5fa8ff', maxRadius: 340, maxLife: 0.78, lineWidth: 3, shadowBlur: 12 }
+                ],
+                burstCount: 38,
+                burstColors: ['#ffffff', '#bff0ff', '#7ed4ff', '#5fa8ff'],
+                burstChars: ['*', '#', '+', 'x']
             }
         };
 
@@ -156,7 +169,7 @@
             } else if (sprite.length > 0) {
                 const renderScale = bossObj && bossObj.name === 'OVERHEATING FIREWALL'
                     ? FIREWALL_BOSS_RENDER_SCALE
-                    : 1;
+                    : (bossObj && bossObj.isBattleStarship ? (bossObj.renderScale || 0.55) : 1);
                 const cellW = charW * renderScale;
                 const cellH = charH * renderScale;
                 const startX = bossObj.x - (sprite[0].length * cellW) / 2;

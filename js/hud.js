@@ -155,6 +155,19 @@
             }
         }
 
+        function buildHudChainLightningIcon(color) {
+            const safeColor = /^#[0-9a-f]{6}$/i.test(color) ? color : '#00ffff';
+            const glow = glowEnabled ? `text-shadow:0 0 3px ${safeColor},0 0 6px ${safeColor};` : '';
+            return `
+                <span class="hud-weapon-icon hud-chain-lightning-icon" aria-hidden="true" style="color:${safeColor};${glow}">
+                    <span class="hud-chain-bolt" style="left:0px;top:-1px;transform:rotate(-16deg);">/</span>
+                    <span class="hud-chain-bolt" style="left:5px;top:2px;transform:rotate(14deg);">\\</span>
+                    <span class="hud-chain-bolt" style="left:10px;top:5px;transform:rotate(-18deg);">/</span>
+                    <span class="hud-chain-spark" style="left:-2px;top:-4px;">'</span>
+                    <span class="hud-chain-spark" style="right:-1px;bottom:-4px;">'</span>
+                </span>`;
+        }
+
         function syncWeaponGrid(themeColor) {
             const grid = hudRefs.weaponGrid;
             if (!grid) return;
@@ -175,12 +188,21 @@
                 if (i < player.weapons.length) {
                     const w = player.weapons[i];
                     const glow = glowEnabled ? `0 0 5px ${w.color}` : 'none';
-                    cell.textContent = w.glyph;
+                    const iconSignature = `${w.name}:${w.color}:${w.glyph}:${w.icon || ''}:${glowEnabled ? 1 : 0}`;
+                    if (cell.dataset.iconSignature !== iconSignature) {
+                        if (w.icon === 'chainLightning') {
+                            cell.innerHTML = buildHudChainLightningIcon(w.color);
+                        } else {
+                            cell.textContent = w.glyph;
+                        }
+                        cell.dataset.iconSignature = iconSignature;
+                    }
                     cell.style.color = w.color;
-                    cell.style.textShadow = glow;
+                    cell.style.textShadow = w.icon === 'chainLightning' ? 'none' : glow;
                     cell.style.background = '';
                 } else {
-                    cell.textContent = '';
+                    cell.innerHTML = '';
+                    cell.dataset.iconSignature = '';
                     cell.style.color = '';
                     cell.style.textShadow = '';
                     cell.style.background = 'rgba(255,255,255,0.1)';
@@ -246,7 +268,7 @@
             
             const waveNumber = Math.max(1, WaveManager.currentWave);
             const waveText = boss ? 'BOSS' : waveNumber;
-            const weaponSignature = player.weapons.map(w => `${w.name}:${w.color}:${w.glyph}`).join('|');
+            const weaponSignature = player.weapons.map(w => `${w.name}:${w.color}:${w.glyph}:${w.icon || ''}`).join('|');
 
             const hpSignature = [
                 hpBlocks,

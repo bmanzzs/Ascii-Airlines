@@ -225,8 +225,9 @@
             let inputX = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), inputY = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
             if (inputX !== 0 && inputY !== 0) { inputX *= 0.707; inputY *= 0.707; }
             
-            player.vx = (player.vx + inputX * P_ACCEL * (1 + player.modifiers.moveSpeed) * dt) * P_FRICTION;
-            player.vy = (player.vy + inputY * P_ACCEL * (1 + player.modifiers.moveSpeed) * dt) * P_FRICTION;
+            const playerMoveSpeedScale = getPlayerMoveSpeedScale();
+            player.vx = (player.vx + inputX * P_ACCEL * playerMoveSpeedScale * dt) * P_FRICTION;
+            player.vy = (player.vy + inputY * P_ACCEL * playerMoveSpeedScale * dt) * P_FRICTION;
             player.x = Math.max(50, Math.min(width - 50, player.x + player.vx * dt));
             player.y = Math.max(50, Math.min(getGameplayBottomLimit(50), player.y + player.vy * dt));
             const playerSpeedRatio = Math.min(1, Math.sqrt(player.vx * player.vx + player.vy * player.vy) / P_MAX_SPEED);
@@ -235,7 +236,7 @@
 
             const momentumFireRate = (player.modifiers.momentumFireRate || 0) * playerSpeedRatio;
             const totalFireRateBonus = player.modifiers.fireRate + momentumFireRate;
-            const actualFireRate = (player.fireRate / player.weaponStats.fireRateMult) / (1 + totalFireRateBonus);
+            const actualFireRate = getClampedPlayerFireInterval((player.fireRate / player.weaponStats.fireRateMult) / (1 + totalFireRateBonus));
             player.isBeaming = player.weaponStats.mode === 'beam';
             player.isFiring = isPlayerFirePressed();
             const beamDeployFactor = updateBeamDeploy(dt);
@@ -303,6 +304,8 @@
                                     absorbBlackVoidProjectile(beamHitX, beamHitY, 1);
                                 }
                             }
+                        } else if (e === boss && boss.isBattleStarship && boss.isShielded) {
+                            appliedDamage = 0;
                         }
                         e.hp -= appliedDamage;
                         e.flashTimer = 0.15;
@@ -331,7 +334,7 @@
 
                     d.timer -= dt;
                     if (d.timer <= 0) {
-                        d.timer = 0.2 / player.weaponStats.fireRateMult / (1 + totalFireRateBonus) * 1.66;
+                        d.timer = Math.max(PLAYER_FIRE_INTERVAL_MIN_MS / 1000 * 1.35, 0.2 / player.weaponStats.fireRateMult / (1 + totalFireRateBonus) * 1.66);
                         const nearestInfo = findNearestActiveTarget(d.x, d.y);
                         const nearest = nearestInfo.target;
                         const minDist = nearestInfo.distSq;
@@ -891,6 +894,195 @@
                     }
                 } else if (boss.isBlackVoid) {
                     if (updateBlackVoidBoss(dt)) return;
+                } else if (boss.isBattleStarship) {
+                    if (boss.phase === 'INTRO') {
+                        const introDuration = 5.2;
+                        const introStartY = typeof boss.introStartY === 'number' ? boss.introStartY : -200;
+                        const introTargetY = 150;
+                        const introProgress = Math.max(0, Math.min(1, boss.timer / introDuration));
+                        const eased = 1 - Math.pow(1 - introProgress, 2.4);
+                        boss.y = introStartY + (introTargetY - introStartY) * eased;
+                        boss.x = width / 2 + Math.sin(boss.timer * 1.4) * (10 * (1 - introProgress));
+                        boss.timer += dt;
+                        if (boss.timer >= introDuration) {
+                            boss.y = introTargetY;
+                            boss.x = width / 2;
+                            boss.phase = 'ACTIVE';
+                            boss.timer = 0;
+                            boss.startX = boss.x;
+                            boss.startY = boss.y;
+                            boss.color = '#7ed4ff';
+                            boss.isVulnerable = true;
+                            boss.attackPattern = 0;
+                        }
+                    } else {
+                        boss.timer += dt;
+                        boss.driftTimer = (boss.driftTimer || 0) + dt;
+                        boss.x = boss.startX + Math.sin(boss.driftTimer * 0.55) * 110;
+                        boss.y = boss.startY + Math.sin(boss.driftTimer * 0.85 + 0.4) * 14;
+                        applyWakeForce(boss.x, boss.y, 240, 7);
+
+                        const patternDur = boss.attackPattern === 4 ? 5.2 : (boss.attackPattern === 1 ? 5.0 : 4.4);
+                        if (boss.timer > patternDur) {
+                            boss.timer = 0;
+                            boss.attackPattern = (boss.attackPattern + 1) % 5;
+                            boss.lastFire = 0;
+                            boss.chargeTimer = 0;
+                            boss.isCharging = false;
+                            boss.isShielded = false;
+                            boss.isVulnerable = true;
+                            boss.fightersSpawned = false;
+                            boss.beamSweepX = boss.x - 220;
+                            boss.beamSweepDir = 1;
+                            boss.engineGlow = 0;
+                        }
+
+                        if (maybeTriggerBossDeathCinematic(boss)) return;
+
+                        const bossNow = currentFrameNow;
+
+                        if (boss.attackPattern === 0) {
+                            // Broadside Battery — alternating port volleys
+                            if (bossNow - boss.lastFire > 240) {
+                                boss.portFireSide = (boss.portFireSide || 0) === 0 ? 1 : 0;
+                                const side = boss.portFireSide === 0 ? -1 : 1;
+                                const portX = boss.x + side * 90;
+                                const portY = boss.y + 18;
+                                for (let i = -1; i <= 1; i++) {
+                                    const angle = Math.PI / 2 + side * 0.18 + i * 0.14;
+                                    const speed = 380;
+                                    enemyBullets.push({
+                                        x: portX, y: portY,
+                                        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+                                        char: '=', color: '#9be3ff'
+                                    });
+                                }
+                                boss.lastFire = bossNow;
+                            }
+                        } else if (boss.attackPattern === 1) {
+                            // Heavy Beam Sweep — telegraph then sweep
+                            const chargeDuration = 1.5;
+                            if (boss.timer < chargeDuration) {
+                                // Telegraph: drop slow markers along projected beam path
+                                if (bossNow - boss.lastFire > 90) {
+                                    const sweepRatio = boss.timer / chargeDuration;
+                                    const beamX = boss.x - 240 + sweepRatio * 480;
+                                    debris.push({
+                                        x: beamX + (Math.random() - 0.5) * 6,
+                                        y: boss.y + 36 + Math.random() * 24,
+                                        vx: 0, vy: 80,
+                                        char: '·', color: '#ffe88a',
+                                        life: 0.3, isImpact: true
+                                    });
+                                    boss.lastFire = bossNow;
+                                }
+                            } else {
+                                // Sweep: emit thick beam segments along sweeping origin
+                                if (bossNow - boss.lastFire > 70) {
+                                    boss.beamSweepX = (boss.beamSweepX === undefined) ? boss.x - 220 : boss.beamSweepX;
+                                    boss.beamSweepX += boss.beamSweepDir * 14;
+                                    if (boss.beamSweepX > boss.x + 220) { boss.beamSweepX = boss.x + 220; boss.beamSweepDir = -1; }
+                                    if (boss.beamSweepX < boss.x - 220) { boss.beamSweepX = boss.x - 220; boss.beamSweepDir = 1; }
+                                    enemyBullets.push({
+                                        x: boss.beamSweepX, y: boss.y + 50,
+                                        vx: 0, vy: 280,
+                                        char: '█', color: '#ffd84a',
+                                        isHuge: true, life: 1.0, decay: 0.45
+                                    });
+                                    enemyBullets.push({
+                                        x: boss.beamSweepX, y: boss.y + 70,
+                                        vx: 0, vy: 280,
+                                        char: '▓', color: '#ffaa18',
+                                        isHuge: true, life: 1.0, decay: 0.45
+                                    });
+                                    boss.lastFire = bossNow;
+                                }
+                            }
+                        } else if (boss.attackPattern === 2) {
+                            // Torpedo Spread — slow heavy fan
+                            if (bossNow - boss.lastFire > 820) {
+                                const aimAngle = Math.atan2(player.y - boss.y, player.x - boss.x);
+                                for (let i = -2; i <= 2; i++) {
+                                    const angle = aimAngle + i * 0.18;
+                                    const speed = 220;
+                                    enemyBullets.push({
+                                        x: boss.x, y: boss.y + 30,
+                                        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+                                        char: '◉', color: '#ff7a3d',
+                                        isHuge: true, life: 1.0, decay: 0.32
+                                    });
+                                }
+                                boss.lastFire = bossNow;
+                            }
+                        } else if (boss.attackPattern === 3) {
+                            // Fighter Pattern — spawn carrier-style drones
+                            if (!boss.fightersSpawned && boss.timer > 0.3) {
+                                boss.fightersSpawned = true;
+                                for (let i = 0; i < 3; i++) {
+                                    const fromLeft = i % 2 === 0;
+                                    const fighter = createLaneSweepEnemy({
+                                        startX: fromLeft ? -50 : width + 50,
+                                        startY: height * (0.18 + i * 0.05),
+                                        endX: fromLeft ? width + 50 : -50,
+                                        endY: height * (0.42 + i * 0.06),
+                                        delay: -i * 0.45,
+                                        routeDuration: 6.4,
+                                        laneAmplitude: 30,
+                                        lanePhase: i * 0.7,
+                                        speed: 1.05,
+                                        hp: 38,
+                                        color: '#9be3ff'
+                                    });
+                                    fighter.isBossMinion = true;
+                                    fighter.bossMinionOwner = 'BATTLE STARSHIP';
+                                    enemies.push(fighter);
+                                }
+                            }
+                            // Light covering fire while fighters press
+                            if (bossNow - boss.lastFire > 520) {
+                                const aimAngle = Math.atan2(player.y - boss.y, player.x - boss.x);
+                                for (let i = -1; i <= 1; i++) {
+                                    const angle = aimAngle + i * 0.22;
+                                    enemyBullets.push({
+                                        x: boss.x, y: boss.y + 30,
+                                        vx: Math.cos(angle) * 320, vy: Math.sin(angle) * 320,
+                                        char: '+', color: '#9be3ff'
+                                    });
+                                }
+                                boss.lastFire = bossNow;
+                            }
+                        } else if (boss.attackPattern === 4) {
+                            // Reactor Vent — shield up barrage, then expose engine for damage window
+                            if (boss.timer < 1.6) {
+                                // Shields raised + heavy barrage from front
+                                boss.isShielded = true;
+                                boss.isVulnerable = false;
+                                boss.engineGlow = Math.min(1, boss.engineGlow + dt * 1.4);
+                                if (bossNow - boss.lastFire > 320) {
+                                    const aimAngle = Math.atan2(player.y - boss.y, player.x - boss.x);
+                                    for (let i = -3; i <= 3; i++) {
+                                        const angle = aimAngle + i * 0.13;
+                                        enemyBullets.push({
+                                            x: boss.x, y: boss.y + 30,
+                                            vx: Math.cos(angle) * 360, vy: Math.sin(angle) * 360,
+                                            char: '*', color: '#bff0ff'
+                                        });
+                                    }
+                                    boss.lastFire = bossNow;
+                                }
+                            } else if (boss.timer < 4.4) {
+                                // Vent exposed — boss vulnerable, no firing
+                                boss.isShielded = false;
+                                boss.isVulnerable = true;
+                                boss.engineGlow = Math.max(0, boss.engineGlow - dt * 0.6);
+                            } else {
+                                // Recovery — shields restoring
+                                boss.isShielded = true;
+                                boss.isVulnerable = false;
+                                boss.engineGlow = Math.min(1, boss.engineGlow + dt * 1.2);
+                            }
+                        }
+                    }
                 } else {
                     if (boss.phase === 'INTRO') {
                         if (boss.name === 'NULL PHANTOM') {
@@ -930,7 +1122,7 @@
                             }
                             boss.phase = 'ACTIVE';
                             boss.timer = 0;
-                            boss.color = boss.name === 'GHOST SIGNAL' ? '#00ffff' : (boss.name === 'OVERHEATING FIREWALL' ? '#ff6600' : '#ff00ff');
+                            boss.color = boss.name === 'GHOST SIGNAL' ? '#00ffff' : (boss.name === 'OVERHEATING FIREWALL' ? '#ff6600' : (boss.name === 'ECLIPSE WARDEN' ? '#c8c0ff' : '#ff00ff'));
                             if (boss.name === 'OVERHEATING FIREWALL') {
                                 boss.coreTimer = 3.0;
                                 boss.isVulnerable = true;
@@ -1338,10 +1530,11 @@
                         }
                     } else if (doesProjectileHitTargetMask(p, boss, targetMaskRadius)) {
                         if (!boss.isDeadGlitching) {
-                            const damageScale = getBlackVoidDamageScale(p.x, p.y);
+                            const shieldBlocks = boss.isBattleStarship && boss.isShielded;
+                            const damageScale = shieldBlocks ? 0 : getBlackVoidDamageScale(p.x, p.y);
                             const bossDamage = projectileStats.plasmaCloud ? p.damage * (projectileStats.cloudDotMult || 6) * getPlasmaCloudGrowthFactor(p) * dt : p.damage;
                             boss.hp -= bossDamage * damageScale;
-                            if (damageScale < 1 && !projectileStats.plasmaCloud) absorbBlackVoidProjectile(p.x, p.y, 1);
+                            if (damageScale < 1 && !projectileStats.plasmaCloud && !shieldBlocks) absorbBlackVoidProjectile(p.x, p.y, 1);
                             hitBoss = true;
                         } else if (!projectileStats.plasmaCloud) hit = true;
                     }
@@ -1479,6 +1672,99 @@
                         e.y = (e.hoverY || e.y) + Math.sin(e.hoverTimer * 2.35) * 8;
                         continue;
                     }
+                }
+
+                if (e.isPrismConduit) {
+                    e.prismTimer = (e.prismTimer || 0) + dt;
+                    e.prismAttackTimer = (e.prismAttackTimer || 0) + dt;
+                    e.hoverTimer = (e.hoverTimer || 0) + dt;
+
+                    const prismColors = ['#ff66ff', '#66ffff', '#ffff66', '#66ff99'];
+                    const colorPhase = e.prismTimer * 1.6;
+                    const colorIdx = Math.floor(colorPhase) % prismColors.length;
+                    const nextColorIdx = (colorIdx + 1) % prismColors.length;
+                    const blendT = colorPhase - Math.floor(colorPhase);
+                    e.color = blendT < 0.85 ? prismColors[colorIdx] : prismColors[nextColorIdx];
+
+                    const targetX = (e.hoverX || width * 0.5) + Math.sin(e.hoverTimer * 0.85) * (e.hoverAmpX || 120);
+                    const targetY = (e.hoverY || height * 0.18) + Math.cos(e.hoverTimer * 1.3) * (e.hoverAmpY || 22);
+                    const blend = Math.min(1, dt * 2.0);
+                    e.x += (targetX - e.x) * blend;
+                    e.y += (targetY - e.y) * blend;
+                    applyWakeForce(e.x, e.y, 140, 4);
+
+                    if (e.prismAttackTimer > 4.5) {
+                        e.prismAttackTimer = 0;
+                        e.prismAttackPattern = ((e.prismAttackPattern || 0) + 1) % 3;
+                        e.prismChargeTimer = 0;
+                        e.fireTimer = -0.25;
+                        e.pulseFired = false;
+                    }
+
+                    e.fireTimer = (e.fireTimer || 0) + dt;
+
+                    if (e.onScreen) {
+                        if (e.prismAttackPattern === 0) {
+                            // Refracted Volley — 5-prong prismatic star
+                            if (e.fireTimer > 1.05) {
+                                e.fireTimer = 0;
+                                const aimAngle = Math.atan2(player.y - e.y, player.x - e.x);
+                                const volleyColors = ['#ff66ff', '#66ffff', '#ffffff', '#ffff66', '#66ff99'];
+                                for (let k = -2; k <= 2; k++) {
+                                    const angle = aimAngle + k * (Math.PI / 7);
+                                    const speed = 290;
+                                    enemyBullets.push({
+                                        x: e.x, y: e.y,
+                                        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+                                        char: '◆', color: volleyColors[k + 2]
+                                    });
+                                }
+                            }
+                        } else if (e.prismAttackPattern === 1) {
+                            // Spectral Cascade — color-cycling falling bullets
+                            if (e.fireTimer > 0.18) {
+                                e.fireTimer = 0;
+                                const cascadeColors = ['#ff66ff', '#66ffff', '#ffff66', '#66ff99'];
+                                const dropX = e.x + (Math.random() - 0.5) * 240;
+                                enemyBullets.push({
+                                    x: dropX, y: e.y + 26,
+                                    vx: (Math.random() - 0.5) * 40, vy: 250,
+                                    char: '✦',
+                                    color: cascadeColors[Math.floor(Math.random() * cascadeColors.length)]
+                                });
+                            }
+                        } else if (e.prismAttackPattern === 2) {
+                            // Resonance Pulse — telegraph then full ring snap
+                            e.prismChargeTimer = (e.prismChargeTimer || 0) + dt;
+                            if (e.prismChargeTimer < 1.7) {
+                                if (e.fireTimer > 0.06 && debris.length < 320) {
+                                    e.fireTimer = 0;
+                                    const tAngle = Math.random() * Math.PI * 2;
+                                    const tDist = 28 + Math.random() * 22;
+                                    const sparkColor = prismColors[Math.floor(Math.random() * prismColors.length)];
+                                    debris.push({
+                                        x: e.x + Math.cos(tAngle) * tDist,
+                                        y: e.y + Math.sin(tAngle) * tDist,
+                                        vx: -Math.cos(tAngle) * 55,
+                                        vy: -Math.sin(tAngle) * 55,
+                                        char: '·', color: sparkColor, life: 0.22
+                                    });
+                                }
+                            } else if (!e.pulseFired) {
+                                e.pulseFired = true;
+                                for (let k = 0; k < 14; k++) {
+                                    const angle = (k / 14) * Math.PI * 2;
+                                    const speed = 270;
+                                    enemyBullets.push({
+                                        x: e.x, y: e.y,
+                                        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+                                        char: '◇', color: '#ffffff'
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    continue;
                 }
 
                 if (e.isFlameGuardian) {
@@ -1826,17 +2112,18 @@
 
                     if (distSq < 2500) { // ~50px collection radius
                         let chosen = d.options[d.currentIndex];
-                        applyWeapon(chosen);
-                        if (player.weapons.length < 9) player.weapons.push(chosen);
-                        weaponWeights[chosen.name] *= 0.5;
-                        addShake(15);
-                        for(let k=0; k<20; k++) {
-                            let a = Math.random() * Math.PI * 2;
-                            let spd = 50 + Math.random() * 150;
-                            debris.push({
-                                x: d.x, y: d.y, vx: Math.cos(a)*spd, vy: Math.sin(a)*spd,
-                                char: '+', color: chosen.color, life: 1.0
-                            });
+                        const addedWeapon = addPlayerWeapon(chosen, 10);
+                        if (addedWeapon) {
+                            weaponWeights[chosen.name] *= 0.5;
+                            addShake(15);
+                            for(let k=0; k<20; k++) {
+                                let a = Math.random() * Math.PI * 2;
+                                let spd = 50 + Math.random() * 150;
+                                debris.push({
+                                    x: d.x, y: d.y, vx: Math.cos(a)*spd, vy: Math.sin(a)*spd,
+                                    char: '+', color: chosen.color, life: 1.0
+                                });
+                            }
                         }
                         drops.splice(i, 1);
                     } else if (d.y > height + 80) {

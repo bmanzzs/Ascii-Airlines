@@ -64,186 +64,7 @@
             };
         }
 
-        const ENEMY_SHIP_FOOTPRINTS = {
-            base: [
-                " ▼ ▼ ",
-                "  ■  "
-            ],
-            armored: [
-                " ▼ ▼ ",
-                " ■■ ",
-                "  ■  "
-            ],
-            elite: [
-                "▼ ▼ ▼",
-                " ■■■ ",
-                "  ■  "
-            ]
-        };
-
-        const ENEMY_SHIP_VISUAL_PROFILES = {
-            base: { tier: 1, bodySize: 34, thrusterSize: 18, spread: 9.5, thrusterY: -8.5, bodyY: 4, glowBlur: 4.6 },
-            armored: { tier: 2, bodySize: 37, thrusterSize: 19, spread: 10.5, thrusterY: -9.5, bodyY: 4.5, glowBlur: 5.1 },
-            elite: { tier: 3, bodySize: 40, thrusterSize: 20, spread: 11.5, thrusterY: -10.5, bodyY: 5, glowBlur: 5.6 }
-        };
-
-        const enemyShipColorCache = {};
-
-        function parseHexColor(color) {
-            if (typeof color !== 'string' || !color.startsWith('#')) return null;
-            const hex = color.slice(1);
-            if (hex.length !== 6) return null;
-            return {
-                r: parseInt(hex.slice(0, 2), 16),
-                g: parseInt(hex.slice(2, 4), 16),
-                b: parseInt(hex.slice(4, 6), 16)
-            };
-        }
-
-        function toRgbColor(rgb) {
-            return `rgb(${Math.round(rgb.r)}, ${Math.round(rgb.g)}, ${Math.round(rgb.b)})`;
-        }
-
-        function desaturateEnemyShipColor(color, amount = 0.22) {
-            const key = `${color}|${amount}`;
-            if (enemyShipColorCache[key]) return enemyShipColorCache[key];
-            const rgb = parseHexColor(color);
-            if (!rgb) return color;
-            const gray = rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114;
-            const result = toRgbColor({
-                r: rgb.r + (gray - rgb.r) * amount,
-                g: rgb.g + (gray - rgb.g) * amount,
-                b: rgb.b + (gray - rgb.b) * amount
-            });
-            enemyShipColorCache[key] = result;
-            return result;
-        }
-
-        function tintEnemyShipColor(color, target, amount) {
-            const key = `${color}|${target}|${amount}`;
-            if (enemyShipColorCache[key]) return enemyShipColorCache[key];
-            const sourceRgb = parseHexColor(color);
-            const targetRgb = parseHexColor(target);
-            if (!sourceRgb || !targetRgb) return color;
-            const result = toRgbColor({
-                r: sourceRgb.r + (targetRgb.r - sourceRgb.r) * amount,
-                g: sourceRgb.g + (targetRgb.g - sourceRgb.g) * amount,
-                b: sourceRgb.b + (targetRgb.b - sourceRgb.b) * amount
-            });
-            enemyShipColorCache[key] = result;
-            return result;
-        }
-
-        function configureEnemyShipVisual(enemy, kind = 'base', options = {}) {
-            if (!enemy) return enemy;
-            const profile = ENEMY_SHIP_VISUAL_PROFILES[kind] || ENEMY_SHIP_VISUAL_PROFILES.base;
-            const sourceColor = options.color || enemy.color || '#ff00ff';
-            const bodyColor = desaturateEnemyShipColor(sourceColor);
-            enemy.enemyShipSprite = true;
-            enemy.enemyShipKind = ENEMY_SHIP_VISUAL_PROFILES[kind] ? kind : 'base';
-            enemy.enemyShipTier = options.tier || profile.tier;
-            enemy.enemyShipVisualScale = options.visualScale || 1;
-            enemy.enemyShipBodyColor = bodyColor;
-            enemy.enemyShipThrusterColor = tintEnemyShipColor(sourceColor, '#222222', 0.28);
-            enemy.enemyShipHighlightColor = tintEnemyShipColor(sourceColor, '#ffffff', 0.34);
-            enemy.enemyShipGlowColor = bodyColor;
-            enemy.sprite = ENEMY_SHIP_FOOTPRINTS[enemy.enemyShipKind] || ENEMY_SHIP_FOOTPRINTS.base;
-            enemy.debrisColors = [
-                enemy.enemyShipBodyColor,
-                enemy.enemyShipThrusterColor,
-                enemy.enemyShipHighlightColor
-            ];
-            return enemy;
-        }
-
-        function drawEnemyShipGlyph(char, x, y, fontSize, color, rotation = 0, alpha = 1, glowColor = color, glowBlur = 0) {
-            ctx.save();
-            ctx.translate(snapSpriteCoord(x), snapSpriteCoord(y));
-            if (rotation) ctx.rotate(rotation);
-            ctx.globalAlpha *= alpha;
-            ctx.fillStyle = color;
-            ctx.font = `bold ${fontSize}px Courier New`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            if (glowEnabled && glowBlur > 0) {
-                ctx.shadowColor = glowColor;
-                ctx.shadowBlur = glowBlur;
-                ctx.globalAlpha *= 0.82;
-                ctx.fillText(char, 0, 0);
-                ctx.shadowBlur = 0;
-                ctx.globalAlpha /= 0.82;
-            }
-            ctx.fillText(char, 0, 0);
-            ctx.restore();
-        }
-
-        function drawEnemyShipSprite(enemy, flashColor = null) {
-            const profile = ENEMY_SHIP_VISUAL_PROFILES[enemy.enemyShipKind] || ENEMY_SHIP_VISUAL_PROFILES.base;
-            const visualScale = Math.max(0.85, Math.min(1.24, enemy.enemyShipVisualScale || 1));
-            const bodySize = Math.round(profile.bodySize * visualScale);
-            const thrusterSize = Math.round(profile.thrusterSize * visualScale);
-            const spread = profile.spread * visualScale;
-            const x = enemy.x;
-            const y = enemy.y;
-            const bodyColor = flashColor || enemy.enemyShipBodyColor || desaturateEnemyShipColor(enemy.color || '#ff00ff');
-            const thrusterColor = flashColor || enemy.enemyShipThrusterColor || bodyColor;
-            const highlightColor = flashColor || enemy.enemyShipHighlightColor || bodyColor;
-            const glowColor = flashColor || enemy.enemyShipGlowColor || bodyColor;
-            const glowBlur = glowEnabled ? profile.glowBlur * visualScale : 0;
-            const thrusterOffsets = profile.tier >= 3 ? [-spread, 0, spread] : [-spread, spread];
-
-            for (let i = 0; i < thrusterOffsets.length; i++) {
-                const offset = thrusterOffsets[i];
-                const rotation = offset === 0 ? 0 : offset < 0 ? -0.06 : 0.06;
-                drawEnemyShipGlyph('▼', x + offset, y + profile.thrusterY * visualScale, thrusterSize, thrusterColor, rotation, 0.9, glowColor, glowBlur * 0.72);
-            }
-
-            drawEnemyShipGlyph('■', x + 1.2 * visualScale, y + (profile.bodyY + 1.5) * visualScale, bodySize, thrusterColor, 0, 0.46, glowColor, glowBlur * 0.35);
-            drawEnemyShipGlyph('■', x, y + profile.bodyY * visualScale, bodySize, bodyColor, 0, 1, glowColor, glowBlur * 0.78);
-
-            if (profile.tier >= 2) {
-                const armorSize = Math.round(bodySize * 0.42);
-                drawEnemyShipGlyph('■', x - 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, bodyColor, 0, 0.9, glowColor, glowBlur * 0.48);
-                drawEnemyShipGlyph('■', x + 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, bodyColor, 0, 0.9, glowColor, glowBlur * 0.48);
-                drawEnemyShipGlyph('●', x, y + (profile.bodyY + 0.5) * visualScale, Math.round(bodySize * 0.34), highlightColor, 0, 0.74, glowColor, glowBlur * 0.5);
-            } else {
-                drawEnemyShipGlyph('▪', x - 3 * visualScale, y + (profile.bodyY - 2) * visualScale, Math.round(bodySize * 0.42), highlightColor, 0, 0.62, glowColor, glowBlur * 0.34);
-            }
-
-            if (profile.tier >= 3) {
-                const accentSize = Math.round(bodySize * 0.32);
-                drawEnemyShipGlyph('◆', x, y + (profile.bodyY + 8) * visualScale, accentSize, thrusterColor, 0, 0.72, glowColor, glowBlur * 0.42);
-                drawEnemyShipGlyph('▲', x - 13 * visualScale, y + (profile.bodyY - 3) * visualScale, Math.round(bodySize * 0.24), highlightColor, -0.12, 0.62, glowColor, glowBlur * 0.34);
-                drawEnemyShipGlyph('▲', x + 13 * visualScale, y + (profile.bodyY - 3) * visualScale, Math.round(bodySize * 0.24), highlightColor, 0.12, 0.62, glowColor, glowBlur * 0.34);
-            }
-        }
-
-        function drawRisingStarThruster(enemy, renderNow, alpha = 1) {
-            const visualScale = Math.max(0.85, Math.min(1.24, enemy.enemyShipVisualScale || 1));
-            const pulse = 0.55 + Math.sin(renderNow * 0.018 + (enemy.risePhase || 0)) * 0.18;
-            const riseGlow = 0.3 + (enemy.risingProgress || 0) * 0.7;
-            const flameAlpha = Math.max(0, Math.min(0.58, alpha * pulse * riseGlow));
-            if (flameAlpha <= 0.02) return;
-
-            ctx.save();
-            ctx.globalAlpha *= flameAlpha;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = `bold ${Math.round(10 * visualScale)}px Courier New`;
-            if (glowEnabled) {
-                ctx.shadowColor = '#ffd27a';
-                ctx.shadowBlur = 6 * visualScale;
-            }
-            const y = enemy.y + 21 * visualScale;
-            ctx.fillStyle = '#ffd27a';
-            ctx.fillText('|', enemy.x - 5 * visualScale, y);
-            ctx.fillText('|', enemy.x + 5 * visualScale, y);
-            ctx.fillStyle = '#ff7b5c';
-            ctx.fillText('.', enemy.x, y + 5 * visualScale);
-            ctx.restore();
-            ctx.shadowBlur = 0;
-        }
-
+        // Boss sprites
         const NULL_PHANTOM_SOURCE = [
             "                                   ▌",
             "                           ▄      ▐",
@@ -624,73 +445,37 @@
             "      ░▓██▓░      "
         ];
 
-        const FLYBY_SPRITES = [
-            [
-                "  ▄█▄  ",
-                " ▟███▙ ",
-                "  ▀█▀  "
-            ],
-            [
-                "  ▄██▄  ",
-                " ▟████▙ ",
-                "  ▀██▀  "
-            ],
-            [
-                " ▄▄██▄▄ ",
-                "▟██████▙",
-                " ▀▀██▀▀ "
-            ],
-            [
-                " ▄▄████▄▄ ",
-                "▟████████▙",
-                " ▀▀████▀▀ "
-            ]
+        const BATTLE_STARSHIP_SPRITE = [
+            "         ▐▓                      ▓",
+            "         ▓▒▄      █▓   ▐▓▄      ▓▒▌",
+            "        ▐▓▓▓     ▄▓▒▄  ▓▒▓▄    ▐▓▄█",
+            "        ▓▓██    ▐▓▄▄▓▌▐▌▄▄█    ▐▓██",
+            "        ▓▓██     ▓▓▓▓ ▐▓▓▓▓    ▓▓██",
+            "        ▓▓▓▓▌   ▐█▓█████▓██    ▓█▓▓",
+            "        ▐▓█▓██▄ ████▐▓█████▌ ▄████▓",
+            "        ▐▓█▓██▓█████▓▓▓█████▓▀▓███▓",
+            "        ▓▓█▓▀▀▓█████▓███████▓▓▀▐██▓",
+            "        ███▓▌ ▌▓████████████▌▌ ████",
+            "        ▓███   ▀▐██▓▓▓▓████    ▐███",
+            "        ▐▓█▓    █████▓█████▌    ▓░▓",
+            "         ▀▀▀  ███████████████",
+            "              ▀▀████████████▌",
+            "             ▄▄██▓█▓▓▄███████▄",
+            "            ██▓██▓█▓▓▓▓█████▓██▄",
+            "          ▓████████▓███▓█████████",
+            "         ▐▓▓▓█████▓▓▓███▓█████████",
+            "        ▄█▓▓██▓▓██▓███▓█▌██████████",
+            "       ▐███▓█▓▓▓▓▓▓▓▓█████████████▓█",
+            "        ▓█▒▓█▌▓▓▒▓▓▓▓▄█████▓█▓█▓▓██▌",
+            "         ▓▒▓██▓▓▓▓▓█▓█████▓▓▓██▓██▌",
+            "          ▓▓▓████▓▓▓▓▒▓▓▓██████▓██",
+            "           ▓▓▓▓██▓▓▓▓▓▓▓▓▓███▓▓██",
+            "            ▀▓█▓▓▓███████▓▓▓▓██▀",
+            "              ▀▓▓▓▓▓▓▓▓▓▓▓▓█▀▀",
+            "                ▐  ▀▀▀▀▀▀▀ ▐"
         ];
 
-        function buildFlyByShotThresholdsForTier(tier) {
-            if (tier >= 4) return [0.42, 0.66];
-            if (tier >= 3) return [0.5];
-            return [];
-        }
-
-function getFlyByConfigForTier(tier) {
-    if (tier === 1) return { sprite: FLYBY_SPRITES[0], color: '#ffe66d', hp: 40, count: 1, speed: 0.855, damage: 10, scale: 1.55, shotThresholds: [] };
-    if (tier === 2) return { sprite: FLYBY_SPRITES[1], color: '#ffb36a', hp: 55, count: 2, speed: 0.945, damage: 12, scale: 1.55, shotThresholds: [] };
-    if (tier === 3) return { sprite: FLYBY_SPRITES[2], color: '#ff7be3', hp: 60, count: 2, speed: 1.026, damage: 14, scale: 1.55, shotThresholds: buildFlyByShotThresholdsForTier(tier) };
-    return { sprite: FLYBY_SPRITES[3], color: '#ff5f72', hp: 70, count: 3, speed: 1.098, damage: 16, scale: 1.55, shotThresholds: buildFlyByShotThresholdsForTier(tier) };
-}
-
-        function getScoutFlyByConfigForTier(tier) {
-            const base = getFlyByConfigForTier(tier);
-            return {
-                sprite: FLYBY_SPRITES[0],
-                color: '#cfd4dc',
-        hp: Math.max(20, base.hp - 20),
-                count: base.count,
-                speed: base.speed * 1.2,
-                damage: base.damage,
-                scale: 1.02,
-                shotThresholds: [],
-                collisionX: 24,
-                collisionY: 18,
-                isScout: true
-            };
-        }
-
-        function createHealthDrop(x, y, healFraction = 0.10, boxSize = 28) {
-            return {
-                x,
-                y,
-                vx: 0,
-                vy: 36,
-                isHealth: true,
-                healFraction,
-                boxSize,
-                boxColor: '#d11f34',
-                crossColor: '#ffffff'
-            };
-        }
-
+        // Boss guardian and minion sprites
         const WRAITH_SPRITE = [
             "                      ▄▄█████▌▄",
             "                    ▓███████████▓▄",
@@ -770,7 +555,6 @@ function getFlyByConfigForTier(tier) {
                 fireTimer: 0
             };
         }
-
         const FIREWALL_GUARDIAN_SPRITE = [
             "  ▲  ",
             " (█) ",
@@ -803,5 +587,312 @@ function getFlyByConfigForTier(tier) {
                 flameShotSpeed: 235,
                 disableRandomFire: true,
                 debrisColors: ['#e01926', '#e38914', '#ffdd00', '#ff5500']
+            };
+        }
+
+        const PRISM_CONDUIT_SPRITE = [
+            "   ◢▓▓◣    ",
+            "  ◢▓██▓◣   ",
+            " ◢▓██◆██▓◣ ",
+            "◢▓██◆◆◆██▓◣",
+            " ◥▓██◆██▓◤ ",
+            "  ◥▓██▓◤   ",
+            "   ◥▓▓◤    "
+        ];
+
+        const PRISM_CONDUIT_COLORS = ['#ff66ff', '#66ffff', '#ffff66', '#66ff99'];
+
+        function createPrismConduit(config = {}) {
+            const hp = config.hp ?? 380;
+            return {
+                x: config.x ?? width * 0.5,
+                y: config.y ?? -130,
+                vx: 0, vy: 0,
+                sprite: PRISM_CONDUIT_SPRITE,
+                color: PRISM_CONDUIT_COLORS[0],
+                hp,
+                maxHp: hp,
+                isPrismConduit: true,
+                isBossMinion: !!config.isBossMinion,
+                bossMinionOwner: config.bossMinionOwner || null,
+                flashTimer: 0,
+                onScreen: false,
+                hoverX: config.hoverX ?? width * 0.5,
+                hoverY: config.hoverY ?? height * 0.18,
+                hoverTimer: Math.random() * Math.PI * 2,
+                hoverAmpX: config.hoverAmpX ?? 120,
+                hoverAmpY: config.hoverAmpY ?? 22,
+                prismTimer: 0,
+                prismAttackTimer: 0,
+                prismAttackPattern: 0,
+                prismChargeTimer: 0,
+                pulseFired: false,
+                fireTimer: -0.5,
+                disableRandomFire: true,
+                renderScale: 1.4,
+                debrisColors: ['#ff66ff', '#66ffff', '#ffff66', '#66ff99', '#ffffff'],
+                explosionDebrisCap: 140,
+                explosionDebrisLife: 1.25,
+                explosionDebrisVelocity: 740
+            };
+        }
+
+        const ECLIPSE_WARDEN_SPRITE = [
+            "    ╱━◊━╲    ",
+            "   ╱▓███▓╲   ",
+            "  ╱▓█████▓╲  ",
+            " ▓███◉◉◉███▓ ",
+            "▓██████████▓ ",
+            " ▓███◉◉◉███▓ ",
+            "  ╲▓█████▓╱  ",
+            "   ╲▓███▓╱   ",
+            "    ╲━◊━╱    "
+        ];
+
+        // Normal enemy sprites and visual helpers
+        const ENEMY_SHIP_FOOTPRINTS = {
+            base: [
+                " ▼ ▼ ",
+                "  ■  "
+            ],
+            armored: [
+                " ▼ ▼ ",
+                " ■■ ",
+                "  ■  "
+            ],
+            elite: [
+                "▼ ▼ ▼",
+                " ■■■ ",
+                "  ■  "
+            ]
+        };
+
+        const ENEMY_SHIP_VISUAL_PROFILES = {
+            base: { tier: 1, bodySize: 34, thrusterSize: 18, spread: 9.5, thrusterY: -8.5, bodyY: 4, glowBlur: 4.6 },
+            armored: { tier: 2, bodySize: 37, thrusterSize: 19, spread: 10.5, thrusterY: -9.5, bodyY: 4.5, glowBlur: 5.1 },
+            elite: { tier: 3, bodySize: 40, thrusterSize: 20, spread: 11.5, thrusterY: -10.5, bodyY: 5, glowBlur: 5.6 }
+        };
+
+        const enemyShipColorCache = {};
+
+        function parseHexColor(color) {
+            if (typeof color !== 'string' || !color.startsWith('#')) return null;
+            const hex = color.slice(1);
+            if (hex.length !== 6) return null;
+            return {
+                r: parseInt(hex.slice(0, 2), 16),
+                g: parseInt(hex.slice(2, 4), 16),
+                b: parseInt(hex.slice(4, 6), 16)
+            };
+        }
+
+        function toRgbColor(rgb) {
+            return `rgb(${Math.round(rgb.r)}, ${Math.round(rgb.g)}, ${Math.round(rgb.b)})`;
+        }
+
+        function desaturateEnemyShipColor(color, amount = 0.22) {
+            const key = `${color}|${amount}`;
+            if (enemyShipColorCache[key]) return enemyShipColorCache[key];
+            const rgb = parseHexColor(color);
+            if (!rgb) return color;
+            const gray = rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114;
+            const result = toRgbColor({
+                r: rgb.r + (gray - rgb.r) * amount,
+                g: rgb.g + (gray - rgb.g) * amount,
+                b: rgb.b + (gray - rgb.b) * amount
+            });
+            enemyShipColorCache[key] = result;
+            return result;
+        }
+
+        function tintEnemyShipColor(color, target, amount) {
+            const key = `${color}|${target}|${amount}`;
+            if (enemyShipColorCache[key]) return enemyShipColorCache[key];
+            const sourceRgb = parseHexColor(color);
+            const targetRgb = parseHexColor(target);
+            if (!sourceRgb || !targetRgb) return color;
+            const result = toRgbColor({
+                r: sourceRgb.r + (targetRgb.r - sourceRgb.r) * amount,
+                g: sourceRgb.g + (targetRgb.g - sourceRgb.g) * amount,
+                b: sourceRgb.b + (targetRgb.b - sourceRgb.b) * amount
+            });
+            enemyShipColorCache[key] = result;
+            return result;
+        }
+
+        function configureEnemyShipVisual(enemy, kind = 'base', options = {}) {
+            if (!enemy) return enemy;
+            const profile = ENEMY_SHIP_VISUAL_PROFILES[kind] || ENEMY_SHIP_VISUAL_PROFILES.base;
+            const sourceColor = options.color || enemy.color || '#ff00ff';
+            const bodyColor = desaturateEnemyShipColor(sourceColor);
+            enemy.enemyShipSprite = true;
+            enemy.enemyShipKind = ENEMY_SHIP_VISUAL_PROFILES[kind] ? kind : 'base';
+            enemy.enemyShipTier = options.tier || profile.tier;
+            enemy.enemyShipVisualScale = options.visualScale || 1;
+            enemy.enemyShipBodyColor = bodyColor;
+            enemy.enemyShipThrusterColor = tintEnemyShipColor(sourceColor, '#222222', 0.28);
+            enemy.enemyShipHighlightColor = tintEnemyShipColor(sourceColor, '#ffffff', 0.34);
+            enemy.enemyShipGlowColor = bodyColor;
+            enemy.sprite = ENEMY_SHIP_FOOTPRINTS[enemy.enemyShipKind] || ENEMY_SHIP_FOOTPRINTS.base;
+            enemy.debrisColors = [
+                enemy.enemyShipBodyColor,
+                enemy.enemyShipThrusterColor,
+                enemy.enemyShipHighlightColor
+            ];
+            return enemy;
+        }
+
+        function drawEnemyShipGlyph(char, x, y, fontSize, color, rotation = 0, alpha = 1, glowColor = color, glowBlur = 0) {
+            ctx.save();
+            ctx.translate(snapSpriteCoord(x), snapSpriteCoord(y));
+            if (rotation) ctx.rotate(rotation);
+            ctx.globalAlpha *= alpha;
+            ctx.fillStyle = color;
+            ctx.font = `bold ${fontSize}px Courier New`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled && glowBlur > 0) {
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = glowBlur;
+                ctx.globalAlpha *= 0.82;
+                ctx.fillText(char, 0, 0);
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha /= 0.82;
+            }
+            ctx.fillText(char, 0, 0);
+            ctx.restore();
+        }
+
+        function drawEnemyShipSprite(enemy, flashColor = null) {
+            const profile = ENEMY_SHIP_VISUAL_PROFILES[enemy.enemyShipKind] || ENEMY_SHIP_VISUAL_PROFILES.base;
+            const visualScale = Math.max(0.85, Math.min(1.24, enemy.enemyShipVisualScale || 1));
+            const bodySize = Math.round(profile.bodySize * visualScale);
+            const thrusterSize = Math.round(profile.thrusterSize * visualScale);
+            const spread = profile.spread * visualScale;
+            const x = enemy.x;
+            const y = enemy.y;
+            const bodyColor = flashColor || enemy.enemyShipBodyColor || desaturateEnemyShipColor(enemy.color || '#ff00ff');
+            const thrusterColor = flashColor || enemy.enemyShipThrusterColor || bodyColor;
+            const highlightColor = flashColor || enemy.enemyShipHighlightColor || bodyColor;
+            const glowColor = flashColor || enemy.enemyShipGlowColor || bodyColor;
+            const glowBlur = glowEnabled ? profile.glowBlur * visualScale : 0;
+            const thrusterOffsets = profile.tier >= 3 ? [-spread, 0, spread] : [-spread, spread];
+
+            for (let i = 0; i < thrusterOffsets.length; i++) {
+                const offset = thrusterOffsets[i];
+                const rotation = offset === 0 ? 0 : offset < 0 ? -0.06 : 0.06;
+                drawEnemyShipGlyph('▼', x + offset, y + profile.thrusterY * visualScale, thrusterSize, thrusterColor, rotation, 0.9, glowColor, glowBlur * 0.72);
+            }
+
+            drawEnemyShipGlyph('■', x + 1.2 * visualScale, y + (profile.bodyY + 1.5) * visualScale, bodySize, thrusterColor, 0, 0.46, glowColor, glowBlur * 0.35);
+            drawEnemyShipGlyph('■', x, y + profile.bodyY * visualScale, bodySize, bodyColor, 0, 1, glowColor, glowBlur * 0.78);
+
+            if (profile.tier >= 2) {
+                const armorSize = Math.round(bodySize * 0.42);
+                drawEnemyShipGlyph('■', x - 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, bodyColor, 0, 0.9, glowColor, glowBlur * 0.48);
+                drawEnemyShipGlyph('■', x + 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, bodyColor, 0, 0.9, glowColor, glowBlur * 0.48);
+                drawEnemyShipGlyph('●', x, y + (profile.bodyY + 0.5) * visualScale, Math.round(bodySize * 0.34), highlightColor, 0, 0.74, glowColor, glowBlur * 0.5);
+            } else {
+                drawEnemyShipGlyph('▪', x - 3 * visualScale, y + (profile.bodyY - 2) * visualScale, Math.round(bodySize * 0.42), highlightColor, 0, 0.62, glowColor, glowBlur * 0.34);
+            }
+
+            if (profile.tier >= 3) {
+                const accentSize = Math.round(bodySize * 0.32);
+                drawEnemyShipGlyph('◆', x, y + (profile.bodyY + 8) * visualScale, accentSize, thrusterColor, 0, 0.72, glowColor, glowBlur * 0.42);
+                drawEnemyShipGlyph('▲', x - 13 * visualScale, y + (profile.bodyY - 3) * visualScale, Math.round(bodySize * 0.24), highlightColor, -0.12, 0.62, glowColor, glowBlur * 0.34);
+                drawEnemyShipGlyph('▲', x + 13 * visualScale, y + (profile.bodyY - 3) * visualScale, Math.round(bodySize * 0.24), highlightColor, 0.12, 0.62, glowColor, glowBlur * 0.34);
+            }
+        }
+
+        function drawRisingStarThruster(enemy, renderNow, alpha = 1) {
+            const visualScale = Math.max(0.85, Math.min(1.24, enemy.enemyShipVisualScale || 1));
+            const pulse = 0.55 + Math.sin(renderNow * 0.018 + (enemy.risePhase || 0)) * 0.18;
+            const riseGlow = 0.3 + (enemy.risingProgress || 0) * 0.7;
+            const flameAlpha = Math.max(0, Math.min(0.58, alpha * pulse * riseGlow));
+            if (flameAlpha <= 0.02) return;
+
+            ctx.save();
+            ctx.globalAlpha *= flameAlpha;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${Math.round(10 * visualScale)}px Courier New`;
+            if (glowEnabled) {
+                ctx.shadowColor = '#ffd27a';
+                ctx.shadowBlur = 6 * visualScale;
+            }
+            const y = enemy.y + 21 * visualScale;
+            ctx.fillStyle = '#ffd27a';
+            ctx.fillText('|', enemy.x - 5 * visualScale, y);
+            ctx.fillText('|', enemy.x + 5 * visualScale, y);
+            ctx.fillStyle = '#ff7b5c';
+            ctx.fillText('.', enemy.x, y + 5 * visualScale);
+            ctx.restore();
+            ctx.shadowBlur = 0;
+        }
+
+        const FLYBY_SPRITES = [
+            [
+                "  ▄█▄  ",
+                " ▟███▙ ",
+                "  ▀█▀  "
+            ],
+            [
+                "  ▄██▄  ",
+                " ▟████▙ ",
+                "  ▀██▀  "
+            ],
+            [
+                " ▄▄██▄▄ ",
+                "▟██████▙",
+                " ▀▀██▀▀ "
+            ],
+            [
+                " ▄▄████▄▄ ",
+                "▟████████▙",
+                " ▀▀████▀▀ "
+            ]
+        ];
+
+        function buildFlyByShotThresholdsForTier(tier) {
+            if (tier >= 4) return [0.42, 0.66];
+            if (tier >= 3) return [0.5];
+            return [];
+        }
+
+        function getFlyByConfigForTier(tier) {
+            if (tier === 1) return { sprite: FLYBY_SPRITES[0], color: '#ffe66d', hp: 40, count: 1, speed: 0.855, damage: 10, scale: 1.55, shotThresholds: [] };
+            if (tier === 2) return { sprite: FLYBY_SPRITES[1], color: '#ffb36a', hp: 55, count: 2, speed: 0.945, damage: 12, scale: 1.55, shotThresholds: [] };
+            if (tier === 3) return { sprite: FLYBY_SPRITES[2], color: '#ff7be3', hp: 60, count: 2, speed: 1.026, damage: 14, scale: 1.55, shotThresholds: buildFlyByShotThresholdsForTier(tier) };
+            return { sprite: FLYBY_SPRITES[3], color: '#ff5f72', hp: 70, count: 3, speed: 1.098, damage: 16, scale: 1.55, shotThresholds: buildFlyByShotThresholdsForTier(tier) };
+        }
+
+        function getScoutFlyByConfigForTier(tier) {
+            const base = getFlyByConfigForTier(tier);
+            return {
+                sprite: FLYBY_SPRITES[0],
+                color: '#cfd4dc',
+                hp: Math.max(20, base.hp - 20),
+                count: base.count,
+                speed: base.speed * 1.2,
+                damage: base.damage,
+                scale: 1.02,
+                shotThresholds: [],
+                collisionX: 24,
+                collisionY: 18,
+                isScout: true
+            };
+        }
+
+        function createHealthDrop(x, y, healFraction = 0.10, boxSize = 28) {
+            return {
+                x,
+                y,
+                vx: 0,
+                vy: 36,
+                isHealth: true,
+                healFraction,
+                boxSize,
+                boxColor: '#d11f34',
+                crossColor: '#ffffff'
             };
         }

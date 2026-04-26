@@ -211,3 +211,17 @@
             stopBossMusic(2.0);
             resumeMainMusic();
         }
+
+        function startBattleStarshipMusic() {
+            if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
+            stopBgm(1.5);
+            bossMusicTimeout = setTimeout(() => {
+                playBossMusic(bufBoss3Intro, bufBoss3Loop);
+            }, 1000);
+        }
+
+        function stopBattleStarshipMusic() {
+            if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
+            stopBossMusic(2.0);
+            resumeMainMusic();
+        }

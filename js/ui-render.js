@@ -351,7 +351,7 @@
             const focused = pauseSelection === -1 && player.weapons.length > 0;
             const selectedIndex = Math.max(0, Math.min(Math.max(0, player.weapons.length - 1), pausePowerupSelection));
             pausePowerupSelection = selectedIndex;
-            const detailH = player.weapons.length > 0 ? 86 : 0;
+            const detailH = focused ? 86 : 0;
 
             ctx.save();
             ctx.textAlign = 'center';
@@ -1337,7 +1337,7 @@
                             if (gameState === 'PLAYING') {
                                 boss.coreTimer += dt;
                                 if (boss.coreTimer > 4) boss.coreTimer -= 4;
-                                boss.isVulnerable = boss.coreTimer >= 3.0;
+                                boss.isVulnerable = boss.coreTimer < 3.0;
                             }
                             
                             const coreX = boss.x;
@@ -1460,6 +1460,95 @@
                         }
                     } else if (boss.name === 'BLACK VOID') {
                         drawBlackVoidBoss(renderNow, bossRenderEntries);
+                    } else if (boss.isBattleStarship) {
+                        const shipSprite = boss.sprite;
+                        const renderScale = boss.renderScale || 0.55;
+                        const renderBossX = snapSpriteCoord(boss.x);
+                        const renderBossY = snapSpriteCoord(boss.y);
+                        const bSX = -(shipSprite[0].length * charW) / 2;
+                        const bSY = -(shipSprite.length * charH) / 2;
+                        const bodyFlash = boss.flashTimer > 0;
+
+                        ctx.save();
+                        ctx.translate(renderBossX, renderBossY);
+                        ctx.scale(renderScale, renderScale);
+                        ctx.font = `bold 20px Courier New`;
+
+                        const baseColor = bodyFlash ? '#ffffff' : (boss.isShielded ? '#bff0ff' : '#9bd6ff');
+                        const accentColor = bodyFlash ? '#ffffff' : '#5fa8ff';
+                        const hullColor = bodyFlash ? '#ffffff' : '#cfe6ff';
+
+                        if (glowEnabled && boss.phase !== 'INTRO') {
+                            ctx.shadowColor = boss.isShielded ? '#9be3ff' : '#7ed4ff';
+                            ctx.shadowBlur = 10 + Math.sin(renderNow * 0.004) * 4;
+                        }
+
+                        for (let r = 0; r < shipSprite.length; r++) {
+                            for (let c = 0; c < shipSprite[r].length; c++) {
+                                const char = shipSprite[r][c];
+                                if (char === ' ') continue;
+                                let glyphColor = hullColor;
+                                if (char === '█' || char === '▓') glyphColor = baseColor;
+                                else if (char === '▌' || char === '▐' || char === '▄' || char === '▀') glyphColor = accentColor;
+                                else if (char === '░' || char === '▒') glyphColor = '#7ea8d6';
+                                ctx.fillStyle = bodyFlash ? '#ffffff' : glyphColor;
+                                const localX = bSX + c * charW;
+                                const localY = bSY + r * charH;
+                                ctx.fillText(char, localX | 0, localY | 0);
+                                recordBossRenderGlyph(
+                                    bossRenderEntries,
+                                    char,
+                                    (renderBossX + localX * renderScale) | 0,
+                                    (renderBossY + localY * renderScale) | 0,
+                                    ctx.fillStyle,
+                                    renderScale
+                                );
+                            }
+                        }
+                        ctx.shadowBlur = 0;
+                        ctx.restore();
+
+                        if (boss.phase === 'ACTIVE') {
+                            // Engine glow when shields charging or vented
+                            if (boss.engineGlow > 0.05) {
+                                ctx.save();
+                                ctx.font = `bold ${(28 + boss.engineGlow * 24) | 0}px Courier New`;
+                                ctx.fillStyle = boss.isShielded ? '#ffea7a' : '#ff6b3d';
+                                if (glowEnabled) {
+                                    ctx.shadowColor = boss.isShielded ? '#ffd24a' : '#ff5824';
+                                    ctx.shadowBlur = 12 + boss.engineGlow * 16;
+                                }
+                                ctx.globalAlpha = 0.4 + boss.engineGlow * 0.6;
+                                ctx.fillText('◉', boss.x | 0, (boss.y + 60) | 0);
+                                ctx.restore();
+                            }
+
+                            // Shield bubble
+                            if (boss.isShielded) {
+                                ctx.save();
+                                const pulse = 0.55 + Math.sin(renderNow * 0.008) * 0.15;
+                                ctx.globalAlpha = pulse;
+                                ctx.strokeStyle = '#9be3ff';
+                                ctx.lineWidth = 2;
+                                if (glowEnabled) {
+                                    ctx.shadowColor = '#9be3ff';
+                                    ctx.shadowBlur = 18;
+                                }
+                                ctx.beginPath();
+                                ctx.ellipse(boss.x | 0, (boss.y + 30) | 0, 165, 105, 0, 0, Math.PI * 2);
+                                ctx.stroke();
+                                ctx.restore();
+                            }
+
+                            const { barW, barH, barX, barY, nameY } = getBossBarLayout();
+                            ctx.strokeStyle = '#ffffff';
+                            ctx.strokeRect(barX | 0, barY | 0, barW, barH);
+                            ctx.fillStyle = '#7ed4ff';
+                            ctx.fillRect((barX + 2) | 0, (barY + 2) | 0, (barW - 4) * (boss.hp / boss.maxHp), barH - 4);
+                            ctx.fillStyle = '#cfe6ff';
+                            ctx.font = `bold 16px Courier New`;
+                            ctx.fillText(boss.name, (width / 2) | 0, nameY | 0);
+                        }
                     } else if (boss.isGlitch) {
                         ctx.fillStyle = boss.flashTimer > 0 ? '#ffffff' : boss.color;
                         ctx.font = `bold 20px Courier New`;

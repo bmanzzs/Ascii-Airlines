@@ -16,6 +16,57 @@
         const BOMB_SHRAPNEL_LIFE = 0.5;
         const GOD_MODE_DAMAGE_MULT = 10;
         const GOD_MODE_BOMB_COOLDOWN = 0.1;
+        const WEAPON_STAT_GUARDRAILS = {
+            minFireRateMult: 0.18,
+            maxFireRateMult: 4.2,
+            minSpeedMult: 0.22,
+            maxSpeedMult: 2.4,
+            minSizeMult: 0.55,
+            maxSizeMult: 4.75,
+            minHitboxMult: 0.55,
+            maxHitboxMult: 1.25,
+            maxSplashRadius: 4.0,
+            maxTorpedoExplosionRadius: 112,
+            maxPelletCount: 5,
+            maxRearFireFan: 5,
+            maxChainCount: 6,
+            maxCloudDotMult: 8
+        };
+        const PLAYER_MODIFIER_GUARDRAILS = {
+            minMoveSpeedScale: 0.55,
+            maxMoveSpeedScale: 1.85,
+            minHitbox: 0.55,
+            maxHitbox: 1.25,
+            maxFireRateBonus: 1.4,
+            maxMomentumFireRateBonus: 0.75,
+            minBombCooldownMult: 0.45,
+            maxBombDamageBonus: 2.5,
+            maxBombRadiusBonus: 1.2,
+            maxMaxHpBonus: 2.5,
+            maxHpRegen: 8,
+            maxInvincibilityBonus: 1.5,
+            maxAdrenalineBonus: 1.25,
+            maxMagnetBonus: 2.5,
+            maxXpHeal: 0.03
+        };
+        const PLAYER_FIRE_INTERVAL_MIN_MS = 52;
+        const PLAYER_FIRE_INTERVAL_MAX_MS = 1700;
+
+        function clampValue(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function getClampedPlayerFireInterval(intervalMs) {
+            return clampValue(intervalMs, PLAYER_FIRE_INTERVAL_MIN_MS, PLAYER_FIRE_INTERVAL_MAX_MS);
+        }
+
+        function getPlayerMoveSpeedScale() {
+            return clampValue(
+                1 + (player.modifiers.moveSpeed || 0),
+                PLAYER_MODIFIER_GUARDRAILS.minMoveSpeedScale,
+                PLAYER_MODIFIER_GUARDRAILS.maxMoveSpeedScale
+            );
+        }
         const PLAYER_SHIP_MODELS = {
             center: {
                 body: { x: 0, y: -8, rotation: 0 },
@@ -630,6 +681,21 @@
             if(m.inaccuracy) s.inaccuracy = Math.max(s.inaccuracy, m.inaccuracy);
         }
 
+        function applyWeaponStatGuardrails() {
+            const s = player.weaponStats;
+            const g = WEAPON_STAT_GUARDRAILS;
+            s.fireRateMult = clampValue(s.fireRateMult, g.minFireRateMult, g.maxFireRateMult);
+            s.speedMult = clampValue(s.speedMult, g.minSpeedMult, g.maxSpeedMult);
+            s.sizeMult = clampValue(s.sizeMult, g.minSizeMult, g.maxSizeMult);
+            s.hitboxMult = clampValue(s.hitboxMult, g.minHitboxMult, g.maxHitboxMult);
+            s.splashRadius = Math.min(s.splashRadius || 0, g.maxSplashRadius);
+            s.torpedoExplosionRadius = Math.min(s.torpedoExplosionRadius || 0, g.maxTorpedoExplosionRadius);
+            s.pelletCount = Math.max(1, Math.min(s.pelletCount || 1, g.maxPelletCount));
+            s.rearFireFan = Math.max(1, Math.min(s.rearFireFan || 1, g.maxRearFireFan));
+            s.chainCount = Math.min(s.chainCount || 0, g.maxChainCount);
+            s.cloudDotMult = Math.min(s.cloudDotMult || 0, g.maxCloudDotMult);
+        }
+
         function rebuildPlayerWeaponStats() {
             const activeWeapons = player.weapons.slice();
             player.weaponStats = createBaseWeaponStats();
@@ -637,6 +703,36 @@
             for (let i = 0; i < activeWeapons.length; i++) {
                 applyWeapon(activeWeapons[i]);
             }
+            applyWeaponStatGuardrails();
+        }
+
+        function addPlayerWeapon(weapon, maxWeapons = 10) {
+            if (player.weapons.length >= maxWeapons) {
+                rebuildPlayerWeaponStats();
+                return false;
+            }
+            player.weapons.push(weapon);
+            rebuildPlayerWeaponStats();
+            return true;
+        }
+
+        function applyPlayerModifierGuardrails() {
+            const m = player.modifiers;
+            m.moveSpeed = clampValue(m.moveSpeed || 0, PLAYER_MODIFIER_GUARDRAILS.minMoveSpeedScale - 1, PLAYER_MODIFIER_GUARDRAILS.maxMoveSpeedScale - 1);
+            m.maxHp = clampValue(m.maxHp || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxMaxHpBonus);
+            m.hitbox = clampValue(m.hitbox || 1, PLAYER_MODIFIER_GUARDRAILS.minHitbox, PLAYER_MODIFIER_GUARDRAILS.maxHitbox);
+            m.fireRate = clampValue(m.fireRate || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFireRateBonus);
+            m.hpRegen = clampValue(m.hpRegen || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxHpRegen);
+            m.invincibility = clampValue(m.invincibility || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxInvincibilityBonus);
+            m.adrenaline = clampValue(m.adrenaline || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxAdrenalineBonus);
+            m.magnet = clampValue(m.magnet || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxMagnetBonus);
+            m.bombCooldown = Math.max(m.bombCooldown || 1, PLAYER_MODIFIER_GUARDRAILS.minBombCooldownMult);
+            m.bombDamage = clampValue(m.bombDamage || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxBombDamageBonus);
+            m.bombRadius = clampValue(m.bombRadius || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxBombRadiusBonus);
+            m.momentumFireRate = clampValue(m.momentumFireRate || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxMomentumFireRateBonus);
+            m.xpHeal = clampValue(m.xpHeal || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxXpHeal);
+            player.maxHp = Math.floor(100 * (1 + m.maxHp));
+            player.hp = Math.min(player.hp, player.maxHp);
         }
 
         function drawWeapons() {
@@ -720,6 +816,7 @@
             else if (opt.id === 'blast') player.modifiers.bombRadius += opt.value;
             else if (opt.id === 'kinetic') player.modifiers.momentumFireRate += opt.value;
             else if (opt.id === 'bioscrap') player.modifiers.xpHeal += opt.value;
+            applyPlayerModifierGuardrails();
         }
 
         function pushConsoleHistory(text) {
@@ -933,9 +1030,8 @@
                     return false;
                 }
 
-                applyWeapon(foundWep);
-                if (player.weapons.length < 10) player.weapons.push(foundWep);
-                pushConsoleNotification(`Applied weapon: ${foundWep.name}`, 'success');
+                const added = addPlayerWeapon(foundWep, 10);
+                pushConsoleNotification(added ? `Applied weapon: ${foundWep.name}` : 'Weapon slots are full.', added ? 'success' : 'warn');
                 return false;
             }
 

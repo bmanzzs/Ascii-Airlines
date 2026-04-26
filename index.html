@@ -249,6 +249,29 @@
             font-size: calc(var(--hud-weapon-cell) - 1px);
             font-family: 'Courier New', Courier, monospace;
         }
+        .hud-weapon-icon {
+            width: calc(var(--hud-weapon-cell) * 1.08);
+            height: calc(var(--hud-weapon-cell) * 1.08);
+            display: block;
+            overflow: visible;
+            position: relative;
+            font-family: 'Courier New', Courier, monospace;
+            line-height: 1;
+        }
+        .hud-chain-bolt,
+        .hud-chain-spark {
+            position: absolute;
+            display: block;
+            font-weight: 900;
+            line-height: 1;
+        }
+        .hud-chain-bolt {
+            font-size: calc(var(--hud-weapon-cell) * 0.86);
+        }
+        .hud-chain-spark {
+            color: #f7feff;
+            font-size: calc(var(--hud-weapon-cell) * 0.54);
+        }
         .hud-status {
             flex: 0 0 auto;
             display: flex;

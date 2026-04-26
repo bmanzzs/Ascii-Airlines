@@ -379,6 +379,48 @@
                         color: '#ffafda'
                     }));
                 }
+            } else if (w.customType === 'prismRift') {
+                spawned.push(createPrismConduit({
+                    x: width * 0.5,
+                    y: -160,
+                    hoverX: width * 0.5,
+                    hoverY: height * 0.18,
+                    hoverAmpX: 130,
+                    hoverAmpY: 22
+                }));
+                for (let i = 0; i < 6; i++) {
+                    const fromLeft = i % 2 === 0;
+                    spawned.push(createLaneSweepEnemy({
+                        startX: fromLeft ? -60 : width + 60,
+                        startY: -90 - i * 28,
+                        endX: fromLeft ? width + 60 : -60,
+                        endY: height * (0.52 + (i % 3) * 0.06),
+                        delay: -(1.4 + i * 0.6),
+                        routeDuration: 7.6,
+                        laneAmplitude: 32 + i * 5,
+                        lanePhase: i * 0.7,
+                        speed: 0.96,
+                        hp: 30,
+                        color: i % 2 === 0 ? '#ff9bff' : '#9bffff'
+                    }));
+                }
+                for (let i = 0; i < 4; i++) {
+                    spawned.push(createVoidOrbiter({
+                        centerX: width * (0.30 + (i % 2) * 0.40),
+                        centerY: -100 - Math.floor(i / 2) * 30,
+                        centerDriftX: width * 0.06 * (i % 2 === 0 ? 1 : -1),
+                        centerPhase: i * 0.7,
+                        orbitRadiusX: 50 + (i % 2) * 8,
+                        orbitRadiusY: 30 + (i % 2) * 5,
+                        orbitAngle: i * (Math.PI / 2),
+                        orbitSpeed: 1.95,
+                        routeDuration: 9.0,
+                        delay: -(1.0 + i * 0.5),
+                        speed: 0.95,
+                        fireInterval: 2.7,
+                        color: i % 2 === 0 ? '#ffd56b' : '#9bffd5'
+                    }));
+                }
             } else if (w.customType === 'falseHorizon') {
                 spawned.push(createVoidSentinel({
                     spawnX: width * 0.18,
@@ -477,7 +519,17 @@
                 { count: 12, customType: 'twinRondo' }, // Wave 22
                 { count: 13, customType: 'anchorSiege' }, // Wave 23
                 { count: 14, customType: 'falseHorizon' }, // Wave 24
-                { isBoss: true, name: 'BLACK VOID', sprite: BLACK_VOID_SPRITE, hp: 2000 } // Wave 25
+                { isBoss: true, name: 'BLACK VOID', sprite: BLACK_VOID_SPRITE, hp: 2000 }, // Wave 25
+                { count: 12, color: '#ff00ff', type: 'wave2', speed: 0.85, stagger: 0.62, doubleElite: true, firePattern: 'splitFan', fireEveryNth: 4, fireInterval: 2.5 }, // Wave 26
+                { count: 14, color: '#ff0088', type: 'wave4', speed: 0.82, stagger: 0.58, doubleElite: true, firePattern: 'downFan', fireEveryNth: 4, fireInterval: 2.4 }, // Wave 27
+                { count: 13, color: '#00ffff', type: 'wave7', speed: 0.86, stagger: 0.42, doubleElite: true, firePattern: 'spiralNeedle', fireEveryNth: 4, fireInterval: 2.6 }, // Wave 28
+                { count: 14, color: '#ff00ff', type: 'wave8', speed: 0.78, stagger: 1.6, doubleElite: true, firePattern: 'scatterMark', fireEveryNth: 5, fireInterval: 2.6 }, // Wave 29
+                { isBoss: true, name: 'BATTLE STARSHIP', sprite: BATTLE_STARSHIP_SPRITE, hp: 2400 }, // Wave 30
+                { count: 11, customType: 'prismRift' }, // Wave 31 — Prism Conduit mini-boss
+                { count: 14, color: '#ff00ff', type: 'zig2', speed: 0.6, stagger: 0.40, doubleElite: true, firePattern: 'downFan', fireEveryNth: 4, fireInterval: 2.4 }, // Wave 32
+                { count: 14, color: '#ff0088', type: 'zig5', speed: 0.6, stagger: 0.42, doubleElite: true, firePattern: 'splitFan', fireEveryNth: 4, fireInterval: 2.5 }, // Wave 33
+                { count: 14, color: '#ff00ff', type: 'braidDive', speed: 0.86, stagger: 0.5, routeDuration: 8.2, doubleElite: true, singleRibbon: true, braidTrail: true, firePattern: 'aimedPulse', fireEveryNth: 4, fireInterval: 2.4 }, // Wave 34
+                { isBoss: true, name: 'ECLIPSE WARDEN', sprite: ECLIPSE_WARDEN_SPRITE, hp: 2200 } // Wave 35
             ],
             randomizeFlyByAssignments() {
                 this.flyByAssignments = {};
@@ -586,6 +638,30 @@
                         boss.beamAbsorbTimer = 0;
                         boss.patternDuration = 5.6;
                         boss.petalsAngle = 0;
+                    }
+                    if (w.name === 'ECLIPSE WARDEN') {
+                        startDistortedGlitchMusic();
+                        boss.color = '#5a5680';
+                    }
+                    if (w.name === 'BATTLE STARSHIP') {
+                        startBattleStarshipMusic();
+                        boss.isBattleStarship = true;
+                        boss.color = '#7ed4ff';
+                        boss.renderScale = 0.55;
+                        boss.introStartY = boss.y;
+                        boss.attackPattern = 0;
+                        boss.lastFire = 0;
+                        boss.chargeTimer = 0;
+                        boss.isCharging = false;
+                        boss.isShielded = false;
+                        boss.shieldTimer = 0;
+                        boss.portFireSide = 0;
+                        boss.fightersSpawned = false;
+                        boss.driftTimer = 0;
+                        boss.engineGlow = 0;
+                        boss.beamSweepX = 0;
+                        boss.beamSweepDir = 1;
+                        boss.isVulnerable = true;
                     }
                 } else {
                     const flyByTier = this.getFlyByTierForWave(waveNumber);
