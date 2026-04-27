@@ -49,6 +49,24 @@
         // Input Handling
         const keys = { w: false, a: false, s: false, d: false, ' ': false, escape: false, arrowup: false, arrowdown: false, arrowleft: false, arrowright: false, b: false };
         const mouse = { x: 0, y: 0, isDown: false, lastClick: 0 };
+
+        function clearGameplayKeys() {
+            Object.keys(keys).forEach(key => keys[key] = false);
+        }
+
+        function beginLaunchSequence() {
+            clearGameplayKeys();
+            applySelectedShipToPlayer({ heal: true });
+            restartLoadingSequence = false;
+            gameState = 'LAUNCHING';
+            launchTimer = 0;
+            player.x = width / 2;
+            player.y = height + 100;
+            player.vx = 0;
+            player.vy = 0;
+            player._renderLayoutCache = null;
+            startMusic();
+        }
         
         window.addEventListener('keydown', e => { 
             if (e.key === '`' || e.key === '~') {
@@ -56,7 +74,7 @@
                 consoleInput = '';
                 consoleHistoryIndex = -1;
                 consoleHistoryDraft = '';
-                Object.keys(keys).forEach(key => keys[key] = false); // clear held keys
+                clearGameplayKeys();
                 
                 if (consoleOpen) {
                     enterPauseMode();
@@ -120,11 +138,14 @@
             }
             
             const k = e.key.toLowerCase();
-            if (keys.hasOwnProperty(k)) { 
-                keys[k] = true; 
+            if (keys.hasOwnProperty(k)) {
+                keys[k] = true;
+                if (k === ' ' && !e.repeat && bombProjectiles.length > 0) {
+                    for (let bi = 0; bi < bombProjectiles.length; bi++) bombProjectiles[bi].forceDetonate = true;
+                }
                 // Prevent scrolling for game keys
                 if(k===' '||k==='arrowup'||k==='arrowdown'||k==='arrowleft'||k==='arrowright') {
-                    e.preventDefault(); 
+                    e.preventDefault();
                 }
             }
             
@@ -137,17 +158,44 @@
                     } else {
                         resumeFromPauseMode();
                     }
+                } else if (gameState === 'SHIP_SELECT') {
+                    shipSelectIndex = selectedShipIndex;
+                    gameState = 'START';
                 }
                 e.preventDefault();
                 return;
             }
-            if (gameState === 'START' && k === ' ') { 
-                restartLoadingSequence = false;
-                gameState = 'LAUNCHING'; 
-                launchTimer = 0; 
-                player.x = width / 2; 
-                player.y = height + 100;
-                startMusic(); 
+            if (gameState === 'START') {
+                if (k === 'arrowleft' || k === 'arrowright') {
+                    setShipSelectIndex(selectedShipIndex + (k === 'arrowright' ? 1 : -1));
+                    gameState = 'SHIP_SELECT';
+                    titleAlpha = 1;
+                    e.preventDefault();
+                    return;
+                }
+                if (k === ' ') {
+                    beginLaunchSequence();
+                    e.preventDefault();
+                    return;
+                }
+            }
+            if (gameState === 'SHIP_SELECT') {
+                if (k === 'arrowleft' || k === 'a') {
+                    setShipSelectIndex(shipSelectIndex - 1);
+                    e.preventDefault();
+                    return;
+                }
+                if (k === 'arrowright' || k === 'd') {
+                    setShipSelectIndex(shipSelectIndex + 1);
+                    e.preventDefault();
+                    return;
+                }
+                if (k === 'enter' || k === ' ') {
+                    selectShip(shipSelectIndex, true);
+                    beginLaunchSequence();
+                    e.preventDefault();
+                    return;
+                }
             }
             if (gameState === 'GAMEOVER' && k === ' ') location.reload();
             if (gameState === 'PAUSED') {

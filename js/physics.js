@@ -68,6 +68,7 @@
 
         const ELEMENTAL_TRAIL_SOFT_CAP = 210;
         const ELEMENTAL_TRAIL_HARD_CAP = 300;
+        const GHOST_SIGNAL_STAGE_TWO_TRANSITION_DURATION = 1.3;
 
         function emitElementalBulletTrail(b, dt, isWraith = false) {
             if (gameState !== 'PLAYING') return;
@@ -92,6 +93,390 @@
                 isGuardianFlame: !isWraith,
                 isWraithFlame: isWraith
             });
+        }
+
+        function smoothStageEase(t) {
+            const clamped = Math.max(0, Math.min(1, t));
+            return clamped * clamped * (3 - 2 * clamped);
+        }
+
+        function getAngleDelta(target, current) {
+            let delta = target - current;
+            while (delta > Math.PI) delta -= Math.PI * 2;
+            while (delta < -Math.PI) delta += Math.PI * 2;
+            return delta;
+        }
+
+        function dissolveEnemyBulletsForBossTransition(color = '#ffffff') {
+            const originalBulletCount = enemyBullets.length;
+            const retainedBullets = [];
+            const dissolveCap = Math.min(50, originalBulletCount);
+            const sparkEvery = Math.max(1, Math.ceil(originalBulletCount / 20));
+
+            for (let i = 0; i < originalBulletCount; i++) {
+                const b = enemyBullets[i];
+                if (i < dissolveCap && typeof markBossBulletForDissolve === 'function') {
+                    markBossBulletForDissolve(b, i);
+                    b.bossClearColor = color;
+                    retainedBullets.push(b);
+                }
+                if (i < 24 || i % sparkEvery === 0) {
+                    debris.push({
+                        x: b.x,
+                        y: b.y,
+                        vx: (Math.random() - 0.5) * 90,
+                        vy: (Math.random() - 0.5) * 90,
+                        char: ['✦', '*', '·'][i % 3],
+                        color,
+                        life: 0.16 + Math.random() * 0.18,
+                        isImpact: true
+                    });
+                }
+            }
+
+            enemyBullets = retainedBullets;
+            comboProjectiles = [];
+            bombProjectiles = [];
+            if (originalBulletCount > 0) addShake(4);
+        }
+
+        function updateDissolvingBossBullets(dt) {
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                const b = enemyBullets[i];
+                if (!b.isDyingBullet) {
+                    enemyBullets.splice(i, 1);
+                    continue;
+                }
+                const startedAt = b.bossClearStart || currentFrameNow || performance.now();
+                const elapsed = ((currentFrameNow || performance.now()) - startedAt) / 1000;
+                if (elapsed >= (b.bossClearDuration || 0.5)) {
+                    enemyBullets.splice(i, 1);
+                    continue;
+                }
+                b.x += (b.vx || 0) * dt;
+                b.y += (b.vy || 0) * dt;
+                const damp = Math.pow(0.04, dt);
+                b.vx = (b.vx || 0) * damp;
+                b.vy = (b.vy || 0) * damp;
+            }
+        }
+
+        function ensureGhostSignalStageTwoWraiths() {
+            const wraiths = enemies.filter(e => e && e.isWraith && e.bossMinionOwner === 'GHOST SIGNAL');
+            while (wraiths.length < 2) {
+                const index = wraiths.length;
+                const fromLeft = index === 0;
+                const wraith = createGhostSignalWraith(
+                    boss.x + (fromLeft ? -80 : 80),
+                    boss.y + 20,
+                    0,
+                    width * (fromLeft ? 0.27 : 0.73)
+                );
+                wraith.isBossMinion = true;
+                wraith.bossMinionOwner = 'GHOST SIGNAL';
+                enemies.push(wraith);
+                wraiths.push(wraith);
+            }
+            return wraiths.slice(0, 2);
+        }
+
+        function beginGhostSignalStageTwoTransition() {
+            if (!boss || boss.name !== 'GHOST SIGNAL' || boss.stageTwoStarted) return false;
+            boss.stageTwoStarted = true;
+            boss.stage = 2;
+            boss.phase = 'STAGE_TRANSITION';
+            boss.stageTransitionTimer = 0;
+            boss.stageTransitionDuration = GHOST_SIGNAL_STAGE_TWO_TRANSITION_DURATION;
+            boss.stageTransitionStartX = boss.x;
+            boss.stageTransitionStartY = boss.y;
+            boss.stageTransitionTargetX = width * 0.5;
+            boss.stageTransitionTargetY = height * 0.135;
+            boss.isVulnerable = false;
+            boss.attackPattern = 0;
+            boss.lastFire = 0;
+            boss.timer = 0;
+            boss.signalPulseComboCount = 0;
+            boss.signalPulseComboDelay = 0;
+            boss.signalComboCooldownUntil = 0;
+            dissolveEnemyBulletsForBossTransition('#c8ffff');
+
+            const wraiths = ensureGhostSignalStageTwoWraiths();
+            for (let i = 0; i < wraiths.length; i++) {
+                const wraith = wraiths[i];
+                const targetX = width * (i === 0 ? 0.27 : 0.73);
+                const targetY = height * (0.52 + i * 0.035);
+                wraith.stageTransitionMove = {
+                    startX: wraith.x,
+                    startY: wraith.y,
+                    targetX,
+                    targetY,
+                    phase: i * Math.PI
+                };
+                wraith.hoverX = targetX;
+                wraith.hoverY = targetY;
+                wraith.fireTimer = -0.7 - i * 0.35;
+            }
+
+            addShake(8);
+            return true;
+        }
+
+        function updateGhostSignalStageTransition(dt) {
+            if (!boss || boss.name !== 'GHOST SIGNAL' || boss.phase !== 'STAGE_TRANSITION') return false;
+            boss.stageTransitionTimer += dt;
+            const duration = boss.stageTransitionDuration || GHOST_SIGNAL_STAGE_TWO_TRANSITION_DURATION;
+            const t = Math.min(1, boss.stageTransitionTimer / duration);
+            const eased = smoothStageEase(t);
+            const ghostDrift = Math.sin(t * Math.PI * 2) * (1 - t) * 9;
+
+            boss.x = boss.stageTransitionStartX + (boss.stageTransitionTargetX - boss.stageTransitionStartX) * eased + ghostDrift;
+            boss.y = boss.stageTransitionStartY + (boss.stageTransitionTargetY - boss.stageTransitionStartY) * eased + Math.sin(t * Math.PI) * -8;
+            boss.flashTimer = Math.max(boss.flashTimer || 0, 0.05);
+
+            for (const e of enemies) {
+                if (!e || !e.isWraith || !e.stageTransitionMove) continue;
+                const move = e.stageTransitionMove;
+                const spectralSway = Math.sin(t * Math.PI * 2 + move.phase) * (1 - t) * 14;
+                e.x = move.startX + (move.targetX - move.startX) * eased + spectralSway;
+                e.y = move.startY + (move.targetY - move.startY) * eased + Math.cos(t * Math.PI * 2 + move.phase) * (1 - t) * 5;
+                e.hoverTimer = (e.hoverTimer || 0) + dt;
+                e.onScreen = true;
+            }
+
+            updateDissolvingBossBullets(dt);
+
+            for (let i = debris.length - 1; i >= 0; i--) {
+                const d = debris[i];
+                d.x += d.vx * dt;
+                d.y += d.vy * dt;
+                d.vx *= 0.96;
+                d.vy *= 0.96;
+                d.life -= dt * 1.4;
+                if (d.life <= 0) debris.splice(i, 1);
+            }
+
+            shake *= 0.88;
+            if (t >= 1) {
+                boss.phase = 'ACTIVE';
+                boss.isVulnerable = true;
+                boss.startX = boss.x;
+                boss.startY = boss.y;
+                boss.timer = 0;
+                boss.lastFire = 0;
+                boss.attackPattern = 0;
+                boss.driftTimer = 0;
+                for (const e of enemies) {
+                    if (e && e.stageTransitionMove) delete e.stageTransitionMove;
+                }
+            }
+            return true;
+        }
+
+        function pushGhostSignalBullet(config) {
+            enemyBullets.push({
+                x: config.x ?? boss.x,
+                y: config.y ?? boss.y,
+                vx: config.vx || 0,
+                vy: config.vy || 0,
+                char: config.char || '◌',
+                color: config.color || '#00ffff',
+                isSignalPulse: true,
+                signalBulletType: config.type || 'pulse',
+                isSignalYBullet: !!config.isSignalYBullet,
+                isZigZag: !!config.isZigZag,
+                baseVx: config.baseVx,
+                baseVy: config.baseVy,
+                zigTimer: config.zigTimer || 0,
+                zigDir: config.zigDir || 1,
+                zigInterval: config.zigInterval,
+                zigAmplitude: config.zigAmplitude,
+                isWraithBolt: !!config.isWraithBolt,
+                isLargeWraith: !!config.isLargeWraith,
+                isSignalStormOrb: !!config.isSignalStormOrb,
+                speed: config.speed,
+                maxSpeed: config.maxSpeed,
+                accel: config.accel,
+                homingTurn: config.homingTurn,
+                age: 0,
+                hitboxScale: config.hitboxScale || 1
+            });
+        }
+
+        function fireGhostSignalStageOneCompositePulse(pulseIndex = 0) {
+            const originX = boss.x;
+            const originY = boss.y;
+            const aim = Math.atan2(player.y - originY, player.x - originX);
+            const ringCount = 12;
+            const ringOffset = pulseIndex * 0.18;
+            for (let i = 0; i < ringCount; i++) {
+                const a = ringOffset + (i / ringCount) * Math.PI * 2;
+                pushGhostSignalBullet({
+                    x: originX,
+                    y: originY,
+                    vx: Math.cos(a) * 330,
+                    vy: Math.sin(a) * 330,
+                    type: 'pulse',
+                    color: '#9cfbff'
+                });
+            }
+            for (let i = -2; i <= 2; i += 2) {
+                const a = aim + i * 0.13;
+                pushGhostSignalBullet({
+                    x: originX,
+                    y: originY,
+                    vx: Math.cos(a) * 520,
+                    vy: Math.sin(a) * 520,
+                    type: 'pulse',
+                    color: '#d8fbff'
+                });
+            }
+            for (let i = -1; i <= 1; i++) {
+                const a = aim + i * 0.24 + (pulseIndex - 1) * 0.05;
+                const speed = 360;
+                pushGhostSignalBullet({
+                    x: originX,
+                    y: originY,
+                    vx: Math.cos(a) * speed,
+                    vy: Math.sin(a) * speed,
+                    baseVx: Math.cos(a) * speed,
+                    baseVy: Math.sin(a) * speed,
+                    char: 'z',
+                    type: 'zigzag',
+                    color: '#00ffff',
+                    isZigZag: true,
+                    zigDir: i % 2 === 0 ? 1 : -1
+                });
+            }
+            for (let i = 0; i < 2; i++) {
+                const a = aim + (i === 0 ? -0.08 : 0.08);
+                const speed = 430;
+                pushGhostSignalBullet({
+                    x: originX,
+                    y: originY,
+                    vx: Math.cos(a) * speed,
+                    vy: Math.sin(a) * speed,
+                    baseVx: Math.cos(a) * speed,
+                    baseVy: Math.sin(a) * speed,
+                    char: 'Y',
+                    type: 'fork',
+                    color: '#ffd400',
+                    isZigZag: true,
+                    isSignalYBullet: true,
+                    zigDir: i === 0 ? -1 : 1,
+                    zigInterval: 0.26,
+                    zigAmplitude: 250
+                });
+            }
+        }
+
+        function updateGhostSignalStageTwoAttacks(bossNow, dt) {
+            const pattern = boss.attackPattern % 3;
+            if (pattern === 0 && bossNow - boss.lastFire > 900) {
+                const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+                const speed = 170;
+                pushGhostSignalBullet({
+                    x: boss.x,
+                    y: boss.y + 8,
+                    vx: Math.cos(aim) * speed,
+                    vy: Math.sin(aim) * speed,
+                    char: '◎',
+                    type: 'stormOrb',
+                    color: '#76f6ff',
+                    isSignalStormOrb: true,
+                    speed,
+                    maxSpeed: 455,
+                    accel: 155,
+                    homingTurn: 1.15,
+                    hitboxScale: 1.35
+                });
+                boss.lastFire = bossNow;
+            } else if (pattern === 1 && bossNow - boss.lastFire > 780) {
+                const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+                for (let i = -1; i <= 1; i++) {
+                    const a = aim + i * 0.14;
+                    const speed = 345;
+                    pushGhostSignalBullet({
+                        x: boss.x,
+                        y: boss.y + 16,
+                        vx: Math.cos(a) * speed,
+                        vy: Math.sin(a) * speed,
+                        char: '✦',
+                        type: 'wraithLarge',
+                        color: '#f4f7fb',
+                        isWraithBolt: true,
+                        isLargeWraith: true,
+                        hitboxScale: 1.55
+                    });
+                }
+                boss.lastFire = bossNow;
+            } else if (pattern === 2) {
+                if (boss.signalComboCooldownUntil && bossNow < boss.signalComboCooldownUntil) return;
+                boss.signalPulseComboDelay = (boss.signalPulseComboDelay || 0) - dt;
+                if ((boss.signalPulseComboCount || 0) <= 0) {
+                    boss.signalPulseComboCount = 3;
+                    boss.signalPulseComboDelay = 0;
+                }
+                if (boss.signalPulseComboCount > 0 && boss.signalPulseComboDelay <= 0) {
+                    const firedIndex = 3 - boss.signalPulseComboCount;
+                    fireGhostSignalStageOneCompositePulse(firedIndex);
+                    boss.signalPulseComboCount--;
+                    boss.signalPulseComboDelay = 0.34;
+                    if (boss.signalPulseComboCount <= 0) {
+                        boss.signalComboCooldownUntil = bossNow + 1300;
+                        boss.lastFire = bossNow;
+                    }
+                }
+            }
+        }
+
+        function beginFirewallStageTwo() {
+            if (!boss || boss.name !== 'OVERHEATING FIREWALL' || boss.stageTwoStarted) return false;
+            boss.stageTwoStarted = true;
+            boss.stage = 2;
+            boss.color = '#ffdd66';
+            boss.attackPattern = 0;
+            boss.timer = 0;
+            boss.lastFire = 0;
+            boss.coreTimer = 0.2;
+            boss.firestormAngle = 0;
+            boss.firewallCurtainFlip = false;
+            dissolveEnemyBulletsForBossTransition('#ffb347');
+
+            let guardians = enemies.filter(e => e && e.isFlameGuardian && e.bossMinionOwner === 'OVERHEATING FIREWALL');
+            while (guardians.length < 2) {
+                const guardian = createFirewallGuardianMinion();
+                enemies.push(guardian);
+                guardians.push(guardian);
+            }
+            for (let i = 0; i < guardians.length; i++) {
+                const guardian = guardians[i];
+                guardian.hoverX = width * (i === 0 ? 0.27 : 0.73);
+                guardian.hoverY = height * 0.18;
+                guardian.hoverAmpX = 42;
+                guardian.hoverAmpY = 18;
+                guardian.flameFireInterval = 2.35;
+                guardian.flameShotSpeed = 275;
+                guardian.fireTimer = -0.7 - i * 0.45;
+                guardian.hp = Math.max(guardian.hp || 0, 190);
+                guardian.maxHp = Math.max(guardian.maxHp || 0, 260);
+            }
+
+            for (let i = 0; i < 34 && debris.length < 360; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const d = 30 + Math.random() * 95;
+                debris.push({
+                    x: boss.x + Math.cos(a) * d,
+                    y: boss.y + FIREWALL_BOSS_CORE_OFFSET_Y + Math.sin(a) * d,
+                    vx: Math.cos(a) * (80 + Math.random() * 130),
+                    vy: Math.sin(a) * (80 + Math.random() * 130),
+                    char: ['✦', '*', '·', '░'][i % 4],
+                    color: ['#ffdd66', '#ff8a18', '#e01926'][i % 3],
+                    life: 0.32 + Math.random() * 0.32,
+                    isImpact: true
+                });
+            }
+            addShake(14);
+            return true;
         }
 
         // Main simulation update loop.
@@ -221,6 +606,10 @@
                 postResumeBombLockTimer = Math.max(0, postResumeBombLockTimer - dt);
             }
 
+            if (boss && boss.phase === 'STAGE_TRANSITION') {
+                if (updateGhostSignalStageTransition(dt)) return;
+            }
+
             // Player Physics & Firing
             let inputX = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), inputY = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
             if (inputX !== 0 && inputY !== 0) { inputX *= 0.707; inputY *= 0.707; }
@@ -304,7 +693,7 @@
                                     absorbBlackVoidProjectile(beamHitX, beamHitY, 1);
                                 }
                             }
-                        } else if (e === boss && boss.isBattleStarship && boss.isShielded) {
+                        } else if (e === boss && isBossDamageShielded(boss)) {
                             appliedDamage = 0;
                         }
                         e.hp -= appliedDamage;
@@ -360,6 +749,11 @@
             if (postResumeBombLockTimer <= 0 && keys[' '] && player.bombTimer <= 0) fireBomb();
             for (let i = bombProjectiles.length - 1; i >= 0; i--) {
                 const bomb = bombProjectiles[i];
+                if (bomb.justFired) {
+                    bomb.justFired = false;
+                    continue;
+                }
+                bomb.age = (bomb.age || 0) + dt;
                 bomb.x += bomb.vx * dt;
                 bomb.y += bomb.vy * dt;
                 bomb.distance = Math.hypot(bomb.x - bomb.startX, bomb.y - bomb.startY);
@@ -379,7 +773,7 @@
                     });
                 }
 
-                let shouldExplode = bomb.distance >= bomb.maxDistance || bomb.y < -80;
+                let shouldExplode = bomb.distance >= bomb.maxDistance || bomb.y < -80 || bomb.forceDetonate;
                 if (!shouldExplode) {
                     for (let enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
                         const e = enemies[enemyIndex];
@@ -558,6 +952,20 @@
                     }
                 }
 
+                if (b.isSignalStormOrb) {
+                    b.age = (b.age || 0) + dt;
+                    const currentSpeed = b.speed || Math.max(1, Math.hypot(b.vx || 0, b.vy || 0));
+                    const nextSpeed = Math.min(b.maxSpeed || 455, currentSpeed + (b.accel || 140) * dt);
+                    const currentAngle = Math.atan2(b.vy || 0, b.vx || 1);
+                    const targetAngle = Math.atan2(player.y - b.y, player.x - b.x);
+                    const maxTurn = (b.homingTurn || 1.0) * dt;
+                    const delta = Math.max(-maxTurn, Math.min(maxTurn, getAngleDelta(targetAngle, currentAngle)));
+                    const nextAngle = currentAngle + delta;
+                    b.speed = nextSpeed;
+                    b.vx = Math.cos(nextAngle) * nextSpeed;
+                    b.vy = Math.sin(nextAngle) * nextSpeed;
+                }
+
                 if (b.isLargeFlame || b.isLargeWraith) {
                     emitElementalBulletTrail(b, dt, !!b.isLargeWraith);
                 }
@@ -608,9 +1016,10 @@
                 }
 
                 const dx = b.x - player.x, dy = b.y - player.y;
-                const hitboxR = 30 * player.modifiers.hitbox;
+                const hitboxR = 30 * getPlayerHitboxScale();
+                const bulletHitboxScale = b.hitboxScale || 1;
                 
-                if (dx * dx + dy * dy < hitboxR * hitboxR * (b.decay ? Math.max(0.1, b.life) : 1)) {
+                if (dx * dx + dy * dy < hitboxR * hitboxR * bulletHitboxScale * bulletHitboxScale * (b.decay ? Math.max(0.1, b.life) : 1)) {
                     if (!player.godMode && player.invincibilityTimer <= 0) {
                         player.hp -= 10; 
                         addShake(15); 
@@ -894,6 +1303,8 @@
                     }
                 } else if (boss.isBlackVoid) {
                     if (updateBlackVoidBoss(dt)) return;
+                } else if (boss.isEclipseWarden) {
+                    if (updateEclipseWardenBoss(dt)) return;
                 } else if (boss.isBattleStarship) {
                     if (boss.phase === 'INTRO') {
                         const introDuration = 5.2;
@@ -954,7 +1365,9 @@
                                     enemyBullets.push({
                                         x: portX, y: portY,
                                         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-                                        char: '=', color: '#9be3ff'
+                                        char: '=', color: '#9be3ff',
+                                        isStarshipBullet: true,
+                                        starshipBulletType: 'broadside'
                                     });
                                 }
                                 boss.lastFire = bossNow;
@@ -987,13 +1400,17 @@
                                         x: boss.beamSweepX, y: boss.y + 50,
                                         vx: 0, vy: 280,
                                         char: '█', color: '#ffd84a',
-                                        isHuge: true, life: 1.0, decay: 0.45
+                                        isHuge: true, life: 1.0, decay: 0.45,
+                                        isStarshipBullet: true,
+                                        starshipBulletType: 'beam'
                                     });
                                     enemyBullets.push({
                                         x: boss.beamSweepX, y: boss.y + 70,
                                         vx: 0, vy: 280,
                                         char: '▓', color: '#ffaa18',
-                                        isHuge: true, life: 1.0, decay: 0.45
+                                        isHuge: true, life: 1.0, decay: 0.45,
+                                        isStarshipBullet: true,
+                                        starshipBulletType: 'beam'
                                     });
                                     boss.lastFire = bossNow;
                                 }
@@ -1009,7 +1426,9 @@
                                         x: boss.x, y: boss.y + 30,
                                         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
                                         char: '◉', color: '#ff7a3d',
-                                        isHuge: true, life: 1.0, decay: 0.32
+                                        isHuge: true, life: 1.0, decay: 0.32,
+                                        isStarshipBullet: true,
+                                        starshipBulletType: 'torpedo'
                                     });
                                 }
                                 boss.lastFire = bossNow;
@@ -1046,7 +1465,9 @@
                                     enemyBullets.push({
                                         x: boss.x, y: boss.y + 30,
                                         vx: Math.cos(angle) * 320, vy: Math.sin(angle) * 320,
-                                        char: '+', color: '#9be3ff'
+                                        char: '+', color: '#9be3ff',
+                                        isStarshipBullet: true,
+                                        starshipBulletType: 'cover'
                                     });
                                 }
                                 boss.lastFire = bossNow;
@@ -1065,7 +1486,9 @@
                                         enemyBullets.push({
                                             x: boss.x, y: boss.y + 30,
                                             vx: Math.cos(angle) * 360, vy: Math.sin(angle) * 360,
-                                            char: '*', color: '#bff0ff'
+                                            char: '*', color: '#bff0ff',
+                                            isStarshipBullet: true,
+                                            starshipBulletType: 'reactor'
                                         });
                                     }
                                     boss.lastFire = bossNow;
@@ -1158,20 +1581,30 @@
                                     const dx = player.x - boss.x;
                                     const dy = player.y - boss.y;
                                     const dist = Math.sqrt(dx * dx + dy * dy);
-                                    enemyBullets.push({ x: boss.x, y: boss.y, vx: (dx / dist) * 500, vy: (dy / dist) * 500, char: 'x', color: '#ff00ff', isPhantomBullet: true });
+                                    enemyBullets.push({ x: boss.x, y: boss.y, vx: (dx / dist) * 500, vy: (dy / dist) * 500, char: 'x', color: '#ff00ff', isPhantomBullet: true, phantomBulletType: 'needle' });
                                 }
                             }
                         } else if (boss.name === 'GHOST SIGNAL') {
                             boss.driftTimer = (boss.driftTimer || 0) + dt;
-                            boss.x = boss.startX + Math.sin(boss.driftTimer * 0.55) * GHOST_SIGNAL_DRIFT_X;
-                            boss.y = boss.startY + Math.sin(boss.driftTimer * 1.15) * GHOST_SIGNAL_DRIFT_Y;
-                            applyWakeForce(boss.x, boss.y, 180, 5);
+                            if ((boss.stage || 1) === 1 && boss.hp <= boss.maxHp * 0.5 && beginGhostSignalStageTwoTransition()) {
+                                return;
+                            }
+                            const stageTwo = (boss.stage || 1) >= 2;
+                            const driftX = stageTwo ? GHOST_SIGNAL_DRIFT_X * 0.62 : GHOST_SIGNAL_DRIFT_X;
+                            const driftY = stageTwo ? GHOST_SIGNAL_DRIFT_Y * 0.58 : GHOST_SIGNAL_DRIFT_Y;
+                            boss.x = boss.startX + Math.sin(boss.driftTimer * (stageTwo ? 0.42 : 0.55)) * driftX;
+                            boss.y = boss.startY + Math.sin(boss.driftTimer * (stageTwo ? 0.95 : 1.15)) * driftY;
+                            applyWakeForce(boss.x, boss.y, stageTwo ? 240 : 180, stageTwo ? 7 : 5);
                         } else if (boss.name === 'OVERHEATING FIREWALL') {
                             boss.driftTimer = (boss.driftTimer || 0) + dt;
-                            boss.x = width / 2 + Math.sin(boss.driftTimer * 0.5) * 50;
+                            if ((boss.stage || 1) === 1 && boss.hp <= boss.maxHp * 0.5) {
+                                beginFirewallStageTwo();
+                            }
+                            const firewallStageTwo = (boss.stage || 1) >= 2;
+                            boss.x = width / 2 + Math.sin(boss.driftTimer * (firewallStageTwo ? 0.72 : 0.5)) * (firewallStageTwo ? 78 : 50);
 
                             boss.smokeTimer = (boss.smokeTimer || 0) + dt;
-                            const smokeInterval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.11 : 0.065;
+                            const smokeInterval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.11 : (firewallStageTwo ? 0.052 : 0.065);
                             if (boss.smokeTimer >= smokeInterval && thrusterParticles.length < ELEMENTAL_TRAIL_HARD_CAP) {
                                 boss.smokeTimer %= smokeInterval;
                                 thrusterParticles.push({
@@ -1189,13 +1622,29 @@
 
                         if (boss.timer > 4) {
                             boss.timer = 0;
-                            const numPatterns = boss.name === 'GHOST SIGNAL' ? 5 : 3;
+                            const numPatterns = boss.name === 'GHOST SIGNAL'
+                                ? ((boss.stage || 1) >= 2 ? 3 : 5)
+                                : 3;
                             boss.attackPattern = (boss.attackPattern + 1) % numPatterns;
                             boss.lastFire = 0;
+                            boss.signalPulseComboCount = 0;
+                            boss.signalPulseComboDelay = 0;
+                            boss.signalComboCooldownUntil = 0;
                         }
 
                         const isPhantom = boss.name === 'NULL PHANTOM';
-                        const fire = (vx, vy) => enemyBullets.push({ x: boss.x, y: boss.y, vx, vy, char: 'x', color: '#ff00ff', isPhantomBullet: isPhantom });
+                        const fire = (vx, vy) => enemyBullets.push({
+                            x: boss.x,
+                            y: boss.y,
+                            vx,
+                            vy,
+                            char: isPhantom ? 'x' : '◌',
+                            color: isPhantom ? '#ff00ff' : '#00ffff',
+                            isPhantomBullet: isPhantom,
+                            phantomBulletType: isPhantom ? 'rift' : null,
+                            isSignalPulse: boss.name === 'GHOST SIGNAL',
+                            signalBulletType: boss.name === 'GHOST SIGNAL' ? 'pulse' : null
+                        });
 
                         if (boss.name === 'OVERHEATING FIREWALL') {
                             const bossFire = (vx, vy, huge, isFlame) => enemyBullets.push({
@@ -1207,12 +1656,57 @@
                                 color: isFlame ? '#e38914' : '#ff6600',
                                 isHuge: huge,
                                 isLargeFlame: isFlame,
+                                isFirewallBullet: true,
+                                firewallBulletType: isFlame ? 'flame' : (huge ? 'cinder' : 'spark'),
                                 life: huge ? 1.0 : 0,
                                 decay: huge ? 0.6 : 0
                             });
 
                         const bossNow = currentFrameNow;
-                        if (boss.attackPattern === 0 && bossNow - boss.lastFire > 800) {
+                        if ((boss.stage || 1) >= 2) {
+                            boss.firestormAngle = (boss.firestormAngle || 0) + 0.16;
+                            if (boss.attackPattern === 0 && bossNow - boss.lastFire > 180) {
+                                for (let i = 0; i < 2; i++) {
+                                    const a = boss.firestormAngle + i * Math.PI + Math.sin(boss.firestormAngle * 0.7) * 0.25;
+                                    bossFire(Math.cos(a) * 390, Math.sin(a) * 390 + 90, false, true);
+                                    bossFire(Math.cos(a + 0.28) * 310, Math.sin(a + 0.28) * 310 + 135, false, true);
+                                }
+                                boss.lastFire = bossNow;
+                            } else if (boss.attackPattern === 1 && bossNow - boss.lastFire > 620) {
+                                boss.firewallCurtainFlip = !boss.firewallCurtainFlip;
+                                const gapX = Math.max(95, Math.min(width - 95, player.x + (boss.firewallCurtainFlip ? -65 : 65)));
+                                const columns = 10;
+                                for (let i = 0; i < columns; i++) {
+                                    const x = width * (0.08 + i * 0.093);
+                                    if (Math.abs(x - gapX) < 78) continue;
+                                    const vy = 265 + (i % 3) * 28;
+                                    enemyBullets.push({
+                                        x,
+                                        y: -24,
+                                        vx: Math.sin(i * 1.7 + boss.firestormAngle) * 34,
+                                        vy,
+                                        char: '❋',
+                                        color: i % 2 === 0 ? '#e38914' : '#e01926',
+                                        isLargeFlame: true,
+                                        isFirewallBullet: true,
+                                        firewallBulletType: 'flame',
+                                        hitboxScale: 1.08
+                                    });
+                                }
+                                boss.lastFire = bossNow;
+                            } else if (boss.attackPattern === 2 && bossNow - boss.lastFire > 1050) {
+                                const count = 22;
+                                const aim = Math.atan2(player.y - (boss.y + FIREWALL_BOSS_CORE_OFFSET_Y), player.x - boss.x);
+                                for (let i = 0; i < count; i++) {
+                                    const gap = Math.abs(getAngleDelta((i / count) * Math.PI * 2, aim));
+                                    if (gap < 0.18) continue;
+                                    const a = (i / count) * Math.PI * 2 + boss.firestormAngle * 0.4;
+                                    const speed = 270 + (i % 2) * 55;
+                                    bossFire(Math.cos(a) * speed, Math.sin(a) * speed + 80, i % 7 === 0, i % 7 !== 0);
+                                }
+                                boss.lastFire = bossNow;
+                            }
+                        } else if (boss.attackPattern === 0 && bossNow - boss.lastFire > 800) {
                             for (let i = 0; i < 16; i++) {
                                 const a = (i / 16) * Math.PI * 2;
                                 bossFire(Math.cos(a) * 600, Math.sin(a) * 600, false, true);
@@ -1230,7 +1724,9 @@
                         }
                     } else {
                         const bossNow = currentFrameNow;
-                        if (boss.attackPattern === 0 && bossNow - boss.lastFire > 1000) {
+                        if (boss.name === 'GHOST SIGNAL' && (boss.stage || 1) >= 2) {
+                            updateGhostSignalStageTwoAttacks(bossNow, dt);
+                        } else if (boss.attackPattern === 0 && bossNow - boss.lastFire > 1000) {
                             for (let i = 0; i < 18; i++) {
                                 const a = (i / 18) * Math.PI * 2;
                                 fire(Math.cos(a) * 380, Math.sin(a) * 380);
@@ -1263,6 +1759,8 @@
                                         char: 'z',
                                         color: '#00ffff',
                                         isZigZag: true,
+                                        isSignalPulse: true,
+                                        signalBulletType: 'zigzag',
                                         zigTimer: 0,
                                         zigDir: 1
                                     });
@@ -1286,6 +1784,8 @@
                                         char: 'Y',
                                         color: '#ffd400',
                                         isZigZag: true,
+                                        isSignalPulse: true,
+                                        signalBulletType: 'fork',
                                         zigTimer: 0,
                                         zigDir: i === 0 ? -1 : 1,
                                         zigInterval: 0.26,
@@ -1530,7 +2030,7 @@
                         }
                     } else if (doesProjectileHitTargetMask(p, boss, targetMaskRadius)) {
                         if (!boss.isDeadGlitching) {
-                            const shieldBlocks = boss.isBattleStarship && boss.isShielded;
+                            const shieldBlocks = isBossDamageShielded(boss);
                             const damageScale = shieldBlocks ? 0 : getBlackVoidDamageScale(p.x, p.y);
                             const bossDamage = projectileStats.plasmaCloud ? p.damage * (projectileStats.cloudDotMult || 6) * getPlasmaCloudGrowthFactor(p) * dt : p.damage;
                             boss.hp -= bossDamage * damageScale;
@@ -2058,7 +2558,7 @@
                 }
 
                 if (e.isFlyBy && e.onScreen && isEnemyDamageable(e) && !player.godMode && player.invincibilityTimer <= 0) {
-                    const hitboxR = 30 * player.modifiers.hitbox;
+                    const hitboxR = 30 * getPlayerHitboxScale();
                     if (doesCircleHitTargetMask(player.x, player.y, hitboxR, e)) {
                         player.hp -= e.flyByDamage || 12;
                         addShake(18);

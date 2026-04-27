@@ -436,7 +436,7 @@
                 } else if ((boss.name === 'GHOST SIGNAL' && radius >= 60)
                     ? doesCircleHitTargetBounds(x, y, radius, boss)
                     : doesCircleHitTargetMask(x, y, radius, boss)) {
-                    const shieldBlocks = boss.isBattleStarship && boss.isShielded;
+                    const shieldBlocks = isBossDamageShielded(boss);
                     const damageScale = shieldBlocks ? 0 : getBlackVoidDamageScale(x, y);
                     boss.hp -= damage * damageScale;
                     if (damageScale < 1 && !shieldBlocks) absorbBlackVoidProjectile(x, y, 2);
@@ -675,8 +675,9 @@
         }
 
         function fireBomb() {
+            const origin = getPlayerBombIndicatorOrigin();
+            const indicatorVisual = getPlayerBombIndicatorVisual();
             player.bombTimer = getPlayerBombCooldownTotal();
-            const origin = getPlayerWeaponOrigin(getPlayerRenderLayout(player, getPlayerFacing(player)));
             const angle = getPlayerFireAngle();
             const vx = Math.cos(angle) * BOMB_GRENADE_SPEED;
             const vy = Math.sin(angle) * BOMB_GRENADE_SPEED;
@@ -690,7 +691,11 @@
                 angle,
                 distance: 0,
                 maxDistance: BOMB_GRENADE_RANGE,
-                pulse: Math.random() * Math.PI * 2
+                pulse: Math.random() * Math.PI * 2,
+                age: 0,
+                launchColor: indicatorVisual.color,
+                launchColorDuration: 0.5,
+                justFired: true
             });
             addShake(12);
             for (let i = 0; i < 10; i++) {
@@ -919,6 +924,8 @@
             WaveManager.activeFormationId = 0;
             WaveManager.formationId = 0;
             WaveManager.randomizeFlyByAssignments();
+            WaveManager.randomizeSignalDrifts();
+            waveSignalNotice = null;
             enemies = []; boss = null; enemyBullets = []; comboProjectiles = []; bombProjectiles = []; bombBlastRings = [];
             drops = []; debris = []; xpOrbs = []; thrusterParticles = [];
             deathTimer = 0; launchTimer = 0; playerExploded = false;
@@ -927,7 +934,8 @@
             queuedConsoleLevels = 0;
             player.x = width / 2; player.y = Math.min(height * 0.8, getGameplayBottomLimit(150));
             player.vx = 0; player.vy = 0;
-            player.hp = 100; player.maxHp = 100;
+            player.shipId = getSelectedShipConfig().id;
+            player.hp = getPlayerBaseMaxHp(); player.maxHp = getPlayerBaseMaxHp();
             player.xp = 0; player.xpNeeded = 10; player.level = 1;
             player.stats = { L: 1, M: 0, B: 0 };
             player.modifiers = { moveSpeed: 0, maxHp: 0, laserDamage: 0, hitbox: 1, fireRate: 0, hpRegen: 0, invincibility: 0, adrenaline: 0, magnet: 0, bombCooldown: 1, bombDamage: 0, bombRadius: 0, momentumFireRate: 0, xpHeal: 0 };
@@ -942,7 +950,9 @@
             player.bombTimer = 0; player.bombCooldown = BOMB_BASE_COOLDOWN;
             player.godMode = false;
             player.invincibilityTimer = 0; player.flashTimer = 0;
-            player.fireRate = 306; player.lastFire = 0; player.color = '#00ffff';
+            applySelectedShipToPlayer({ heal: true });
+            player.lastFire = 0;
+            player._renderLayoutCache = null;
             stopMusic();
             clearPauseVolumePreview();
             applyCurrentVolume();

@@ -17,7 +17,7 @@
             } catch (e) { console.error("Audio load failed:", url); return null; }
         }
         
-        let buf1, buf2, bufVoidIntro, bufVoidLoop, bufGlitchIntro, bufGlitchLoop, bufBoss3Intro, bufBoss3Loop, bufBoss4Intro, bufBoss4Loop, bufBossExplosion, bufPlayerExplosion;
+        let buf1, buf2, bufVoidIntro, bufVoidLoop, bufGlitchIntro, bufGlitchLoop, bufBoss3Intro, bufBoss3Loop, bufBoss4Intro, bufBoss4Loop, bufBoss5Intro, bufBoss5Loop, bufBossExplosion, bufPlayerExplosion;
         let bgmSources = [];
         let bossSources = [];
         let bgmOffset = 0;
@@ -37,6 +37,8 @@
             bufBoss3Loop = await loadBuffer('./audio/ascii-airlines-boss3-loop.mp3');
             bufBoss4Intro = await loadBuffer('./audio/ascii-airlines-boss4-intro.mp3');
             bufBoss4Loop = await loadBuffer('./audio/ascii-airlines-boss4-loop.mp3');
+            bufBoss5Intro = await loadBuffer('./audio/ascii-airlines-boss5-intro.mp3');
+            bufBoss5Loop = await loadBuffer('./audio/ascii-airlines-boss5-loop.mp3');
             bufBossExplosion = await loadBuffer('./audio/explode.mp3');
             bufPlayerExplosion = await loadBuffer('./audio/playerexplode.mp3');
         }
@@ -131,6 +133,15 @@
             bossSources.push(source1, source2);
         }
 
+        function playBossMusicAtDrop(introBuf, loopBuf, introDuration, dropTime) {
+            if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
+            stopBgm(1.5);
+            const delayMs = Math.max(0, (introDuration - dropTime) * 1000);
+            bossMusicTimeout = setTimeout(() => {
+                playBossMusic(introBuf, loopBuf);
+            }, delayMs);
+        }
+
         function stopMusic() {
             if (bossMusicTimeout) { clearTimeout(bossMusicTimeout); bossMusicTimeout = null; }
             stopBgm(0);
@@ -179,6 +190,18 @@
         }
 
         function stopDistortedGlitchMusic() {
+            if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
+            stopBossMusic(2.0);
+            resumeMainMusic();
+        }
+
+        function startBlackVoidMusic() {
+            const introDuration = typeof BLACK_VOID_INTRO_DURATION === 'number' ? BLACK_VOID_INTRO_DURATION : 6.0;
+            const dropTime = typeof BLACK_VOID_MUSIC_DROP_TIME === 'number' ? BLACK_VOID_MUSIC_DROP_TIME : 1.725;
+            playBossMusicAtDrop(bufBoss5Intro, bufBoss5Loop, introDuration, dropTime);
+        }
+
+        function stopBlackVoidMusic() {
             if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
             stopBossMusic(2.0);
             resumeMainMusic();

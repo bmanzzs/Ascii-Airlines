@@ -80,9 +80,9 @@
             font-size: calc(11px * var(--hud-ui-scale));
             font-weight: bold;
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
-            gap: calc(10px * var(--hud-ui-scale));
+            gap: calc(12px * var(--hud-ui-scale));
             padding: calc(2px * var(--hud-ui-scale)) calc(10px * var(--hud-ui-scale));
             box-sizing: border-box;
             text-shadow: var(--theme-shadow);
@@ -101,11 +101,11 @@
         }
         .hud-left {
             flex: 0 0 auto;
-            gap: calc(4px * var(--hud-ui-scale));
+            gap: 0;
         }
         .hud-right {
             flex: 1 1 auto;
-            margin-left: auto;
+            margin-left: 0;
             justify-content: flex-end;
             gap: calc(12px * var(--hud-ui-scale));
         }
@@ -134,7 +134,7 @@
             min-width: 0;
             display: grid;
             grid-template-columns: repeat(3, max-content);
-            gap: calc(10px * var(--hud-ui-scale));
+            gap: calc(12px * var(--hud-ui-scale));
             align-items: end;
         }
         .hud-meter {
@@ -222,13 +222,13 @@
             }
         }
         .hud-weapon-wrap {
-            flex: 0 1 auto;
+            flex: 0 0 auto;
             display: flex;
             align-items: center;
             justify-content: center;
             min-width: 0;
-            margin-left: calc(40px * var(--hud-ui-scale));
-            margin-right: calc(2px * var(--hud-ui-scale));
+            margin-left: 0;
+            margin-right: 0;
         }
         .hud-weapon-grid {
             display: grid;
@@ -273,26 +273,114 @@
             font-size: calc(var(--hud-weapon-cell) * 0.54);
         }
         .hud-status {
-            flex: 0 0 auto;
+            flex: 1 1 calc(246px * var(--hud-ui-scale));
             display: flex;
             align-items: center;
-            gap: calc(6px * var(--hud-ui-scale));
             white-space: nowrap;
-            font-size: calc(14px * var(--hud-ui-scale));
-            width: calc(17ch * var(--hud-ui-scale));
+            font-size: calc(13px * var(--hud-ui-scale));
+            width: auto;
+            min-width: calc(210px * var(--hud-ui-scale));
+            max-width: calc(270px * var(--hud-ui-scale));
             justify-content: flex-end;
             font-variant-numeric: tabular-nums;
             font-feature-settings: "tnum" 1;
         }
-        #hud-level-text {
-            display: inline-block;
-            width: 7ch;
-            text-align: right;
+        .hud-wave-panel {
+            --hud-wave-color: var(--theme-color);
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            height: calc(34px * var(--hud-ui-scale));
+            display: grid;
+            grid-template-columns: calc(58px * var(--hud-ui-scale)) minmax(0, 1fr);
+            grid-template-rows: 1fr 1fr;
+            column-gap: calc(10px * var(--hud-ui-scale));
+            align-items: center;
+            padding: calc(3px * var(--hud-ui-scale)) calc(8px * var(--hud-ui-scale)) calc(3px * var(--hud-ui-scale)) calc(10px * var(--hud-ui-scale));
+            box-sizing: border-box;
+            border: 1px solid color-mix(in srgb, var(--hud-wave-color) 68%, transparent);
+            background:
+                linear-gradient(90deg, color-mix(in srgb, var(--hud-wave-color) 16%, transparent), rgba(0, 0, 0, 0.42) 48%, rgba(0, 0, 0, 0.12)),
+                rgba(2, 8, 14, 0.66);
+            box-shadow:
+                inset 0 0 calc(10px * var(--hud-ui-scale)) color-mix(in srgb, var(--hud-wave-color) 18%, transparent),
+                0 0 calc(8px * var(--hud-ui-scale)) color-mix(in srgb, var(--hud-wave-color) 12%, transparent);
+            overflow: hidden;
         }
-        #hud-wave-text {
-            display: inline-block;
-            width: 9ch;
+        .hud-wave-panel::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: calc(5px * var(--hud-ui-scale));
+            bottom: calc(5px * var(--hud-ui-scale));
+            width: calc(2px * var(--hud-ui-scale));
+            background: var(--hud-wave-color);
+            box-shadow: 0 0 calc(7px * var(--hud-ui-scale)) var(--hud-wave-color);
+            opacity: 0.86;
+        }
+        .hud-wave-panel.is-standard {
+            --hud-wave-color: color-mix(in srgb, var(--theme-color) 54%, #7b8b96);
+        }
+        .hud-wave-panel.is-fresh {
+            animation: hud-wave-acquire 1.15s ease-out infinite;
+        }
+        .hud-level-chip {
+            grid-row: 1 / 3;
+            grid-column: 1;
+            align-self: stretch;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: calc(2px * var(--hud-ui-scale));
+            padding-right: calc(8px * var(--hud-ui-scale));
+            border-right: 1px solid color-mix(in srgb, var(--hud-wave-color) 42%, transparent);
+            color: color-mix(in srgb, var(--hud-wave-color) 70%, #ffffff);
+            line-height: 1;
+            text-align: right;
+            text-shadow: none;
+        }
+        .hud-level-main {
+            color: #ffffff;
+            font-size: calc(12px * var(--hud-ui-scale));
+            line-height: 1;
+            text-shadow: 0 0 calc(6px * var(--hud-ui-scale)) var(--hud-wave-color);
+        }
+        .hud-level-score {
+            color: color-mix(in srgb, var(--hud-wave-color) 76%, #ffffff);
+            font-size: calc(8px * var(--hud-ui-scale));
+            line-height: 1;
+            letter-spacing: 0.04em;
+            opacity: 0.94;
+        }
+        .hud-wave-main,
+        .hud-wave-mod {
+            grid-column: 2;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1;
             text-align: left;
+        }
+        .hud-wave-main {
+            color: #ffffff;
+            font-size: calc(13px * var(--hud-ui-scale));
+            text-shadow: 0 0 calc(6px * var(--hud-ui-scale)) var(--hud-wave-color);
+        }
+        .hud-wave-mod {
+            color: color-mix(in srgb, var(--hud-wave-color) 82%, #ffffff);
+            font-size: calc(8px * var(--hud-ui-scale));
+            letter-spacing: 0.04em;
+            opacity: 0.92;
+            text-shadow: none;
+        }
+        @keyframes hud-wave-acquire {
+            0%, 100% {
+                filter: brightness(1);
+            }
+            45% {
+                filter: brightness(1.22);
+            }
         }
         .hud-sep {
             color: #555555;

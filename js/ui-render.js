@@ -17,6 +17,27 @@
             return lines;
         }
 
+        function blendProjectileHexColor(colorA, colorB, t) {
+            const parse = (color) => {
+                const hex = String(color || '').replace('#', '');
+                if (hex.length !== 6) return { r: 255, g: 255, b: 255 };
+                const r = parseInt(hex.slice(0, 2), 16);
+                const g = parseInt(hex.slice(2, 4), 16);
+                const b = parseInt(hex.slice(4, 6), 16);
+                if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
+                    return { r: 255, g: 255, b: 255 };
+                }
+                return { r, g, b };
+            };
+            const a = parse(colorA);
+            const b = parse(colorB);
+            const blend = Math.max(0, Math.min(1, t));
+            const r = Math.round(a.r + (b.r - a.r) * blend).toString(16).padStart(2, '0');
+            const g = Math.round(a.g + (b.g - a.g) * blend).toString(16).padStart(2, '0');
+            const bChannel = Math.round(a.b + (b.b - a.b) * blend).toString(16).padStart(2, '0');
+            return `#${r}${g}${bChannel}`;
+        }
+
         function drawLightningBallProjectile(p, renderNow, scale) {
             const age = p.age || 0;
             const spin = age * (p.spinSpeed || 18) + renderNow * 0.01;
@@ -172,6 +193,383 @@
             ctx.restore();
             ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
+        }
+
+        function getProjectileRenderAngle(b) {
+            return Math.atan2(b.vy || 0, b.vx || 1);
+        }
+
+        function drawBossGlyphLayer(char, fontSize, color, x = 0, y = 0, alpha = 1) {
+            ctx.globalAlpha *= alpha;
+            ctx.font = `bold ${Math.round(fontSize)}px Courier New`;
+            ctx.fillStyle = color;
+            ctx.fillText(char, x, y);
+            ctx.globalAlpha /= alpha;
+        }
+
+        function getBossProjectileStyle(b, renderNow) {
+            if (b.isPhantomBullet) return { char: '✧', core: '·', font: 25, coreFont: 10, color: '#ff69ff', coreColor: '#ffffff', glow: '#ff60ff' };
+            if (b.isSignalPulse || b.isSignalYBullet) {
+                if (b.signalBulletType === 'stormOrb') return { char: '◎', core: '*', font: 42, coreFont: 15, color: '#76f6ff', coreColor: '#ffffff', glow: '#7ffcff' };
+                if (b.signalBulletType === 'wraithLarge') return { char: '✦', core: '·', font: 50, coreFont: 13, color: '#f4fbff', coreColor: '#c8ffff', glow: '#c8ffff' };
+                if (b.signalBulletType === 'zigzag') return { char: '⌁', core: 'z', font: 28, coreFont: 12, color: '#dfffff', coreColor: '#00ffff', glow: '#7ffcff' };
+                if (b.signalBulletType === 'fork' || b.isSignalYBullet) return { char: 'Y', core: '·', font: 38, coreFont: 10, color: '#ffe86b', coreColor: '#9fffff', glow: '#ffd400' };
+                return { char: '◎', core: '·', font: 24, coreFont: 9, color: '#bfffff', coreColor: '#ffffff', glow: '#00ffff' };
+            }
+            if (b.isFirewallBullet) {
+                if (b.firewallBulletType === 'cinder') return { char: '✶', core: '•', font: Math.max(18, 54 * Math.max(0.05, b.life || 1)), coreFont: 13, color: '#ff9a2f', coreColor: '#fff2a8', glow: '#ffaa18' };
+                if (b.firewallBulletType === 'flame') return { char: '✦', core: '·', font: 27, coreFont: 9, color: Math.sin(renderNow * 0.004) > 0 ? '#e01926' : '#e38914', coreColor: '#fff2a8', glow: '#e38914' };
+                return { char: '✦', core: null, font: 23, color: '#ff9a2f', glow: '#e38914' };
+            }
+            if (b.isStarshipBullet) {
+                const scale = Math.max(0.05, b.life || 1);
+                if (b.starshipBulletType === 'beam') return { char: b.char === '▓' ? '▓' : '█', core: null, font: Math.max(18, 58 * scale), color: b.char === '▓' ? '#ffaa18' : '#ffd84a', glow: '#ffd84a' };
+                if (b.starshipBulletType === 'torpedo') return { char: '◉', core: '·', font: Math.max(20, 44 * scale), coreFont: 11, color: '#ff7a3d', coreColor: '#ffffff', glow: '#ff7a3d' };
+                if (b.starshipBulletType === 'reactor') return { char: '✶', core: '*', font: 25, coreFont: 11, color: '#dff7ff', coreColor: '#9be3ff', glow: '#bff0ff' };
+                if (b.starshipBulletType === 'cover') return { char: '✚', core: '·', font: 23, coreFont: 8, color: '#dff7ff', coreColor: '#5fa8ff', glow: '#9be3ff' };
+                return { char: '▰', core: '═', font: 22, coreFont: 10, color: '#dff7ff', coreColor: '#5fa8ff', glow: '#9be3ff' };
+            }
+            if (b.isEclipseBullet) {
+                const lineShot = b.char === '╎' || b.char === '╏' || b.char === '═';
+                return {
+                    char: lineShot ? b.char : (b.char || '◇'),
+                    core: lineShot ? null : '●',
+                    font: (b.voidBulletSize || 24) + (lineShot ? 4 : 2),
+                    coreFont: Math.max(7, (b.voidBulletSize || 24) * 0.28),
+                    color: b.color || '#c8f4ff',
+                    coreColor: '#050610',
+                    glow: b.color || '#c8f4ff'
+                };
+            }
+            if (b.isGlitchBullet && !b.isCodeLine) {
+                return { char: b.char || 'ﾊ', core: null, font: b.isHuge ? Math.max(22, 54 * Math.max(0.05, b.life || 1)) : 23, color: Math.sin(renderNow * 0.02 + b.x * 0.017) > 0 ? '#ffffff' : '#00ff41', glow: '#00ff41' };
+            }
+            if (b.isVoidProjectile) {
+                return { char: b.char || '⟡', core: '•', font: b.voidBulletSize || 24, coreFont: Math.max(7, (b.voidBulletSize || 24) * 0.3), color: b.color || '#dbe0ff', coreColor: '#050610', glow: b.color || '#9d8bff' };
+            }
+            return null;
+        }
+
+        const BOSS_PROJECTILE_CORE_LIMIT = 56;
+        const BOSS_PROJECTILE_GLOW_LIMIT = 32;
+        const BOSS_PROJECTILE_CACHE_LIMIT = 128;
+        const bossProjectileSpriteCache = new Map();
+
+        function quantizeBossFontSize(fontSize) {
+            const size = Math.max(7, Number(fontSize) || 20);
+            const step = size > 44 ? 4 : 2;
+            return Math.max(7, Math.round(size / step) * step);
+        }
+
+        function getBossProjectileSprite(style, useGlow, useCore) {
+            const fontSize = quantizeBossFontSize(style.font);
+            const coreFontSize = useCore ? quantizeBossFontSize(style.coreFont || 9) : 0;
+            const key = [
+                style.char,
+                fontSize,
+                style.color,
+                useGlow ? style.glow || style.color : '',
+                useCore ? style.core || '' : '',
+                useCore ? coreFontSize : 0,
+                useCore ? style.coreColor || '#ffffff' : ''
+            ].join('|');
+            const cached = bossProjectileSpriteCache.get(key);
+            if (cached) return cached;
+
+            if (bossProjectileSpriteCache.size > BOSS_PROJECTILE_CACHE_LIMIT) {
+                bossProjectileSpriteCache.clear();
+            }
+
+            const canvas = document.createElement('canvas');
+            const c = canvas.getContext('2d');
+            c.font = `bold ${fontSize}px Courier New`;
+            const primaryWidth = c.measureText(style.char).width;
+            let coreWidth = 0;
+            if (useCore) {
+                c.font = `bold ${coreFontSize}px Courier New`;
+                coreWidth = c.measureText(style.core).width;
+            }
+
+            const glowBlur = useGlow ? 10 : 0;
+            const padding = Math.ceil(Math.max(6, glowBlur + 4, fontSize * 0.28));
+            canvas.width = Math.ceil(Math.max(primaryWidth, coreWidth, fontSize) + padding * 2);
+            canvas.height = Math.ceil(Math.max(fontSize * 1.45, coreFontSize * 1.45) + padding * 2);
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.font = `bold ${fontSize}px Courier New`;
+            c.fillStyle = style.color;
+            if (useGlow) {
+                c.shadowColor = style.glow || style.color;
+                c.shadowBlur = glowBlur;
+            }
+            c.fillText(style.char, cx, cy);
+
+            if (useCore) {
+                c.shadowBlur = 0;
+                c.font = `bold ${coreFontSize}px Courier New`;
+                c.fillStyle = style.coreColor || '#ffffff';
+                c.fillText(style.core, cx, cy);
+            }
+
+            const sprite = { canvas, cx, cy };
+            bossProjectileSpriteCache.set(key, sprite);
+            return sprite;
+        }
+
+        function drawBossProjectileFast(b, renderNow) {
+            const style = getBossProjectileStyle(b, renderNow);
+            if (!style) return false;
+            const load = enemyBullets.length;
+            const x = snapSpriteCoord(b.x);
+            const y = snapSpriteCoord(b.y);
+            const allowGlow = glowEnabled && load <= BOSS_PROJECTILE_GLOW_LIMIT && !b.isPhantomBullet;
+            const allowCore = !!style.core && load <= (b.isPhantomBullet ? 12 : BOSS_PROJECTILE_CORE_LIMIT);
+            const sprite = getBossProjectileSprite(style, allowGlow, allowCore);
+            ctx.drawImage(sprite.canvas, x - sprite.cx, y - sprite.cy);
+            ctx.shadowBlur = 0;
+            return true;
+        }
+
+        function drawNullPhantomBullet(b, renderNow) {
+            const phase = renderNow * 0.011 + b.x * 0.019 + b.y * 0.013;
+            const pulse = 0.88 + Math.sin(phase) * 0.12;
+            ctx.save();
+            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.rotate(getProjectileRenderAngle(b) + Math.sin(phase * 1.7) * 0.18);
+            ctx.scale(pulse, pulse);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = '#ff60ff';
+                ctx.shadowBlur = 18 + pulse * 8;
+            }
+            drawBossGlyphLayer('×', 34, 'rgba(255, 255, 255, 0.42)', -1, 1, 0.82);
+            drawBossGlyphLayer('✧', 24, '#ff69ff');
+            ctx.shadowBlur = glowEnabled ? 8 : 0;
+            drawBossGlyphLayer('·', 13, '#ffffff');
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawSignalBossBullet(b, renderNow) {
+            const type = b.signalBulletType || 'pulse';
+            const phase = renderNow * 0.009 + b.x * 0.015;
+            const pulse = 0.92 + Math.sin(phase) * 0.1;
+            ctx.save();
+            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (type === 'zigzag') {
+                ctx.rotate(getProjectileRenderAngle(b));
+                if (glowEnabled) {
+                    ctx.shadowColor = '#7ffcff';
+                    ctx.shadowBlur = 18;
+                }
+                drawBossGlyphLayer('⌁', 30, '#eaffff');
+                drawBossGlyphLayer('z', 17, '#00ffff', 0, 0, 0.62);
+            } else if (type === 'fork') {
+                ctx.rotate(getProjectileRenderAngle(b) - Math.PI / 2);
+                if (glowEnabled) {
+                    ctx.shadowColor = '#ffd400';
+                    ctx.shadowBlur = 22;
+                }
+                drawBossGlyphLayer('Y', 43 * pulse, '#ffe86b');
+                drawBossGlyphLayer('⌁', 18, '#9fffff', 0, -3, 0.72);
+            } else {
+                ctx.scale(pulse, pulse);
+                if (glowEnabled) {
+                    ctx.shadowColor = '#00ffff';
+                    ctx.shadowBlur = 16 + pulse * 6;
+                }
+                drawBossGlyphLayer('◎', 25, '#bfffff');
+                drawBossGlyphLayer('◌', 16, '#00ffff');
+                drawBossGlyphLayer('·', 9, '#ffffff');
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawFirewallBossBullet(b, renderNow) {
+            const type = b.firewallBulletType || (b.isLargeFlame ? 'flame' : 'spark');
+            const phase = renderNow * 0.012 + b.x * 0.01 + b.y * 0.014;
+            const pulse = 0.9 + Math.sin(phase) * 0.12;
+            const scale = b.decay ? Math.max(0.05, b.life || 1) : 1;
+            ctx.save();
+            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.rotate(type === 'cinder' ? phase * 0.2 : getProjectileRenderAngle(b) + Math.PI / 2);
+            ctx.scale(scale * pulse, scale * pulse);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = type === 'cinder' ? '#ffaa18' : '#e38914';
+                ctx.shadowBlur = type === 'cinder' ? 28 : 18;
+            }
+            if (type === 'cinder') {
+                drawBossGlyphLayer('✹', 78, '#fff0a8', 0, 0, 0.72);
+                drawBossGlyphLayer('✶', 52, '#ff7a18');
+                drawBossGlyphLayer('•', 18, '#d91f11');
+            } else if (type === 'flame') {
+                drawBossGlyphLayer('❋', 34, '#fff2a8', 0, 0, 0.45);
+                drawBossGlyphLayer('✦', 25, Math.sin(phase) > 0 ? '#e01926' : '#e38914');
+                drawBossGlyphLayer('·', 10, '#fff2a8', 0, 0, 0.75);
+            } else {
+                drawBossGlyphLayer('✦', 24, '#ff9a2f');
+                drawBossGlyphLayer('·', 10, '#fff2a8');
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawStarshipBossBullet(b, renderNow) {
+            const type = b.starshipBulletType || 'broadside';
+            const phase = renderNow * 0.01 + b.x * 0.011;
+            const scale = b.decay ? Math.max(0.05, b.life || 1) : 1;
+            ctx.save();
+            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (type === 'beam') {
+                ctx.scale(scale, scale);
+                if (glowEnabled) {
+                    ctx.shadowColor = '#ffd84a';
+                    ctx.shadowBlur = 24;
+                }
+                drawBossGlyphLayer('█', 92, '#fff4a8', 0, 0, 0.54);
+                drawBossGlyphLayer(b.char === '▓' ? '▓' : '█', 64, b.char === '▓' ? '#ffaa18' : '#ffd84a');
+            } else if (type === 'torpedo') {
+                ctx.rotate(getProjectileRenderAngle(b) + Math.PI / 2);
+                ctx.scale(scale, scale);
+                if (glowEnabled) {
+                    ctx.shadowColor = '#ff7a3d';
+                    ctx.shadowBlur = 26;
+                }
+                drawBossGlyphLayer('◎', 74, '#fff0bd', 0, 0, 0.7);
+                drawBossGlyphLayer('◉', 48, '#ff7a3d');
+                drawBossGlyphLayer('·', 14, '#ffffff');
+            } else if (type === 'reactor') {
+                ctx.rotate(phase * 0.35);
+                if (glowEnabled) {
+                    ctx.shadowColor = '#bff0ff';
+                    ctx.shadowBlur = 18;
+                }
+                drawBossGlyphLayer('✶', 28, '#ffffff', 0, 0, 0.68);
+                drawBossGlyphLayer('*', 17, '#9be3ff');
+            } else if (type === 'cover') {
+                ctx.rotate(getProjectileRenderAngle(b));
+                if (glowEnabled) {
+                    ctx.shadowColor = '#9be3ff';
+                    ctx.shadowBlur = 15;
+                }
+                drawBossGlyphLayer('✚', 24, '#dff7ff');
+                drawBossGlyphLayer('·', 9, '#5fa8ff');
+            } else {
+                ctx.rotate(getProjectileRenderAngle(b));
+                if (glowEnabled) {
+                    ctx.shadowColor = '#9be3ff';
+                    ctx.shadowBlur = 14;
+                }
+                drawBossGlyphLayer('▰', 22, '#dff7ff');
+                drawBossGlyphLayer('═', 13, '#5fa8ff');
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawVoidBossBullet(b, renderNow) {
+            const phase = renderNow * 0.008 + b.x * 0.013 + b.y * 0.009;
+            const pulse = 0.9 + Math.sin(phase) * 0.1;
+            const size = b.voidBulletSize || 24;
+            ctx.save();
+            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.rotate(phase * 0.24);
+            ctx.scale(pulse, pulse);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = b.color || '#9d8bff';
+                ctx.shadowBlur = 18;
+            }
+            drawBossGlyphLayer('◌', size + 5, b.color || '#9d8bff', 0, 0, 0.58);
+            drawBossGlyphLayer(b.char || '⟡', size, '#e6eaff');
+            ctx.shadowBlur = glowEnabled ? 7 : 0;
+            drawBossGlyphLayer('•', Math.max(8, size * 0.34), '#050610', 0, 0, 0.9);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawEclipseBossBullet(b, renderNow) {
+            const phase = renderNow * 0.009 + b.x * 0.012;
+            const pulse = 0.92 + Math.sin(phase) * 0.1;
+            const lineShot = b.char === '╎' || b.char === '╏' || b.char === '═';
+            const size = b.voidBulletSize || 24;
+            ctx.save();
+            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.rotate(lineShot ? getProjectileRenderAngle(b) + Math.PI / 2 : phase * 0.18);
+            ctx.scale(pulse, pulse);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = b.color || '#c8f4ff';
+                ctx.shadowBlur = 16;
+            }
+            if (lineShot) {
+                drawBossGlyphLayer(b.char, size + 8, '#ffffff', 0, 0, 0.42);
+                drawBossGlyphLayer(b.char, size, b.color || '#c8f4ff');
+            } else {
+                drawBossGlyphLayer('◇', size + 5, '#ffffff', 0, 0, 0.55);
+                drawBossGlyphLayer(b.char || '◇', size, b.color || '#c8f4ff');
+                drawBossGlyphLayer('●', Math.max(7, size * 0.28), '#050610', 0, 0, 0.72);
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawGlitchBossBullet(b, renderNow) {
+            if (b.isCodeLine) return false;
+            const phase = renderNow * 0.02 + b.x * 0.017;
+            const scale = b.isHuge ? Math.max(0.05, b.life || 1) : 1;
+            ctx.save();
+            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.rotate(getProjectileRenderAngle(b) + Math.sin(phase) * 0.22);
+            ctx.scale(scale, scale);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (glowEnabled) {
+                ctx.shadowColor = '#00ff41';
+                ctx.shadowBlur = b.isHuge ? 28 : 18;
+            }
+            drawBossGlyphLayer('▓', b.isHuge ? 78 : 28, '#00ff41', Math.sin(phase) * 2, 0, 0.32);
+            drawBossGlyphLayer(b.char || 'ﾊ', b.isHuge ? 62 : 21, Math.sin(phase * 1.7) > 0 ? '#ffffff' : '#00ff41');
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            return true;
+        }
+
+        function drawBossProjectileVisual(b, renderNow) {
+            if (b.isCodeLine) return false;
+            if (
+                b.isPhantomBullet ||
+                b.isSignalPulse ||
+                b.isSignalYBullet ||
+                b.isFirewallBullet ||
+                b.isStarshipBullet ||
+                b.isEclipseBullet ||
+                b.isGlitchBullet ||
+                b.isVoidProjectile
+            ) {
+                return drawBossProjectileFast(b, renderNow);
+            }
+            return false;
         }
 
         function drawChainLightningProjectile(p, renderNow) {
@@ -906,6 +1304,180 @@
             ctx.restore();
         }
 
+        function drawShipSelectStat(label, valueText, ratio, x, y, color) {
+            const barW = 150;
+            const barH = 8;
+            ctx.fillStyle = '#8fb9c8';
+            ctx.font = `bold 12px 'Electrolize', sans-serif`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, x, y);
+            ctx.fillStyle = 'rgba(255,255,255,0.12)';
+            ctx.fillRect(x + 74, y - barH / 2, barW, barH);
+            const fillW = Math.max(6, Math.min(barW, barW * ratio));
+            const gradient = ctx.createLinearGradient(x + 74, 0, x + 74 + barW, 0);
+            gradient.addColorStop(0, color);
+            gradient.addColorStop(1, '#ffffff');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x + 74, y - barH / 2, fillW, barH);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(valueText, x + 304, y);
+        }
+
+        function drawShipSelectPreview(shipConfig, slotX, slotY, selected, now, slotIndex) {
+            const previewShip = {
+                x: 0,
+                y: 0,
+                vx: 0,
+                vy: 0,
+                shipId: shipConfig.id,
+                _renderLayoutCache: null
+            };
+            const bob = Math.sin(now * 0.002 + slotIndex * 1.7) * (selected ? 8 : 4);
+            const rotation = selected
+                ? Math.sin(now * 0.0017) * 0.18
+                : (slotIndex - DEFAULT_PLAYER_SHIP_INDEX) * 0.045;
+            const scale = selected ? 1.02 : 0.72;
+            const glow = selected ? 28 : 9;
+
+            ctx.save();
+            ctx.translate(slotX, slotY + bob);
+            ctx.rotate(rotation);
+            ctx.scale(scale, scale);
+            ctx.globalAlpha = selected ? 1 : 0.46;
+            ctx.fillStyle = selected ? shipConfig.previewColor : '#6e8290';
+            ctx.shadowColor = selected ? shipConfig.previewColor : '#5b6d78';
+            ctx.shadowBlur = glowEnabled ? glow : 0;
+            drawPlayerShip(previewShip, 'center');
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalAlpha = selected ? 0.78 : 0.26;
+            ctx.strokeStyle = selected ? shipConfig.previewColor : '#49606a';
+            ctx.lineWidth = selected ? 2 : 1;
+            if (glowEnabled && selected) {
+                ctx.shadowColor = shipConfig.previewColor;
+                ctx.shadowBlur = 16;
+            }
+            ctx.beginPath();
+            ctx.ellipse(slotX, slotY + 92, selected ? 78 : 52, selected ? 14 : 9, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${selected ? 18 : 13}px 'Electrolize', sans-serif`;
+            ctx.fillStyle = selected ? '#ffffff' : '#7f9aa8';
+            ctx.shadowColor = selected ? shipConfig.previewColor : '#000000';
+            ctx.shadowBlur = glowEnabled && selected ? 10 : 0;
+            ctx.fillText(shipConfig.name, slotX, slotY + (selected ? 132 : 116));
+            ctx.restore();
+        }
+
+        function drawShipSelectionScreen(now) {
+            const selectedShip = getShipSelectConfig();
+            const alpha = Math.max(0.85, titleAlpha);
+            const centerY = height * 0.42;
+            const slotXs = [width * 0.25, width * 0.5, width * 0.75];
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const headerPulse = 0.7 + Math.sin(now * 0.0024) * 0.22;
+            ctx.font = `bold 30px 'Electrolize', sans-serif`;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = selectedShip.previewColor;
+            ctx.shadowBlur = glowEnabled ? 16 + headerPulse * 8 : 0;
+            ctx.fillText('HANGAR SELECT', width / 2, height * 0.12);
+
+            ctx.font = `bold 12px 'Electrolize', sans-serif`;
+            ctx.fillStyle = '#8fb9c8';
+            ctx.shadowBlur = 0;
+            ctx.fillText('RUN FRAME ONLINE', width / 2, height * 0.155);
+
+            for (let i = 0; i < PLAYER_SHIP_TYPES.length; i++) {
+                const ship = PLAYER_SHIP_TYPES[i];
+                const isSelected = i === shipSelectIndex;
+                drawShipSelectPreview(ship, slotXs[i], centerY, isSelected, now, i);
+            }
+
+            const panelX = width / 2 - 172;
+            const panelY = height * 0.66;
+            const panelH = 192;
+            ctx.fillStyle = 'rgba(2, 8, 14, 0.72)';
+            ctx.fillRect(panelX - 18, panelY - 26, 344, panelH);
+            ctx.strokeStyle = selectedShip.previewColor;
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.72;
+            ctx.strokeRect(panelX - 18, panelY - 26, 344, panelH);
+            ctx.globalAlpha = alpha;
+
+            ctx.textAlign = 'left';
+            ctx.font = `bold 20px 'Electrolize', sans-serif`;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = selectedShip.previewColor;
+            ctx.shadowBlur = glowEnabled ? 10 : 0;
+            ctx.fillText(selectedShip.name, panelX, panelY - 2);
+
+            ctx.font = `12px 'Electrolize', sans-serif`;
+            ctx.fillStyle = '#8fb9c8';
+            ctx.shadowBlur = 0;
+            ctx.fillText(selectedShip.subtitle.toUpperCase(), panelX, panelY + 20);
+            ctx.fillStyle = selectedShip.previewColor;
+            ctx.fillText(selectedShip.trait.toUpperCase(), panelX, panelY + 40);
+
+            const statY = panelY + 66;
+            drawShipSelectStat('HP', String(selectedShip.maxHp), selectedShip.maxHp / 120, panelX, statY, selectedShip.previewColor);
+            drawShipSelectStat('DMG', `${Math.round(selectedShip.damageMult * 100)}%`, selectedShip.damageMult / 1.22, panelX, statY + 18, selectedShip.previewColor);
+            drawShipSelectStat('FIRE', `${Math.round((306 / selectedShip.fireRate) * 100)}%`, (306 / selectedShip.fireRate) / 1.08, panelX, statY + 36, selectedShip.previewColor);
+            drawShipSelectStat('SPEED', `${Math.round(selectedShip.moveSpeedMult * 100)}%`, selectedShip.moveSpeedMult / 1.16, panelX, statY + 54, selectedShip.previewColor);
+            drawShipSelectStat('BOMB', `${Math.round((1 / selectedShip.bombCooldownMult) * 100)}%`, (1 / selectedShip.bombCooldownMult) / 1.22, panelX, statY + 72, selectedShip.previewColor);
+            drawShipSelectStat('EVADE', `${Math.round((1 / selectedShip.hitboxMult) * 100)}%`, (1 / selectedShip.hitboxMult) / 1.08, panelX, statY + 90, selectedShip.previewColor);
+
+            ctx.restore();
+        }
+
+        function drawWaveSignalNotice(now) {
+            if (!waveSignalNotice || gameState !== 'PLAYING') return;
+            const elapsed = now - waveSignalNotice.startTime;
+            if (elapsed > waveSignalNotice.duration) {
+                waveSignalNotice = null;
+                return;
+            }
+            const fadeIn = Math.min(1, elapsed / 260);
+            const fadeOut = Math.min(1, (waveSignalNotice.duration - elapsed) / 520);
+            const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
+            const y = height * 0.105;
+            const w = 360;
+            const h = 48;
+            const x = width / 2 - w / 2;
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = 'rgba(0, 8, 16, 0.72)';
+            ctx.fillRect(x, y - h / 2, w, h);
+            ctx.strokeStyle = waveSignalNotice.color;
+            ctx.lineWidth = 1;
+            if (glowEnabled) {
+                ctx.shadowColor = waveSignalNotice.color;
+                ctx.shadowBlur = 10;
+            }
+            ctx.strokeRect(x, y - h / 2, w, h);
+            ctx.shadowBlur = 0;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold 13px 'Electrolize', sans-serif`;
+            ctx.fillStyle = waveSignalNotice.color;
+            ctx.fillText(`WAVE ${waveSignalNotice.waveNumber} // ${waveSignalNotice.title}`, width / 2, y - 8);
+            ctx.font = `11px 'Electrolize', sans-serif`;
+            ctx.fillStyle = '#d8f7ff';
+            ctx.fillText(waveSignalNotice.desc.toUpperCase(), width / 2, y + 11);
+            ctx.restore();
+        }
+
         function draw(dt) {
             if (window.innerHeight < 700 || window.innerWidth < 525) {
                 ctx.fillStyle = currentBgColor;
@@ -945,13 +1517,15 @@
             }
             ctx.globalAlpha = 1.0;
 
-            if (gameState === 'START' || gameState === 'LAUNCHING') {
+            if (gameState === 'START' || gameState === 'LAUNCHING' || gameState === 'SHIP_SELECT') {
                 let alpha = titleAlpha;
                 if (gameState === 'LAUNCHING') {
                     alpha = Math.max(0, titleAlpha - (launchTimer / 0.5));
                 }
 
-                if (alpha > 0) {
+                if (gameState === 'SHIP_SELECT') {
+                    drawShipSelectionScreen(renderNow);
+                } else if (alpha > 0) {
                     drawTitleLogo(alpha, renderNow);
                     if (restartLoadingSequence) {
                         const loadingProgress = gameState === 'START'
@@ -1058,7 +1632,7 @@
                             const boxSize = d.boxSize || 28;
                             ctx.fillStyle = d.boxColor || '#d11f34';
                             ctx.fillRect((d.x - boxSize / 2) | 0, (d.y - boxSize / 2) | 0, boxSize, boxSize);
-                            ctx.strokeStyle = '#ffffff';
+                            ctx.strokeStyle = d.strokeColor || '#ffffff';
                             ctx.lineWidth = 2;
                             ctx.strokeRect((d.x - boxSize / 2) | 0, (d.y - boxSize / 2) | 0, boxSize, boxSize);
                             ctx.fillStyle = d.crossColor || '#ffffff';
@@ -1097,6 +1671,9 @@
                         ctx.restore();
                         ctx.globalAlpha = 1.0;
                         ctx.shadowBlur = 0;
+                        continue;
+                    }
+                    if (drawBossProjectileVisual(b, renderNow)) {
                         continue;
                     }
                     if (b.isHuge) {
@@ -1257,6 +1834,7 @@
                         const bSX = -(fireLines[0].length * charW) / 2;
                         const bSY = -(fireLines.length * charH) / 2;
                         const firewallHasColor = boss.phase === 'ACTIVE';
+                        const firewallStageTwo = (boss.stage || 1) >= 2;
                         
                         ctx.font = `bold 20px Courier New`;
                         ctx.save();
@@ -1273,7 +1851,7 @@
 
                             // Smooth, pulsating wave glow traveling up the flame (loops exactly 4 times per full cycle)
                             if (glowEnabled && firewallHasColor) {
-                                ctx.shadowBlur = 25 + Math.sin(4 * tAngle - r * 0.5) * 10;
+                                ctx.shadowBlur = (firewallStageTwo ? 33 : 25) + Math.sin((firewallStageTwo ? 6 : 4) * tAngle - r * 0.5) * (firewallStageTwo ? 13 : 10);
                             } else {
                                 ctx.shadowBlur = 0;
                             }
@@ -1294,21 +1872,23 @@
                                         ctx.shadowColor = boss.color;
                                     } else {
                                         // Correlate the color sections directly with the smooth animation noise
-                                        const flickerHeat = hRatio + (noise * 0.15);
+                                        const flickerHeat = hRatio + (noise * (firewallStageTwo ? 0.2 : 0.15)) + (firewallStageTwo ? 0.08 : 0);
                                         
-                                        if (flickerHeat > 0.75) {
+                                        if (firewallStageTwo && flickerHeat > 0.88) {
+                                            ctx.fillStyle = '#fff2a8'; // White-hot stage two pockets
+                                        } else if (flickerHeat > 0.75) {
                                             ctx.fillStyle = '#ffaa00'; // Yellow-orange base
                                         } else if (flickerHeat > 0.45) {
                                             ctx.fillStyle = '#ff4400'; // Bright orange mid
                                         } else {
-                                            ctx.fillStyle = '#cc0000'; // Deep red tips
+                                            ctx.fillStyle = firewallStageTwo ? '#e01926' : '#cc0000'; // Deep red tips
                                         }
                                         
                                         // Occasional smooth white hot pockets (loops exactly 5 times per full cycle)
                                         if (flickerHeat > 0.85 && Math.sin(5 * tAngle + c * 0.5) > 0.5) {
                                             ctx.shadowColor = '#ffffff';
                                         } else {
-                                            ctx.shadowColor = '#ff5500';
+                                            ctx.shadowColor = firewallStageTwo ? '#ffdd66' : '#ff5500';
                                         }
                                     }
 
@@ -1335,9 +1915,11 @@
                         
                         if (boss.phase === 'ACTIVE') {
                             if (gameState === 'PLAYING') {
+                                const coreCycle = firewallStageTwo ? 3.35 : 4;
+                                const vulnerableWindow = firewallStageTwo ? 2.15 : 3.0;
                                 boss.coreTimer += dt;
-                                if (boss.coreTimer > 4) boss.coreTimer -= 4;
-                                boss.isVulnerable = boss.coreTimer < 3.0;
+                                if (boss.coreTimer > coreCycle) boss.coreTimer -= coreCycle;
+                                boss.isVulnerable = boss.coreTimer < vulnerableWindow;
                             }
                             
                             const coreX = boss.x;
@@ -1345,15 +1927,15 @@
                             
                             ctx.font = `bold ${FIREWALL_BOSS_CORE_FONT_SIZE}px Courier New`;
                             if (boss.isVulnerable) {
-                                ctx.fillStyle = '#00ffff';
-                                ctx.shadowColor = '#00ffff';
-                                ctx.shadowBlur = 40;
+                                ctx.fillStyle = firewallStageTwo ? '#fff2a8' : '#00ffff';
+                                ctx.shadowColor = firewallStageTwo ? '#ffdd66' : '#00ffff';
+                                ctx.shadowBlur = firewallStageTwo ? 48 : 40;
                                 ctx.fillText('◈', coreX, coreY);
                                 ctx.shadowBlur = 0;
                             } else {
-                                ctx.fillStyle = '#ff0000';
-                                ctx.shadowColor = '#ff0000';
-                                ctx.shadowBlur = 40;
+                                ctx.fillStyle = firewallStageTwo ? '#ff6a18' : '#ff0000';
+                                ctx.shadowColor = firewallStageTwo ? '#e01926' : '#ff0000';
+                                ctx.shadowBlur = firewallStageTwo ? 44 : 40;
                                 ctx.fillText('◈', coreX, coreY);
                                 ctx.shadowBlur = 0;
                             }
@@ -1362,7 +1944,7 @@
                             ctx.font = `bold 16px Courier New`; // Revert back for health bar
                             const { barW, barH, barX, barY, nameY } = getBossBarLayout();
                             ctx.strokeStyle = '#ffffff'; ctx.strokeRect(barX | 0, barY | 0, barW, barH);
-                            ctx.fillStyle = '#ff6600'; ctx.fillRect((barX+2) | 0, (barY+2) | 0, (barW-4)*(boss.hp/boss.maxHp), barH-4);
+                            ctx.fillStyle = firewallStageTwo ? '#ffdd66' : '#ff6600'; ctx.fillRect((barX+2) | 0, (barY+2) | 0, (barW-4)*(boss.hp/boss.maxHp), barH-4);
                             ctx.fillStyle = boss.color; ctx.fillText(boss.name, (width/2) | 0, nameY | 0);
                         }
                     } else if (boss.name === 'NULL PHANTOM') {
@@ -1411,11 +1993,12 @@
                     } else if (boss.name === 'GHOST SIGNAL') {
                         const layout = getGhostSignalRenderLayout(boss);
                         const bodyFlash = boss.flashTimer > 0;
+                        const signalStageTwo = (boss.stage || 1) >= 2;
                         const bodyPulse = bodyFlash
                             ? 1
-                            : 0.75 + Math.sin(2 * layout.tAngle - 0.22) * 0.25;
+                            : (signalStageTwo ? 0.84 : 0.75) + Math.sin(2 * layout.tAngle - 0.22) * (signalStageTwo ? 0.16 : 0.25);
                         const bodyGlow = glowEnabled && boss.phase !== 'INTRO'
-                            ? GHOST_SIGNAL_BODY_GLOW + bodyPulse * 9 + Math.sin(4 * layout.tAngle) * 4
+                            ? GHOST_SIGNAL_BODY_GLOW + bodyPulse * (signalStageTwo ? 14 : 9) + Math.sin(4 * layout.tAngle) * (signalStageTwo ? 7 : 4)
                             : 0;
 
                         ctx.save();
@@ -1452,7 +2035,7 @@
                             const { barW, barH, barX, barY, nameY } = getBossBarLayout();
                             ctx.strokeStyle = '#ffffff';
                             ctx.strokeRect(barX | 0, barY | 0, barW, barH);
-                            ctx.fillStyle = '#9cfbff';
+                            ctx.fillStyle = signalStageTwo ? '#f4fbff' : '#9cfbff';
                             ctx.fillRect((barX + 2) | 0, (barY + 2) | 0, (barW - 4) * (boss.hp / boss.maxHp), barH - 4);
                             ctx.fillStyle = '#d8fbff';
                             ctx.font = `bold 16px Courier New`;
@@ -1460,6 +2043,8 @@
                         }
                     } else if (boss.name === 'BLACK VOID') {
                         drawBlackVoidBoss(renderNow, bossRenderEntries);
+                    } else if (boss.isEclipseWarden) {
+                        drawEclipseWardenBoss(renderNow, bossRenderEntries);
                     } else if (boss.isBattleStarship) {
                         const shipSprite = boss.sprite;
                         const renderScale = boss.renderScale || 0.55;
@@ -1648,7 +2233,7 @@
                                 boss.scrambleTimer -= 1/60;
                                 if (boss.scrambleTimer <= 0) {
                                     boss.scrambleTimer = 1.0;
-                                    const baseName = boss.stage === 1 ? "DISTORTED GLITCH" : "[STAGE 2] D1ST0RT3D GL1TCH";
+                                    const baseName = boss.stage === 1 ? "DISTORTED GLITCH" : "D1ST0RT3D GL1TCH";
                                     const map = {'I':'1', 'O':'0', 'E':'3', 'A':'4', 'T':'7', 'S':'5'};
                                     let arr = baseName.split('');
                                     let charsToScramble = 1 + Math.floor(Math.random() * 2);
@@ -1749,16 +2334,20 @@
 
                 for (const bomb of bombProjectiles) {
                     const pulse = 0.8 + Math.sin(renderNow * 0.016 + bomb.pulse) * 0.2;
+                    const colorMixRaw = Math.max(0, Math.min(1, (bomb.age || 0) / (bomb.launchColorDuration || 0.5)));
+                    const colorMix = colorMixRaw * colorMixRaw * (3 - 2 * colorMixRaw);
+                    const shellColor = blendProjectileHexColor(bomb.launchColor || '#ffffff', '#ffffff', colorMix);
+                    const coreColor = blendProjectileHexColor(bomb.launchColor || '#9edfff', '#9edfff', colorMix);
                     ctx.save();
                     ctx.translate(bomb.x | 0, bomb.y | 0);
-                    ctx.fillStyle = '#ffffff';
+                    ctx.fillStyle = shellColor;
                     if (glowEnabled) {
-                        ctx.shadowColor = '#72e8ff';
+                        ctx.shadowColor = shellColor;
                         ctx.shadowBlur = 14 + pulse * 7;
                     }
                     ctx.font = `bold 22px Courier New`;
                     ctx.fillText('O', 0, 0);
-                    ctx.fillStyle = '#9edfff';
+                    ctx.fillStyle = coreColor;
                     ctx.font = `bold 11px Courier New`;
                     ctx.fillText('.', 0, 0);
                     ctx.restore();

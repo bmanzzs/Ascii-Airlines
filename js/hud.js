@@ -54,13 +54,9 @@
         }
 
         function ensureHudStructure() {
-            if (document.getElementById('hud-score-value')) return;
+            if (document.querySelector('#hud-wave-panel #hud-score-value')) return;
             hud.innerHTML = `
                 <div class="hud-left">
-                    <div class="hud-score">
-                        <span class="hud-score-label">SCORE</span>
-                        <span id="hud-score-value" class="hud-score-value">000000</span>
-                    </div>
                     <div class="hud-meters">
                         <div class="hud-meter">
                             <span class="hud-meter-label">HP</span>
@@ -81,9 +77,14 @@
                         <div id="hud-weapon-grid" class="hud-weapon-grid"></div>
                     </div>
                     <div class="hud-status">
-                        <span id="hud-level-text">LVL 1</span>
-                        <span class="hud-sep">◆</span>
-                        <span id="hud-wave-text">WAVE 1</span>
+                        <span id="hud-wave-panel" class="hud-wave-panel is-standard">
+                            <span class="hud-level-chip">
+                                <span id="hud-level-text" class="hud-level-main">LVL 1</span>
+                                <span id="hud-score-value" class="hud-level-score">000000</span>
+                            </span>
+                            <span id="hud-wave-text" class="hud-wave-main">WAVE 1</span>
+                            <span id="hud-wave-mod-text" class="hud-wave-mod">CLEAR SIGNAL</span>
+                        </span>
                     </div>
                 </div>`;
             hudRefs.scoreValue = document.getElementById('hud-score-value');
@@ -92,7 +93,9 @@
             hudRefs.bombBar = document.getElementById('hud-bomb-bar');
             hudRefs.weaponGrid = document.getElementById('hud-weapon-grid');
             hudRefs.levelText = document.getElementById('hud-level-text');
+            hudRefs.wavePanel = document.getElementById('hud-wave-panel');
             hudRefs.waveText = document.getElementById('hud-wave-text');
+            hudRefs.waveModText = document.getElementById('hud-wave-mod-text');
         }
 
         function syncMeterBar(container, filledBlocks, totalBlocks, fillStart, fillEnd = fillStart, emptyColor = '#1a1a1a', options = {}) {
@@ -210,6 +213,67 @@
             }
         }
 
+        function getHudWaveModifierInfo(waveNumber) {
+            if (boss) {
+                return {
+                    id: 'boss',
+                    label: 'BOSS',
+                    desc: 'HIGH THREAT',
+                    color: boss.color || currentThemeColor,
+                    standard: false
+                };
+            }
+
+            const drift = typeof WaveManager !== 'undefined' && typeof WaveManager.getSignalDriftForWave === 'function'
+                ? WaveManager.getSignalDriftForWave(waveNumber)
+                : null;
+            if (!drift) {
+                return {
+                    id: 'standard',
+                    label: 'CLEAR',
+                    desc: 'STANDARD ROUTE',
+                    color: currentThemeColor,
+                    standard: true
+                };
+            }
+
+            return {
+                id: drift.id,
+                label: drift.hudLabel || drift.name,
+                desc: drift.hudDesc || drift.desc,
+                color: drift.color || currentThemeColor,
+                standard: false
+            };
+        }
+
+        function syncHudWavePanel(waveMainText, waveInfo, isFresh) {
+            if (!hudRefs.wavePanel) return;
+            const info = waveInfo || {
+                id: 'standard',
+                label: 'CLEAR',
+                desc: 'STANDARD ROUTE',
+                color: currentThemeColor,
+                standard: true
+            };
+            const modText = `${info.label}: ${info.desc}`;
+            const className = `hud-wave-panel ${info.standard ? 'is-standard' : 'is-signal'}${isFresh ? ' is-fresh' : ''}`;
+
+            if (hudRefs.wavePanel.dataset.className !== className) {
+                hudRefs.wavePanel.className = className;
+                hudRefs.wavePanel.dataset.className = className;
+            }
+            if (hudRefs.wavePanel.dataset.waveColor !== info.color) {
+                hudRefs.wavePanel.style.setProperty('--hud-wave-color', info.color);
+                hudRefs.wavePanel.dataset.waveColor = info.color;
+            }
+            if (hudRefs.waveText && hudRefs.waveText.textContent !== waveMainText) {
+                hudRefs.waveText.textContent = waveMainText;
+            }
+            if (hudRefs.waveModText && hudRefs.waveModText.textContent !== modText) {
+                hudRefs.waveModText.textContent = modText;
+            }
+        }
+
         let hudUpdateTimer = 0;
         let lastHudScoreText = '';
         let lastHudHpSignature = '';
@@ -223,11 +287,13 @@
             bombBar: null,
             weaponGrid: null,
             levelText: null,
-            waveText: null
+            wavePanel: null,
+            waveText: null,
+            waveModText: null
         };
         function updateHud() {
             if (window.innerHeight < 700 || window.innerWidth < 525) { hud.style.display = 'none'; return; }
-            if (gameState === 'START' || gameState === 'GAMEOVER') { hud.style.opacity = 0; return; }
+            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GAMEOVER') { hud.style.opacity = 0; return; }
             
             hud.style.display = 'flex';
             if (gameState === 'LAUNCHING') {
@@ -268,6 +334,14 @@
             
             const waveNumber = Math.max(1, WaveManager.currentWave);
             const waveText = boss ? 'BOSS' : waveNumber;
+            const waveMainText = boss ? 'BOSS' : `WAVE ${waveNumber}`;
+            const waveInfo = getHudWaveModifierInfo(waveNumber);
+            const noticeFresh = !!(
+                waveSignalNotice &&
+                waveSignalNotice.waveNumber === waveNumber &&
+                typeof currentFrameNow === 'number' &&
+                currentFrameNow - waveSignalNotice.startTime < waveSignalNotice.duration
+            );
             const weaponSignature = player.weapons.map(w => `${w.name}:${w.color}:${w.glyph}:${w.icon || ''}`).join('|');
 
             const hpSignature = [
@@ -293,7 +367,7 @@
                 glowEnabled ? 1 : 0
             ].join('~');
             if (xpSignature !== lastHudXpSignature) {
-                syncMeterBar(hudRefs.xpBar, xpPerc, HUD_BAR_BLOCKS, '#d2d2d2', '#8f8f8f', '#3a3a42', {
+                syncMeterBar(hudRefs.xpBar, xpPerc, HUD_BAR_BLOCKS, '#d2d2d2', '#8f8f8f', '#565868', {
                     effectClass: xpFull ? 'is-xp is-full' : 'is-xp',
                     glowAlpha: xpRatio * 0.8,
                     glowBlur: 8
@@ -318,6 +392,11 @@
 
             const staticSignature = [
                 waveText,
+                waveInfo.id,
+                waveInfo.label,
+                waveInfo.desc,
+                waveInfo.color,
+                noticeFresh ? 1 : 0,
                 player.level,
                 currentThemeColor,
                 glowEnabled ? 1 : 0,
@@ -325,7 +404,7 @@
             ].join('~');
             if (staticSignature !== lastHudStaticSignature) {
                 if (hudRefs.levelText) hudRefs.levelText.textContent = `LVL ${player.level}`;
-                if (hudRefs.waveText) hudRefs.waveText.textContent = `WAVE ${waveText}`;
+                syncHudWavePanel(waveMainText, waveInfo, noticeFresh);
                 syncWeaponGrid(currentThemeColor);
                 lastHudStaticSignature = staticSignature;
             }

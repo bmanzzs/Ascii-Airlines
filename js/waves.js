@@ -1,6 +1,41 @@
         // Wave sequencing and enemy formation spawning. See js/README.md for load order and ownership.
         const NON_BOSS_ENEMY_FIRE_INTERVAL_MULT = 1.18;
         const NON_BOSS_ENEMY_RANDOM_FIRE_CHANCE = 0.007;
+        const SIGNAL_DRIFT_POOL = [
+            {
+                id: 'mirror',
+                name: 'MIRROR SIGNAL',
+                hudLabel: 'MIRROR',
+                hudDesc: 'ROUTES MIRRORED',
+                desc: 'Enemy routes are reflected across the starfield.',
+                color: '#8ff7ff'
+            },
+            {
+                id: 'surge',
+                name: 'OVERDRIVE CURRENT',
+                hudLabel: 'SURGE',
+                hudDesc: 'FAST, BRITTLE',
+                desc: 'Enemies move faster but their hulls run brittle.',
+                color: '#ff6fae'
+            },
+            {
+                id: 'crossfire',
+                name: 'CROSSFIRE ECHO',
+                hudLabel: 'CROSSFIRE',
+                hudDesc: 'REMIXED SHOTS',
+                desc: 'A few extra ships carry remixed weapon patterns.',
+                color: '#fff07a'
+            },
+            {
+                id: 'vanguard',
+                name: 'VANGUARD STATIC',
+                hudLabel: 'VANGUARD',
+                hudDesc: 'SIDE PATROLS',
+                desc: 'Side patrols slip into the wave.',
+                color: '#9bffcf'
+            }
+        ];
+        let waveSignalNotice = null;
 
         function pickRandomIntInclusive(min, max) {
             return min + Math.floor(Math.random() * (max - min + 1));
@@ -11,6 +46,91 @@
             if (max <= min) return value;
             while (value === exclude) value = pickRandomIntInclusive(min, max);
             return value;
+        }
+
+        function cloneWavePath(path) {
+            return (path || []).map(point => ({ x: point.x, y: point.y }));
+        }
+
+        function applySignalDriftToPath(path, drift) {
+            if (!drift || !path) return path;
+            if (drift.id === 'mirror') {
+                return path.map(point => ({ x: 1 - point.x, y: point.y }));
+            }
+            return path;
+        }
+
+        function pickSignalDriftForWave(waveDef, waveNumber, lastDriftId) {
+            if (!waveDef || waveDef.isBoss) return null;
+            const lateBonus = Math.min(0.25, Math.max(0, waveNumber - 8) * 0.012);
+            const chance = Math.min(0.78, 0.42 + lateBonus);
+            if (Math.random() > chance) return null;
+            const options = SIGNAL_DRIFT_POOL.filter(drift => drift.id !== lastDriftId || SIGNAL_DRIFT_POOL.length === 1);
+            return options[Math.floor(Math.random() * options.length)];
+        }
+
+        function pushWaveSignalNotice(waveNumber, drift) {
+            if (!drift || typeof currentFrameNow !== 'number') return;
+            waveSignalNotice = {
+                waveNumber,
+                title: drift.name,
+                desc: drift.desc,
+                color: drift.color,
+                startTime: currentFrameNow,
+                duration: 2850
+            };
+        }
+
+        function applySignalDriftToEnemy(enemy, drift, enemyIndex, waveDef) {
+            if (!enemy || !drift) return enemy;
+            if (drift.id === 'surge') {
+                enemy.speedMult = (enemy.speedMult || 1) * 1.09;
+                enemy.hp = Math.max(1, Math.ceil((enemy.hp || 1) * 0.88));
+                enemy.maxHp = Math.max(enemy.hp, Math.ceil((enemy.maxHp || enemy.hp) * 0.88));
+                enemy.driftTint = drift.color;
+            } else if (drift.id === 'crossfire') {
+                const shouldCarryPattern = enemy.isElite || enemyIndex % 3 === 0;
+                if (shouldCarryPattern) {
+                    const patterns = ['aimedPulse', 'downFan', 'splitFan', 'crossDrop'];
+                    const pattern = waveDef.firePattern || patterns[(waveDef.type ? waveDef.type.length : enemyIndex) % patterns.length];
+                    enemy.remasterFirePattern = pattern;
+                    enemy.remasterFireInterval = Math.max(2.35, (waveDef.fireInterval || 3.0) * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT);
+                    enemy.remasterFireTimer = -(enemyIndex % 4) * 0.28;
+                    enemy.remasterFireColor = drift.color;
+                    enemy.disableRandomFire = true;
+                }
+            }
+            return enemy;
+        }
+
+        function spawnSignalDriftSupport(drift, waveNumber) {
+            if (!drift || drift.id !== 'vanguard') return [];
+            const count = waveNumber >= 18 ? 3 : 2;
+            const spawned = [];
+            for (let i = 0; i < count; i++) {
+                const fromLeft = i % 2 === 0;
+                const yBase = height * (0.16 + i * 0.06);
+                const patrol = createLaneSweepEnemy({
+                    startX: fromLeft ? -55 : width + 55,
+                    startY: yBase - 80 - i * 18,
+                    endX: fromLeft ? width + 55 : -55,
+                    endY: Math.min(height * 0.58, yBase + height * 0.26),
+                    delay: -(0.55 + i * 0.7),
+                    routeDuration: 7.4,
+                    laneAmplitude: 24 + i * 6,
+                    lanePhase: i * 0.85,
+                    speed: 0.94 + Math.min(0.18, waveNumber * 0.004),
+                    hp: 16 + Math.floor(waveNumber * 0.45),
+                    color: '#9bffcf'
+                });
+                patrol.disableRandomFire = true;
+                patrol.remasterFirePattern = i % 2 === 0 ? 'aimedPulse' : 'crossDrop';
+                patrol.remasterFireInterval = 3.2;
+                patrol.remasterFireTimer = -i * 0.4;
+                patrol.remasterFireColor = '#9bffcf';
+                spawned.push(patrol);
+            }
+            return spawned;
         }
 
         function createFlyByEnemy(flyByConfig, flyByTier, index) {
@@ -385,40 +505,210 @@
                     y: -160,
                     hoverX: width * 0.5,
                     hoverY: height * 0.18,
-                    hoverAmpX: 130,
-                    hoverAmpY: 22
+                    hoverAmpX: 150,
+                    hoverAmpY: 24,
+                    hp: 460
                 }));
-                for (let i = 0; i < 6; i++) {
+                for (let i = 0; i < 2; i++) {
+                    const side = i === 0 ? -1 : 1;
+                    spawned.push(createVoidSentinel({
+                        spawnX: width * (side < 0 ? 0.18 : 0.82),
+                        spawnY: -130 - i * 46,
+                        hoverX: width * (side < 0 ? 0.28 : 0.72),
+                        hoverY: height * 0.19,
+                        attackMode: i === 0 ? 'fan' : 'cross',
+                        arrivalDelay: 0.75 + i * 0.35,
+                        hp: 210,
+                        color: side < 0 ? '#ffa9ff' : '#9bffff',
+                        hoverAmpX: 28,
+                        hoverAmpY: 10
+                    }));
+                }
+                for (let i = 0; i < 8; i++) {
                     const fromLeft = i % 2 === 0;
                     spawned.push(createLaneSweepEnemy({
                         startX: fromLeft ? -60 : width + 60,
-                        startY: -90 - i * 28,
+                        startY: -90 - i * 24,
                         endX: fromLeft ? width + 60 : -60,
-                        endY: height * (0.52 + (i % 3) * 0.06),
-                        delay: -(1.4 + i * 0.6),
-                        routeDuration: 7.6,
-                        laneAmplitude: 32 + i * 5,
-                        lanePhase: i * 0.7,
-                        speed: 0.96,
-                        hp: 30,
+                        endY: height * (0.46 + (i % 4) * 0.045),
+                        delay: -(1.35 + i * 0.48),
+                        routeDuration: 9.2,
+                        laneAmplitude: 28 + (i % 4) * 8,
+                        lanePhase: i * 0.72,
+                        speed: 0.88,
+                        hp: 34,
                         color: i % 2 === 0 ? '#ff9bff' : '#9bffff'
+                    }));
+                }
+                for (let i = 0; i < 6; i++) {
+                    spawned.push(createVoidOrbiter({
+                        centerX: width * (0.24 + (i % 3) * 0.26),
+                        centerY: -120 - Math.floor(i / 3) * 34,
+                        centerDriftX: width * 0.06 * (i % 2 === 0 ? 1 : -1),
+                        centerPhase: i * 0.7,
+                        orbitRadiusX: 46 + (i % 3) * 7,
+                        orbitRadiusY: 28 + (i % 2) * 5,
+                        orbitAngle: i * (Math.PI / 3),
+                        orbitSpeed: 1.82,
+                        routeDuration: 10.0,
+                        delay: -(1.0 + i * 0.42),
+                        speed: 0.9,
+                        fireInterval: 3.0,
+                        color: i % 2 === 0 ? '#ffd56b' : '#9bffd5'
+                    }));
+                }
+            } else if (w.customType === 'phaseCorridor') {
+                for (let i = 0; i < 2; i++) {
+                    const side = i === 0 ? -1 : 1;
+                    spawned.push(createVoidSentinel({
+                        spawnX: width * (side < 0 ? 0.20 : 0.80),
+                        spawnY: -135 - i * 36,
+                        hoverX: width * (side < 0 ? 0.30 : 0.70),
+                        hoverY: height * 0.18,
+                        attackMode: i === 0 ? 'anchor' : 'fan',
+                        arrivalDelay: 0.35 + i * 0.55,
+                        hp: 300,
+                        color: side < 0 ? '#b7b0ff' : '#ffb7ef',
+                        hoverAmpX: 18,
+                        hoverAmpY: 8
+                    }));
+                }
+                for (let i = 0; i < 12; i++) {
+                    const lane = i % 6;
+                    const fromLeft = i % 2 === 0;
+                    spawned.push(createLaneSweepEnemy({
+                        startX: fromLeft ? -70 : width + 70,
+                        startY: -80 - i * 18,
+                        endX: fromLeft ? width + 70 : -70,
+                        endY: height * (0.38 + lane * 0.04),
+                        delay: -(0.8 + i * 0.34),
+                        routeDuration: 9.8,
+                        laneAmplitude: 22 + (lane % 3) * 9,
+                        lanePhase: i * 0.54 + (fromLeft ? 0 : Math.PI),
+                        speed: 0.86,
+                        hp: 34,
+                        color: fromLeft ? '#c0a9ff' : '#ff9bd8',
+                        enemyShipKind: lane >= 4 ? 'armored' : 'base'
                     }));
                 }
                 for (let i = 0; i < 4; i++) {
                     spawned.push(createVoidOrbiter({
-                        centerX: width * (0.30 + (i % 2) * 0.40),
-                        centerY: -100 - Math.floor(i / 2) * 30,
-                        centerDriftX: width * 0.06 * (i % 2 === 0 ? 1 : -1),
-                        centerPhase: i * 0.7,
-                        orbitRadiusX: 50 + (i % 2) * 8,
-                        orbitRadiusY: 30 + (i % 2) * 5,
+                        centerX: width * (0.31 + (i % 2) * 0.38),
+                        centerY: -105 - Math.floor(i / 2) * 42,
+                        centerDriftX: width * 0.04 * (i % 2 === 0 ? 1 : -1),
+                        centerPhase: i * 0.9,
+                        orbitRadiusX: 54,
+                        orbitRadiusY: 32,
                         orbitAngle: i * (Math.PI / 2),
-                        orbitSpeed: 1.95,
-                        routeDuration: 9.0,
-                        delay: -(1.0 + i * 0.5),
-                        speed: 0.95,
-                        fireInterval: 2.7,
-                        color: i % 2 === 0 ? '#ffd56b' : '#9bffd5'
+                        orbitSpeed: 1.72,
+                        routeDuration: 10.4,
+                        delay: -(1.4 + i * 0.55),
+                        speed: 0.88,
+                        fireInterval: 3.2,
+                        color: i % 2 === 0 ? '#d8caff' : '#ffcaf1'
+                    }));
+                }
+            } else if (w.customType === 'latticeBloom') {
+                spawned.push(createVoidSentinel({
+                    spawnX: width * 0.5,
+                    spawnY: -160,
+                    hoverX: width * 0.5,
+                    hoverY: height * 0.17,
+                    attackMode: 'anchor',
+                    arrivalDelay: 0.45,
+                    hp: 380,
+                    color: '#ffd2ff',
+                    hoverAmpX: 12,
+                    hoverAmpY: 9
+                }));
+                for (let ring = 0; ring < 2; ring++) {
+                    for (let i = 0; i < 5; i++) {
+                        const idx = ring * 5 + i;
+                        spawned.push(createVoidOrbiter({
+                            centerX: width * (0.24 + i * 0.13),
+                            centerY: -118 - ring * 46,
+                            centerDriftX: width * 0.045 * (i % 2 === 0 ? 1 : -1),
+                            centerPhase: ring * 0.8 + i * 0.5,
+                            orbitRadiusX: 44 + ring * 10,
+                            orbitRadiusY: 28 + ring * 5,
+                            orbitAngle: idx * (Math.PI * 2 / 5),
+                            orbitSpeed: 1.62 + ring * 0.18,
+                            routeDuration: 10.8,
+                            delay: -(0.9 + idx * 0.24),
+                            speed: 0.86,
+                            fireInterval: 3.25,
+                            hp: 32 + ring * 4,
+                            color: i % 2 === 0 ? '#ffb8ff' : '#aefcff'
+                        }));
+                    }
+                }
+                for (let i = 0; i < 8; i++) {
+                    const fromLeft = i % 2 === 0;
+                    spawned.push(createLaneSweepEnemy({
+                        startX: fromLeft ? -65 : width + 65,
+                        startY: -96 - i * 22,
+                        endX: fromLeft ? width + 65 : -65,
+                        endY: height * (0.43 + (i % 4) * 0.045),
+                        delay: -(2.2 + i * 0.42),
+                        routeDuration: 9.6,
+                        laneAmplitude: 38 - (i % 3) * 5,
+                        lanePhase: i * 0.62,
+                        speed: 0.88,
+                        hp: 36,
+                        color: fromLeft ? '#fff06a' : '#86fff0',
+                        enemyShipKind: i % 3 === 0 ? 'armored' : 'base'
+                    }));
+                }
+            } else if (w.customType === 'braidCrucible') {
+                for (let i = 0; i < 2; i++) {
+                    const side = i === 0 ? -1 : 1;
+                    spawned.push(createVoidSentinel({
+                        spawnX: width * (side < 0 ? 0.15 : 0.85),
+                        spawnY: -140 - i * 42,
+                        hoverX: width * (side < 0 ? 0.25 : 0.75),
+                        hoverY: height * 0.18,
+                        attackMode: i === 0 ? 'cross' : 'cinder',
+                        arrivalDelay: 0.55 + i * 0.65,
+                        hp: 320,
+                        color: side < 0 ? '#ff9bd8' : '#9ee7ff',
+                        hoverAmpX: 24,
+                        hoverAmpY: 10
+                    }));
+                }
+                for (let i = 0; i < 12; i++) {
+                    const fromLeft = i % 2 === 0;
+                    const lane = i % 6;
+                    spawned.push(createLaneSweepEnemy({
+                        startX: fromLeft ? -80 : width + 80,
+                        startY: -96 - i * 18,
+                        endX: fromLeft ? width + 80 : -80,
+                        endY: height * (0.36 + lane * 0.045),
+                        delay: -(0.7 + i * 0.32),
+                        routeDuration: 10.4,
+                        laneAmplitude: 32 + (lane % 3) * 10,
+                        lanePhase: i * 0.75 + (fromLeft ? 0 : Math.PI),
+                        speed: 0.84,
+                        hp: 36 + (i % 4 === 0 ? 6 : 0),
+                        color: fromLeft ? '#ff8fe9' : '#8ff7ff',
+                        enemyShipKind: i % 4 === 0 ? 'elite' : (i % 3 === 0 ? 'armored' : 'base')
+                    }));
+                }
+                for (let i = 0; i < 6; i++) {
+                    spawned.push(createVoidOrbiter({
+                        centerX: width * (0.22 + (i % 3) * 0.28),
+                        centerY: -110 - Math.floor(i / 3) * 40,
+                        centerDriftX: width * 0.07 * (i % 2 === 0 ? 1 : -1),
+                        centerPhase: i * 0.72,
+                        orbitRadiusX: 56,
+                        orbitRadiusY: 32,
+                        orbitAngle: i * (Math.PI / 3),
+                        orbitSpeed: 1.85,
+                        routeDuration: 10.2,
+                        delay: -(1.6 + i * 0.38),
+                        speed: 0.86,
+                        fireInterval: 3.05,
+                        hp: 34,
+                        color: i % 2 === 0 ? '#ffc1f2' : '#b8f7ff'
                     }));
                 }
             } else if (w.customType === 'falseHorizon') {
@@ -491,6 +781,7 @@
             interWaveDelayQueued: false,
             flyByAssignments: {},
             scoutFlyByAssignments: {},
+            signalDrifts: {},
             formationId: 0,
             activeFormationId: 0,
             pendingFormationUnits: 0,
@@ -509,7 +800,7 @@
                 { count: 14, color: '#ff0088', type: 'zig5', speed: 0.64, stagger: 0.48, doubleElite: true, firePattern: 'splitFan', fireEveryNth: 5, fireInterval: 2.6 }, // Wave 12
                 { count: 30, color: '#ff0000', type: 'snake', speed: 0.72, stagger: 2.0, elite: true }, // Wave 13
                 { count: 14, color: '#ff00ff', type: 'braidDive', speed: 0.78, stagger: 0.52, routeDuration: 8.2, doubleElite: true, singleRibbon: true, braidTrail: true, firePattern: 'splitFan', fireEveryNth: 4, fireInterval: 2.5 }, // Wave 14
-                { isBoss: true, name: 'GHOST SIGNAL', sprite: GHOST_SIGNAL_SOURCE, hp: 1700 }, // Wave 15
+                { isBoss: true, name: 'GHOST SIGNAL', sprite: GHOST_SIGNAL_SOURCE, hp: 1600 }, // Wave 15
                 { count: 14, color: '#ff00ff', type: 'weave', speed: 0.46, elite: true, hpMult: 2, weaveLaneCount: 3, weaveGroupDelay: 0.92, weaveIntraDelay: 0.18, weaveLaneSpread: 0.54, weaveAmplitudeRatio: 0.1, weaveFrequency: 2.25, weaveVerticalSpeed: 112, sideEntrySlots: [1, 5, 9, 12], routeDuration: 9.4, firePattern: 'aimedPulse', fireEveryNth: 5, fireInterval: 2.8 }, // Wave 16
                 { count: 13, color: '#00ffff', type: 'arcCascade', speed: 0.88, elite: true, hpMult: 3, stagger: 0.62, routeDuration: 10.2, firePattern: 'spiralNeedle', fireEveryNth: 5, fireInterval: 2.5 }, // Wave 17
                 { count: 12, color: '#ff0088', type: 'risingStar', speed: 0.9, elite: true, hpMult: 2.5, stagger: 0.58, routeDuration: 11.0, riseTime: 1.65, firePattern: 'crossDrop', fireEveryNth: 3, fireInterval: 2.8 }, // Wave 18
@@ -525,11 +816,11 @@
                 { count: 13, color: '#00ffff', type: 'wave7', speed: 0.86, stagger: 0.42, doubleElite: true, firePattern: 'spiralNeedle', fireEveryNth: 4, fireInterval: 2.6 }, // Wave 28
                 { count: 14, color: '#ff00ff', type: 'wave8', speed: 0.78, stagger: 1.6, doubleElite: true, firePattern: 'scatterMark', fireEveryNth: 5, fireInterval: 2.6 }, // Wave 29
                 { isBoss: true, name: 'BATTLE STARSHIP', sprite: BATTLE_STARSHIP_SPRITE, hp: 2400 }, // Wave 30
-                { count: 11, customType: 'prismRift' }, // Wave 31 — Prism Conduit mini-boss
-                { count: 14, color: '#ff00ff', type: 'zig2', speed: 0.6, stagger: 0.40, doubleElite: true, firePattern: 'downFan', fireEveryNth: 4, fireInterval: 2.4 }, // Wave 32
-                { count: 14, color: '#ff0088', type: 'zig5', speed: 0.6, stagger: 0.42, doubleElite: true, firePattern: 'splitFan', fireEveryNth: 4, fireInterval: 2.5 }, // Wave 33
-                { count: 14, color: '#ff00ff', type: 'braidDive', speed: 0.86, stagger: 0.5, routeDuration: 8.2, doubleElite: true, singleRibbon: true, braidTrail: true, firePattern: 'aimedPulse', fireEveryNth: 4, fireInterval: 2.4 }, // Wave 34
-                { isBoss: true, name: 'ECLIPSE WARDEN', sprite: ECLIPSE_WARDEN_SPRITE, hp: 2200 } // Wave 35
+                { count: 17, customType: 'prismRift' }, // Wave 31 — Prism Conduit mini-boss
+                { count: 18, customType: 'phaseCorridor' }, // Wave 32
+                { count: 19, customType: 'latticeBloom' }, // Wave 33
+                { count: 20, customType: 'braidCrucible' }, // Wave 34
+                { isBoss: true, name: 'ECLIPSE WARDEN', sprite: ECLIPSE_WARDEN_SPRITE, hp: 2600 } // Wave 35
             ],
             randomizeFlyByAssignments() {
                 this.flyByAssignments = {};
@@ -546,6 +837,23 @@
                     this.flyByAssignments[group.tier] = heavyWave;
                     this.scoutFlyByAssignments[group.tier] = scoutWave;
                 }
+            },
+            randomizeSignalDrifts() {
+                this.signalDrifts = {};
+                let lastDriftId = null;
+                for (let i = 0; i < this.waves.length; i++) {
+                    const waveNumber = i + 1;
+                    const drift = pickSignalDriftForWave(this.waves[i], waveNumber, lastDriftId);
+                    if (drift) {
+                        this.signalDrifts[waveNumber] = drift;
+                        lastDriftId = drift.id;
+                    } else {
+                        lastDriftId = null;
+                    }
+                }
+            },
+            getSignalDriftForWave(waveNumber) {
+                return this.signalDrifts[waveNumber] || null;
             },
             getFlyByTierForWave(waveNumber) {
                 for (const [tierText, assignedWave] of Object.entries(this.flyByAssignments)) {
@@ -586,6 +894,8 @@
             spawn() {
                 const w = this.waves[this.currentWave];
                 const waveNumber = this.currentWave + 1;
+                const signalDrift = this.getSignalDriftForWave(waveNumber);
+                pushWaveSignalNotice(waveNumber, signalDrift);
                 if (w.isBoss) {
                     this.pendingFormationUnits = 0;
                     boss = { 
@@ -600,9 +910,13 @@
                     }
                     if (w.name === 'GHOST SIGNAL') {
                         startSignalGhostMusic();
+                        boss.stage = 1;
+                        boss.stageTwoStarted = false;
                     }
                     if (w.name === 'OVERHEATING FIREWALL') {
                         startOverheatingFirewallMusic();
+                        boss.stage = 1;
+                        boss.stageTwoStarted = false;
                         boss.introStartY = boss.y;
                         boss.animFrame = 0;
                         boss.coreTimer = 0;
@@ -623,7 +937,7 @@
                         boss.introTargetX = width / 2; boss.introTargetY = height * 0.2;
                     }
                     if (w.name === 'BLACK VOID') {
-                        startDistortedGlitchMusic();
+                        startBlackVoidMusic();
                         boss.isBlackVoid = true;
                         boss.color = '#8b78ff';
                         boss.introStartX = boss.x; boss.introStartY = boss.y;
@@ -641,7 +955,23 @@
                     }
                     if (w.name === 'ECLIPSE WARDEN') {
                         startDistortedGlitchMusic();
-                        boss.color = '#5a5680';
+                        boss.isEclipseWarden = true;
+                        boss.stage = 1;
+                        boss.color = '#c8f4ff';
+                        boss.renderScale = 0.92;
+                        boss.introStartX = boss.x;
+                        boss.introStartY = boss.y;
+                        boss.introTargetX = width / 2;
+                        boss.introTargetY = height * 0.19;
+                        boss.driftTimer = 0;
+                        boss.attackPattern = 0;
+                        boss.lastFire = 0;
+                        boss.eclipseShielded = true;
+                        boss.isVulnerable = false;
+                        boss.eclipseOpenTimer = 0;
+                        boss.eclipseTransitionTimer = 0;
+                        boss.eclipseSealsSpawned = false;
+                        boss.eclipseRingAngle = 0;
                     }
                     if (w.name === 'BATTLE STARSHIP') {
                         startBattleStarshipMusic();
@@ -672,7 +1002,8 @@
                     const formationId = this.beginFormation(formationUnits);
                     if (w.customType) {
                         const customEnemies = spawnExtendedLateWaveEnemies(w);
-                        for (const enemy of customEnemies) {
+                        for (let i = 0; i < customEnemies.length; i++) {
+                            const enemy = applySignalDriftToEnemy(customEnemies[i], signalDrift, i, w);
                             enemy.waveFormationId = formationId;
                             enemy.waveFormationResolved = false;
                             enemies.push(enemy);
@@ -698,6 +1029,10 @@
                         else if (w.type === 'wave8') path = buildFigureEightWavePath();
                         else if (w.type === 'wave9') path = buildWaveNineReturnPath();
                         else if (w.type === 'snake') path = buildSnakeLoopPath();
+
+                        if (path) path = applySignalDriftToPath(cloneWavePath(path), signalDrift);
+                        if (pathA) pathA = applySignalDriftToPath(cloneWavePath(pathA), signalDrift);
+                        if (pathB) pathB = applySignalDriftToPath(cloneWavePath(pathB), signalDrift);
 
                         const stagger = typeof w.stagger === 'number'
                             ? w.stagger
@@ -751,7 +1086,7 @@
                                 waveFormationId: formationId, waveFormationResolved: false
                             };
                             if (!isTail) configureEnemyShipVisual(enemy, enemyShipKind);
-                            enemies.push(applyRemasteredWavePattern(enemy, w, i));
+                            enemies.push(applySignalDriftToEnemy(applyRemasteredWavePattern(enemy, w, i), signalDrift, i, w));
                         }
                     } else {
                         // Advanced parametric paths for Waves 16-19
@@ -915,6 +1250,16 @@
                                 routeDuration = w.routeDuration || 8.2;
                             }
 
+                            if (signalDrift && signalDrift.id === 'mirror') {
+                                startX = width - startX;
+                                if (arcEndX) arcEndX = width - arcEndX;
+                                if (arcControlX) arcControlX = width - arcControlX;
+                                if (constellationEndX) constellationEndX = width - constellationEndX;
+                                if (constellationControlX) constellationControlX = width - constellationControlX;
+                                weaveOriginX = weaveOriginX ? width - weaveOriginX : weaveOriginX;
+                                riseTargetX = riseTargetX ? width - riseTargetX : riseTargetX;
+                            }
+
                             const enemy = {
                                 x: startX, y: startY, vx: 0, vy: 0,
                                 sprite, color, hp, maxHp: hp, isArmored, isElite, onScreen: false, flashTimer: 0,
@@ -938,8 +1283,15 @@
                             configureEnemyShipVisual(enemy, w.type === 'risingStar' ? 'elite' : enemyShipKind, {
                                 visualScale: w.type === 'risingStar' ? 1.08 : undefined
                             });
-                            enemies.push(applyRemasteredWavePattern(enemy, w, i));
+                            enemies.push(applySignalDriftToEnemy(applyRemasteredWavePattern(enemy, w, i), signalDrift, i, w));
                         }
+                    }
+                    const signalSupport = spawnSignalDriftSupport(signalDrift, waveNumber);
+                    for (const support of signalSupport) {
+                        support.waveFormationId = formationId;
+                        support.waveFormationResolved = false;
+                        enemies.push(support);
+                        WaveManager.pendingFormationUnits++;
                     }
                     if (flyByConfig) {
                         for (let i = 0; i < flyByConfig.count; i++) {
@@ -959,6 +1311,7 @@
         };
 
         WaveManager.randomizeFlyByAssignments();
+        WaveManager.randomizeSignalDrifts();
 
         function resolveWaveEnemy(enemy) {
             WaveManager.resolveFormationUnit(enemy);
