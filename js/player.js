@@ -1065,7 +1065,7 @@
         function drawWeapons() {
             let pool = [...WEAPON_POOL];
             let drawn = [];
-            for(let i=0; i<3; i++) {
+            for(let i=0; i<2; i++) {
                 let totalWeight = pool.reduce((sum, w) => sum + weaponWeights[w.name], 0);
                 if (totalWeight <= 0) break;
                 let r = Math.random() * totalWeight;

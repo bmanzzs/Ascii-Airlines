@@ -2607,7 +2607,7 @@
                     d.cycleTimer += dt;
                     if (d.cycleTimer >= 0.75) {
                         d.cycleTimer -= 0.75;
-                        d.currentIndex = (d.currentIndex + 1) % 3;
+                        d.currentIndex = (d.currentIndex + 1) % d.options.length;
                     }
 
                     if (distSq < 2500) { // ~50px collection radius
