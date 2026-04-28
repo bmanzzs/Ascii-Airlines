@@ -30,7 +30,10 @@
             maxPelletCount: 5,
             maxRearFireFan: 5,
             maxChainCount: 6,
-            maxCloudDotMult: 8
+            maxCloudDotMult: 8,
+            maxRicochetCount: 4,
+            maxCritChance: 0.85,
+            maxCritDamageMult: 6.0
         };
         const PLAYER_MODIFIER_GUARDRAILS = {
             minMoveSpeedScale: 0.55,
@@ -42,12 +45,16 @@
             minBombCooldownMult: 0.45,
             maxBombDamageBonus: 2.5,
             maxBombRadiusBonus: 1.2,
+            minMaxHpBonus: -0.55,
             maxMaxHpBonus: 2.5,
             maxHpRegen: 8,
             maxInvincibilityBonus: 1.5,
             maxAdrenalineBonus: 1.25,
             maxMagnetBonus: 2.5,
-            maxXpHeal: 0.03
+            maxXpHeal: 0.03,
+            maxDamageMultBonus: 2.0,
+            maxKillHeal: 0.10,
+            maxXpGain: 2.5
         };
         const PLAYER_FIRE_INTERVAL_MIN_MS = 52;
         const PLAYER_FIRE_INTERVAL_MAX_MS = 1700;
@@ -307,7 +314,9 @@
                 cloudSpeedStartScale: 1, cloudSpeedEndScale: 1, cloudAccelTime: 1,
                 cloudCurveStrength: 0, cloudFadeTime: 0.45,
                 miniTorpedo: false, torpedoExplosionRadius: 0,
-                torpedoExplosionDamageMult: 0, torpedoRange: 0
+                torpedoExplosionDamageMult: 0, torpedoRange: 0,
+                ricochetCount: 0, ricochetDamageMult: 1,
+                critChance: 0, critDamageMult: 1
             };
         }
 
@@ -368,7 +377,10 @@
                 bombDamage: 0,
                 bombRadius: 0,
                 momentumFireRate: 0,
-                xpHeal: 0
+                xpHeal: 0,
+                damageMult: 0,
+                killHeal: 0,
+                xpGain: 0
             },
             weaponStats: createBaseWeaponStats(),
             weapons: [],
@@ -912,7 +924,10 @@
             { id: 'payload', name: 'PAYLOAD TUNING', cat: 'Offense', desc: 'Increases bomb explosion damage', baseVal: 0.18, type: 'additive' },
             { id: 'blast', name: 'BLAST GEOMETRY', cat: 'Utility', desc: 'Expands bomb explosion radius', baseVal: 0.12, type: 'additive' },
             { id: 'kinetic', name: 'KINETIC CAPACITOR', cat: 'Risk', desc: 'Moving fast increases fire rate', baseVal: 0.08, type: 'additive' },
-            { id: 'bioscrap', name: 'BIO-SCRAP FILTER', cat: 'Defense', desc: 'XP orbs restore a tiny amount of HP', baseVal: 0.0025, type: 'additive' }
+            { id: 'bioscrap', name: 'BIO-SCRAP FILTER', cat: 'Defense', desc: 'XP orbs restore a tiny amount of HP', baseVal: 0.0025, type: 'additive' },
+            { id: 'bioleech', name: 'BIOLEECH NODE', cat: 'Defense', desc: 'Killing enemies restores a sliver of health', baseVal: 0.012, type: 'additive' },
+            { id: 'glass', name: 'GLASS CHASSIS', cat: 'Risk', desc: 'Boosts all damage but reduces max health', baseVal: 0.15, type: 'additive' },
+            { id: 'overflow', name: 'DATA OVERFLOW', cat: 'Utility', desc: 'XP orbs grant more experience', baseVal: 0.25, type: 'additive' }
         ];
 
         // Stacking Boss Weapon Pool
@@ -932,7 +947,9 @@
             { name: "Boomerang Cross", cat: "control", glyph: "✚", color: "#77ffe7", desc: "Shots return once for a weaker second pass", mults: { damage: 0.82, fireRate: 0.82, speed: 0.88, pierceCount: 1, returning: true, returnAfter: 0.48 } },
             { name: "Aegis Halo", cat: "hybrid", glyph: "☼", color: "#ffcf6d", desc: "Larger shots orbit close once, then launch from center", mults: { damage: 1.08, fireRate: 0.74, speed: 0.72, size: 1.89, hitbox: 0.68, orbitDelay: 0.68, orbitRadiusMult: 3, orbitReleaseCenter: true } },
             { name: "Plasma Cloud", cat: "hybrid", glyph: "~", color: "#66f2ff", desc: "Piercing storm clouds grow, curve, and accelerate as they travel", mults: { damage: 0.85, fireRate: 0.28, speed: 0.25, size: 2.25, pierceCount: 999, hitbox: 1.12, plasmaCloud: true, cloudDotMult: 6.8, cloudStartScale: 0.28, cloudEndScale: 1.15, cloudGrowthDistance: 480, cloudSpeedStartScale: 0.42, cloudSpeedEndScale: 1.18, cloudAccelTime: 1.35, cloudCurveStrength: 52, cloudFadeTime: 0.5 } },
-            { name: "Explosive Torpedo", cat: "offense", glyph: "o", color: "#ffb347", desc: "Slow mini-bombs burst in a compact blast", mults: { damage: 1.4175, fireRate: 0.638, speed: 0.82, size: 1.25, hitbox: 0.82, miniTorpedo: true, torpedoExplosionRadius: 75.4, torpedoExplosionDamageMult: 0.85, torpedoRange: 520, splashVisualDebris: 8 } }
+            { name: "Explosive Torpedo", cat: "offense", glyph: "o", color: "#ffb347", desc: "Slow mini-bombs burst in a compact blast", mults: { damage: 1.4175, fireRate: 0.638, speed: 0.82, size: 1.25, hitbox: 0.82, miniTorpedo: true, torpedoExplosionRadius: 75.4, torpedoExplosionDamageMult: 0.85, torpedoRange: 520, splashVisualDebris: 8 } },
+            { name: "Ricochet Rounds", cat: "control", glyph: "↯", color: "#9bf7ff", desc: "Shots ricochet off screen edges with reduced damage", mults: { damage: 0.85, fireRate: 0.92, ricochetCount: 1, ricochetDamageMult: 0.78 } },
+            { name: "Critical Circuit", cat: "offense", glyph: "✸", color: "#ff5e8a", desc: "Shots can surge for heavy critical damage", mults: { damage: 0.92, fireRate: 0.95, critChance: 0.18, critDamageMult: 2.5 } }
         ];
 
         let weaponWeights = {};
@@ -948,7 +965,14 @@
 
         function getPlayerDamageScale() {
             const shipDamage = getPlayerShipConfigById(player.shipId).damageMult || 1;
-            return shipDamage * (player.godMode ? GOD_MODE_DAMAGE_MULT : 1);
+            const modBonus = 1 + (player.modifiers && player.modifiers.damageMult ? player.modifiers.damageMult : 0);
+            return shipDamage * modBonus * (player.godMode ? GOD_MODE_DAMAGE_MULT : 1);
+        }
+
+        function getAveragedCriticalDamageMult(stats, scale = 1) {
+            const chance = clampValue((stats && stats.critChance) || 0, 0, 1);
+            const critBonus = Math.max(0, ((stats && stats.critDamageMult) || 1) - 1);
+            return 1 + chance * critBonus * clampValue(scale, 0, 1);
         }
 
         function getPlayerBombCooldownTotal() {
@@ -1006,6 +1030,12 @@
             }
             if(m.spread) s.spreadAngle = Math.max(s.spreadAngle, m.spread);
             if(m.inaccuracy) s.inaccuracy = Math.max(s.inaccuracy, m.inaccuracy);
+            if(m.ricochetCount) s.ricochetCount += m.ricochetCount;
+            if(m.ricochetDamageMult) s.ricochetDamageMult = Math.min(s.ricochetDamageMult || 1, m.ricochetDamageMult);
+            if(m.critChance) s.critChance += m.critChance;
+            if(m.critDamageMult) {
+                s.critDamageMult = s.critDamageMult > 1 ? s.critDamageMult + (m.critDamageMult - 1) : m.critDamageMult;
+            }
         }
 
         function applyWeaponStatGuardrails() {
@@ -1021,6 +1051,9 @@
             s.rearFireFan = Math.max(1, Math.min(s.rearFireFan || 1, g.maxRearFireFan));
             s.chainCount = Math.min(s.chainCount || 0, g.maxChainCount);
             s.cloudDotMult = Math.min(s.cloudDotMult || 0, g.maxCloudDotMult);
+            s.ricochetCount = Math.max(0, Math.min(s.ricochetCount || 0, g.maxRicochetCount));
+            s.critChance = clampValue(s.critChance || 0, 0, g.maxCritChance);
+            s.critDamageMult = clampValue(s.critDamageMult || 1, 1, g.maxCritDamageMult);
         }
 
         function rebuildPlayerWeaponStats() {
@@ -1046,7 +1079,7 @@
         function applyPlayerModifierGuardrails() {
             const m = player.modifiers;
             m.moveSpeed = clampValue(m.moveSpeed || 0, PLAYER_MODIFIER_GUARDRAILS.minMoveSpeedScale - 1, PLAYER_MODIFIER_GUARDRAILS.maxMoveSpeedScale - 1);
-            m.maxHp = clampValue(m.maxHp || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxMaxHpBonus);
+            m.maxHp = clampValue(m.maxHp || 0, PLAYER_MODIFIER_GUARDRAILS.minMaxHpBonus, PLAYER_MODIFIER_GUARDRAILS.maxMaxHpBonus);
             m.hitbox = clampValue(m.hitbox || 1, PLAYER_MODIFIER_GUARDRAILS.minHitbox, PLAYER_MODIFIER_GUARDRAILS.maxHitbox);
             m.fireRate = clampValue(m.fireRate || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFireRateBonus);
             m.hpRegen = clampValue(m.hpRegen || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxHpRegen);
@@ -1058,7 +1091,10 @@
             m.bombRadius = clampValue(m.bombRadius || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxBombRadiusBonus);
             m.momentumFireRate = clampValue(m.momentumFireRate || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxMomentumFireRateBonus);
             m.xpHeal = clampValue(m.xpHeal || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxXpHeal);
-            player.maxHp = Math.floor(getPlayerBaseMaxHp() * (1 + m.maxHp));
+            m.damageMult = clampValue(m.damageMult || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxDamageMultBonus);
+            m.killHeal = clampValue(m.killHeal || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxKillHeal);
+            m.xpGain = clampValue(m.xpGain || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxXpGain);
+            player.maxHp = Math.max(1, Math.floor(getPlayerBaseMaxHp() * (1 + m.maxHp)));
             player.hp = Math.min(player.hp, player.maxHp);
         }
 
@@ -1143,6 +1179,12 @@
             else if (opt.id === 'blast') player.modifiers.bombRadius += opt.value;
             else if (opt.id === 'kinetic') player.modifiers.momentumFireRate += opt.value;
             else if (opt.id === 'bioscrap') player.modifiers.xpHeal += opt.value;
+            else if (opt.id === 'bioleech') player.modifiers.killHeal += opt.value;
+            else if (opt.id === 'glass') {
+                player.modifiers.damageMult += opt.value;
+                player.modifiers.maxHp -= opt.value * 0.6;
+            }
+            else if (opt.id === 'overflow') player.modifiers.xpGain += opt.value;
             applyPlayerModifierGuardrails();
         }
 

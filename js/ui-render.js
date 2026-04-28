@@ -987,6 +987,9 @@
             else if (opt.id === 'shield') valStr = `+${opt.value.toFixed(2)}s`;
             else if (opt.id === 'target') valStr = `+${opt.value.toFixed(0)} DMG`;
             else if (opt.id === 'bioscrap') valStr = `+${(opt.value * 100).toFixed(2)}% HP/ORB`;
+            else if (opt.id === 'bioleech') valStr = `+${(opt.value * 100).toFixed(1)}% HP/KILL`;
+            else if (opt.id === 'glass') valStr = `+${(opt.value * 100).toFixed(0)}% / -${(opt.value * 60).toFixed(0)}% HP`;
+            else if (opt.id === 'overflow') valStr = `+${(opt.value * 100).toFixed(0)}% XP`;
             else valStr = `+${(opt.value * 100).toFixed(0)}%`;
             ctx.fillText(valStr, w / 2, h - 25);
             ctx.restore();

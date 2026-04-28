@@ -72,6 +72,11 @@
                 drops.push(createHealthDrop(enemy.x, enemy.y, 0.05, 22));
             }
             addShake(5); score += 150; applyWakeForce(enemy.x, enemy.y, 160, 18);
+
+            const killHeal = player && player.modifiers ? (player.modifiers.killHeal || 0) : 0;
+            if (killHeal > 0 && player.hp > 0 && player.hp < player.maxHp) {
+                player.hp = Math.min(player.maxHp, player.hp + player.maxHp * killHeal);
+            }
         }
 
         const SPRITE_COLLISION_CACHE = new WeakMap();
@@ -610,6 +615,14 @@
                 const isMiniTorpedo = !!projectileStats.miniTorpedo;
                 const orbitSpin = isRear ? -9.5 : 9.5;
                 const projectileLife = orbiting ? Math.max(2.45, orbitDelay + 1.55) : (isPlasmaCloud ? 2.5 : (isMiniTorpedo ? 1.6 : 2.0));
+                if (isPlasmaCloud && projectileStats.critChance > 0) {
+                    pdmg *= getAveragedCriticalDamageMult(projectileStats, 0.75);
+                }
+                const canCrit = projectileStats.critChance > 0 && !isPlasmaCloud;
+                const isCrit = canCrit && Math.random() < projectileStats.critChance;
+                if (isCrit) pdmg *= projectileStats.critDamageMult || 1;
+                const baseSprite = projectileStats.lightningBall || isPlasmaCloud ? '' : (isMiniTorpedo ? 'o' : (s.pathFunction === 'parabolic' ? '◓' : (orbiting ? '☼' : (returning ? '✚' : '|'))));
+                const baseColor = isPlasmaCloud ? '#66f2ff' : (isMiniTorpedo ? '#ffb347' : (projectileStats.lightningBall ? '#8ff7ff' : (orbiting ? '#ffcf6d' : (returning ? '#77ffe7' : '#ffffff'))));
                 comboProjectiles.push({
                     x, y,
                     vx: orbiting ? 0 : vx,
@@ -617,12 +630,14 @@
                     baseVx: orbiting ? 0 : vx,
                     baseVy: orbiting ? 0 : vy,
                     startX: x, startY: y,
-                    sprite: projectileStats.lightningBall || isPlasmaCloud ? '' : (isMiniTorpedo ? 'o' : (s.pathFunction === 'parabolic' ? '◓' : (orbiting ? '☼' : (returning ? '✚' : '|')))),
-                    color: isPlasmaCloud ? '#66f2ff' : (isMiniTorpedo ? '#ffb347' : (projectileStats.lightningBall ? '#8ff7ff' : (orbiting ? '#ffcf6d' : (returning ? '#77ffe7' : '#ffffff')))),
+                    sprite: baseSprite,
+                    color: isCrit && !isMiniTorpedo && !projectileStats.lightningBall ? '#ff8eaa' : baseColor,
                     stats: projectileStats,
                     life: projectileLife,
                     maxLife: projectileLife,
                     damage: pdmg,
+                    isCrit,
+                    bouncesUsed: 0,
                     pierceHits: [],
                     pierceCount: isPlasmaCloud ? Math.max(s.pierceCount, 999) : s.pierceCount,
                     isLightningBall: !!projectileStats.lightningBall,
@@ -938,7 +953,7 @@
             player.hp = getPlayerBaseMaxHp(); player.maxHp = getPlayerBaseMaxHp();
             player.xp = 0; player.xpNeeded = 10; player.level = 1;
             player.stats = { L: 1, M: 0, B: 0 };
-            player.modifiers = { moveSpeed: 0, maxHp: 0, laserDamage: 0, hitbox: 1, fireRate: 0, hpRegen: 0, invincibility: 0, adrenaline: 0, magnet: 0, bombCooldown: 1, bombDamage: 0, bombRadius: 0, momentumFireRate: 0, xpHeal: 0 };
+            player.modifiers = { moveSpeed: 0, maxHp: 0, laserDamage: 0, hitbox: 1, fireRate: 0, hpRegen: 0, invincibility: 0, adrenaline: 0, magnet: 0, bombCooldown: 1, bombDamage: 0, bombRadius: 0, momentumFireRate: 0, xpHeal: 0, damageMult: 0, killHeal: 0, xpGain: 0 };
             player.weaponStats = createBaseWeaponStats();
             player.weapons = [];
             weaponWeights = {};

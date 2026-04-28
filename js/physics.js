@@ -639,6 +639,7 @@
             if (player.isBeaming && player.isFiring) {
                 let s = player.weaponStats;
                 let baseDmg = (60 * s.damageMult + player.modifiers.laserDamage * 6) * getPlayerDamageScale() * dt;
+                if (s.critChance > 0) baseDmg *= getAveragedCriticalDamageMult(s, 0.75);
                 if (player.hp < player.maxHp * 0.5) baseDmg *= (1 + player.modifiers.adrenaline);
 
                 const beamOrigin = getPlayerWeaponOrigin(playerLayout);
@@ -867,7 +868,9 @@
                 orb.x += orb.vx * dt; orb.y += orb.vy * dt;
                 if (distSq < 1600) {
                     const xpValue = orb.xpValue || 1;
-                    player.xp += xpValue;
+                    const xpGainBonus = 1 + (player.modifiers.xpGain || 0);
+                    const grantedXp = xpValue * xpGainBonus;
+                    player.xp += grantedXp;
                     if (player.modifiers.xpHeal > 0 && player.hp < player.maxHp) {
                         player.hp = Math.min(player.maxHp, player.hp + player.maxHp * player.modifiers.xpHeal * Math.max(1, xpValue));
                     }
@@ -2056,6 +2059,43 @@
                         } else if (p.cloudSparkTimer <= 0) {
                             emitProjectileImpactDebris(p, 1);
                             p.cloudSparkTimer = 0.08;
+                        }
+                    }
+                }
+                const ricochetCap = projectileStats.ricochetCount || 0;
+                if (!hit && ricochetCap > 0 && (p.bouncesUsed || 0) < ricochetCap
+                    && !projectileStats.plasmaCloud && !projectileStats.miniTorpedo
+                    && projectileStats.pathFunction !== 'parabolic'
+                    && projectileStats.pathFunction !== 'sine'
+                    && projectileStats.mode !== 'beam'
+                    && !projectileStats.returning
+                    && !p.hasReturned
+                    && (p.orbitTime || 0) <= 0) {
+                    let bounced = false;
+                    if (p.x < 8 && p.baseVx < 0) { p.x = 8; p.baseVx = -p.baseVx; p.vx = -p.vx; bounced = true; }
+                    else if (p.x > width - 8 && p.baseVx > 0) { p.x = width - 8; p.baseVx = -p.baseVx; p.vx = -p.vx; bounced = true; }
+                    if (p.y < 8 && p.baseVy < 0) { p.y = 8; p.baseVy = -p.baseVy; p.vy = -p.vy; bounced = true; }
+                    else if (p.y > height - 8 && p.baseVy > 0) { p.y = height - 8; p.baseVy = -p.baseVy; p.vy = -p.vy; bounced = true; }
+                    if (bounced) {
+                        p.bouncesUsed = (p.bouncesUsed || 0) + 1;
+                        const decay = projectileStats.ricochetDamageMult || 1;
+                        p.damage *= decay;
+                        p.startX = p.x;
+                        p.startY = p.y;
+                        p.releaseAngle = Math.atan2(p.baseVy, p.baseVx);
+                        if (Array.isArray(p.pierceHits)) p.pierceHits.length = 0;
+                        if (debris.length < 600) {
+                            for (let sp = 0; sp < 3; sp++) {
+                                const sa = Math.random() * Math.PI * 2;
+                                const ss = 90 + Math.random() * 110;
+                                debris.push({
+                                    x: p.x, y: p.y,
+                                    vx: Math.cos(sa) * ss, vy: Math.sin(sa) * ss,
+                                    char: ['·', '∙', '+'][Math.floor(Math.random() * 3)],
+                                    color: '#9bf7ff',
+                                    life: 0.22, isImpact: true
+                                });
+                            }
                         }
                     }
                 }
