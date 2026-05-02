@@ -35,6 +35,8 @@
             maxCritChance: 0.85,
             maxCritDamageMult: 6.0
         };
+        const DUPLICATE_WEAPON_VALUE_SCALES = [1, 0.6, 0.35];
+        const DUPLICATE_WEAPON_VALUE_FLOOR = 0.2;
         const PLAYER_MODIFIER_GUARDRAILS = {
             minMoveSpeedScale: 0.55,
             maxMoveSpeedScale: 1.85,
@@ -308,6 +310,7 @@
                 hasRearFire: false, rearFireEvery: 2, rearFireFan: 1, rearFireSpread: 0.22,
                 hasOrbitalDrones: false, pelletCount: 1, spreadAngle: 0, inaccuracy: 0,
                 returning: false, returnAfter: 0.5, orbitDelay: 0, orbitRadiusMult: 1,
+                sineAmplitudeMult: 1,
                 orbitReleaseCenter: false, lightningBall: false, splashVisualDebris: 20,
                 hitboxMult: 1, plasmaCloud: false, cloudDotMult: 0,
                 cloudStartScale: 1, cloudEndScale: 1, cloudGrowthDistance: 1,
@@ -768,12 +771,12 @@
             const total = Math.max(0.001, getPlayerBombCooldownTotal());
             const charge = clampValue(1 - Math.max(0, player.bombTimer) / total, 0, 1);
             const readyBreath = 0.5 + Math.sin(now * 0.0022) * 0.5;
-            const readyColor = blendPlayerCueHex('#7ff7ff', '#9b7dff', readyBreath);
+            const readyColor = blendPlayerCueHex('#ff8a1f', '#ffc04a', readyBreath);
             const readyBlend = smoothPlayerCueStep(0.94, 1, charge);
             const chargeColor = readyBlend > 0 ? blendPlayerCueHex('#ff3030', readyColor, readyBlend) : '#ff3030';
             const color = charge >= 1 ? readyColor : chargeColor;
             const alpha = 0.5 + smoothPlayerCueStep(0, 1, charge) * 0.5;
-            const glowColor = charge >= 1 ? color : blendPlayerCueHex('#ff3030', '#ff7070', charge);
+            const glowColor = charge >= 1 ? color : '#ff3030';
             const glow = charge >= 1 ? 10 + readyBreath * 10 : 4 + charge * 8;
             return {
                 charge,
@@ -933,22 +936,22 @@
         // Stacking Boss Weapon Pool
         const WEAPON_POOL = [
             { name: "Sphere Lightning", cat: "hybrid", glyph: "O", color: "#8ff7ff", desc: "Slow plasma sphere, full pierce, shock splash", mults: { damage: 0.8, fireRate: 0.441, speed: 0.462, size: 2.6, pierceCount: 999, splashRadius: 1.0, splashPercent: 0.5, lightningBall: true, splashVisualDebris: 6 } },
-            { name: "Laser Cannon", cat: "offense", glyph: "▣", color: "#ff0000", desc: "Huge, heavy damage shots", mults: { damage: 2.625, fireRate: 0.3, speed: 0.75, size: 3.0 } },
+            { name: "Laser Cannon", cat: "offense", glyph: "▣", color: "#ff0000", desc: "Huge, heavy damage shots", mults: { damage: 2.2, fireRate: 0.4, speed: 0.75, size: 2.5 } },
             { name: "Ray Beam", cat: "mode", glyph: "║", color: "#ffff00", desc: "Continuous raycast beam", mults: { mode: "beam" } },
             { name: "Scatter Burst", cat: "hybrid", glyph: ":", color: "#aa00ff", desc: "Fires 2 angled shots at 75% damage", mults: { damage: 0.75, fireRate: 0.8, pellets: 2, spread: Math.PI/7 } },
             { name: "Mortar Shells", cat: "mode", glyph: "◓", color: "#ffff00", desc: "Slow, huge explosive splash", mults: { damage: 4.0, fireRate: 0.25, speed: 0.5, splashRadius: 3.0, splashPercent: 0.75, path: "parabolic" } },
             { name: "Piercing Lance", cat: "offense", glyph: "⇡", color: "#ff0000", desc: "Infinite pierce, large size", mults: { damage: 2.0, fireRate: 0.5, pierceCount: 999, size: 1.5 } },
             { name: "Rear Turret", cat: "hybrid", glyph: "⇕", color: "#aa00ff", desc: "Fires a rear fan every volley", mults: { rearFire: true, rearFireEvery: 1, rearFireFan: 3, rearFireSpread: 0.34 } },
-            { name: "Wave Cannon", cat: "control", glyph: "∿", color: "#00ffff", desc: "Sine-wave path projectiles", mults: { path: "sine" } },
+            { name: "Wave Cannon", cat: "control", glyph: "∿", color: "#00ffff", desc: "Wide sine-wave path projectiles", mults: { damage: 1.1, fireRate: 0.8, speed: 0.9, size: 1.1, path: "sine", sineAmplitude: 1.2 } },
             { name: "Chain Lightning", cat: "control", glyph: "/\\/", icon: "chainLightning", color: "#00ffff", desc: "50% chance to arc lightning to nearby enemies", mults: { damage: 0.8, chainCount: 3, chainChance: 0.5 } },
             { name: "Orbital Drones", cat: "hybrid", glyph: "⟳", color: "#aa00ff", desc: "Adds one auto-firing drone", mults: { drones: true } },
             { name: "Homing Swarm", cat: "control", glyph: "⌖", color: "#00ffff", desc: "Projectiles lightly track targets", mults: { homing: true, homingStrength: 0.5 } },
             { name: "Gatling Array", cat: "offense", glyph: "▒", color: "#ff0000", desc: "Extremely fast, weak shots", mults: { damage: 0.35, fireRate: 3.0, inaccuracy: 0.0696 } },
-            { name: "Boomerang Cross", cat: "control", glyph: "✚", color: "#77ffe7", desc: "Shots return once for a weaker second pass", mults: { damage: 0.82, fireRate: 0.82, speed: 0.88, pierceCount: 1, returning: true, returnAfter: 0.48 } },
+            { name: "Boomerang Cross", cat: "control", glyph: "✚", color: "#77ffe7", desc: "Shots return once for a weaker second pass", mults: { damage: 0.82, fireRate: 0.82, speed: 0.88, pierceCount: 1, returning: true, returnAfter: 0.552 } },
             { name: "Aegis Halo", cat: "hybrid", glyph: "☼", color: "#ffcf6d", desc: "Larger shots orbit close once, then launch from center", mults: { damage: 1.08, fireRate: 0.74, speed: 0.72, size: 1.89, hitbox: 0.68, orbitDelay: 0.68, orbitRadiusMult: 3, orbitReleaseCenter: true } },
             { name: "Plasma Cloud", cat: "hybrid", glyph: "~", color: "#66f2ff", desc: "Piercing storm clouds grow, curve, and accelerate as they travel", mults: { damage: 0.85, fireRate: 0.28, speed: 0.25, size: 2.25, pierceCount: 999, hitbox: 1.12, plasmaCloud: true, cloudDotMult: 6.8, cloudStartScale: 0.28, cloudEndScale: 1.15, cloudGrowthDistance: 480, cloudSpeedStartScale: 0.42, cloudSpeedEndScale: 1.18, cloudAccelTime: 1.35, cloudCurveStrength: 52, cloudFadeTime: 0.5 } },
             { name: "Explosive Torpedo", cat: "offense", glyph: "o", color: "#ffb347", desc: "Slow mini-bombs burst in a compact blast", mults: { damage: 1.4175, fireRate: 0.638, speed: 0.82, size: 1.25, hitbox: 0.82, miniTorpedo: true, torpedoExplosionRadius: 75.4, torpedoExplosionDamageMult: 0.85, torpedoRange: 520, splashVisualDebris: 8 } },
-            { name: "Ricochet Rounds", cat: "control", glyph: "↯", color: "#9bf7ff", desc: "Shots ricochet off screen edges with reduced damage", mults: { damage: 0.85, fireRate: 0.92, ricochetCount: 1, ricochetDamageMult: 0.78 } },
+            { name: "Ricochet Rounds", cat: "control", glyph: "↯", color: "#9bf7ff", desc: "Shard shots ricochet off screen edges", mults: { damage: 1.0, fireRate: 0.9, speed: 0.9, ricochetCount: 1, ricochetDamageMult: 0.78 } },
             { name: "Critical Circuit", cat: "offense", glyph: "✸", color: "#ff5e8a", desc: "Shots can surge for heavy critical damage", mults: { damage: 0.92, fireRate: 0.95, critChance: 0.18, critDamageMult: 2.5 } }
         ];
 
@@ -966,7 +969,8 @@
         function getPlayerDamageScale() {
             const shipDamage = getPlayerShipConfigById(player.shipId).damageMult || 1;
             const modBonus = 1 + (player.modifiers && player.modifiers.damageMult ? player.modifiers.damageMult : 0);
-            return shipDamage * modBonus * (player.godMode ? GOD_MODE_DAMAGE_MULT : 1);
+            const comboFocus = typeof getComboDamageMultiplier === 'function' ? getComboDamageMultiplier() : 1;
+            return shipDamage * modBonus * comboFocus * (player.godMode ? GOD_MODE_DAMAGE_MULT : 1);
         }
 
         function getAveragedCriticalDamageMult(stats, scale = 1) {
@@ -981,60 +985,85 @@
             return player.bombCooldown * shipBombCooldown * player.modifiers.bombCooldown;
         }
 
-        function applyWeapon(w) {
+        function getDuplicateWeaponValueScale(duplicateIndex = 0) {
+            if (duplicateIndex < DUPLICATE_WEAPON_VALUE_SCALES.length) {
+                return DUPLICATE_WEAPON_VALUE_SCALES[duplicateIndex];
+            }
+            return DUPLICATE_WEAPON_VALUE_FLOOR;
+        }
+
+        function scaleWeaponMultiplier(value, duplicateScale) {
+            if (duplicateScale >= 1) return value;
+            if (value >= 1) return 1 + (value - 1) * duplicateScale;
+            return 1 - (1 - value) * duplicateScale;
+        }
+
+        function scaleWeaponAdditive(value, duplicateScale) {
+            return value * duplicateScale;
+        }
+
+        function applyWeapon(w, duplicateIndex = 0) {
             let s = player.weaponStats;
             let m = w.mults;
-            if(m.damage) s.damageMult *= m.damage;
-            if(m.fireRate) s.fireRateMult *= m.fireRate;
-            if(m.speed) s.speedMult *= m.speed;
-            if(m.size) s.sizeMult *= m.size;
-            if(m.hitbox) s.hitboxMult *= m.hitbox;
-            if(m.pierceCount) s.pierceCount += m.pierceCount;
-            if(m.splashRadius) s.splashRadius = Math.max(s.splashRadius, m.splashRadius);
-            if(m.splashPercent) s.splashDamagePercent = Math.max(s.splashDamagePercent, m.splashPercent);
+            const duplicateScale = getDuplicateWeaponValueScale(duplicateIndex);
+            if(m.damage) s.damageMult *= scaleWeaponMultiplier(m.damage, duplicateScale);
+            if(m.fireRate) s.fireRateMult *= scaleWeaponMultiplier(m.fireRate, duplicateScale);
+            if(m.speed) s.speedMult *= scaleWeaponMultiplier(m.speed, duplicateScale);
+            if(m.size) s.sizeMult *= scaleWeaponMultiplier(m.size, duplicateScale);
+            if(m.hitbox) s.hitboxMult *= scaleWeaponMultiplier(m.hitbox, duplicateScale);
+            if(m.pierceCount) s.pierceCount += scaleWeaponAdditive(m.pierceCount, duplicateScale);
+            if(m.splashRadius) s.splashRadius = Math.max(s.splashRadius, scaleWeaponAdditive(m.splashRadius, duplicateScale));
+            if(m.splashPercent) s.splashDamagePercent = Math.max(s.splashDamagePercent, scaleWeaponAdditive(m.splashPercent, duplicateScale));
             if(m.homing) s.homing = true;
-            if(m.homingStrength) s.homingStrength = m.homingStrength;
-            if(m.chainCount) s.chainCount += m.chainCount;
-            if(m.chainChance) s.chainChance = m.chainChance;
+            if(m.homingStrength) {
+                if (duplicateIndex === 0) s.homingStrength = m.homingStrength;
+                else s.homingStrength += scaleWeaponAdditive(m.homingStrength, duplicateScale);
+            }
+            if(m.chainCount) s.chainCount += scaleWeaponAdditive(m.chainCount, duplicateScale);
+            if(m.chainChance) {
+                if (duplicateIndex === 0) s.chainChance = m.chainChance;
+                else s.chainChance = Math.min(1, s.chainChance + (1 - s.chainChance) * duplicateScale);
+            }
             if(m.path) s.pathFunction = m.path;
+            if(m.sineAmplitude) s.sineAmplitudeMult *= scaleWeaponMultiplier(m.sineAmplitude, duplicateScale);
             if(m.mode) s.mode = m.mode;
             if(m.rearFire) s.hasRearFire = true;
             if(m.rearFireEvery) s.rearFireEvery = Math.min(s.rearFireEvery || m.rearFireEvery, m.rearFireEvery);
-            if(m.rearFireFan) s.rearFireFan = Math.max(s.rearFireFan || 1, m.rearFireFan);
-            if(m.rearFireSpread) s.rearFireSpread = Math.max(s.rearFireSpread || 0, m.rearFireSpread);
+            if(m.rearFireFan) s.rearFireFan += scaleWeaponAdditive(m.rearFireFan - 1, duplicateScale);
+            if(m.rearFireSpread) s.rearFireSpread = Math.max(s.rearFireSpread || 0, scaleWeaponAdditive(m.rearFireSpread, duplicateScale));
             if(m.drones) { s.hasOrbitalDrones = true; addPlayerDrone(); }
             if(m.returning) s.returning = true;
             if(m.returnAfter) s.returnAfter = Math.min(s.returnAfter || m.returnAfter, m.returnAfter);
-            if(m.orbitDelay) s.orbitDelay = Math.max(s.orbitDelay || 0, m.orbitDelay);
-            if(m.orbitRadiusMult) s.orbitRadiusMult *= m.orbitRadiusMult;
+            if(m.orbitDelay) s.orbitDelay = Math.max(s.orbitDelay || 0, scaleWeaponAdditive(m.orbitDelay, duplicateScale));
+            if(m.orbitRadiusMult) s.orbitRadiusMult *= scaleWeaponMultiplier(m.orbitRadiusMult, duplicateScale);
             if(m.orbitReleaseCenter) s.orbitReleaseCenter = true;
             if(m.lightningBall) s.lightningBall = true;
             if(m.plasmaCloud) s.plasmaCloud = true;
-            if(m.cloudDotMult) s.cloudDotMult = Math.max(s.cloudDotMult || 0, m.cloudDotMult);
-            if(m.cloudStartScale) s.cloudStartScale = Math.min(s.cloudStartScale || m.cloudStartScale, m.cloudStartScale);
-            if(m.cloudEndScale) s.cloudEndScale = Math.max(s.cloudEndScale || 1, m.cloudEndScale);
-            if(m.cloudGrowthDistance) s.cloudGrowthDistance = Math.max(s.cloudGrowthDistance || 1, m.cloudGrowthDistance);
-            if(m.cloudSpeedStartScale) s.cloudSpeedStartScale = Math.min(s.cloudSpeedStartScale || m.cloudSpeedStartScale, m.cloudSpeedStartScale);
-            if(m.cloudSpeedEndScale) s.cloudSpeedEndScale = Math.max(s.cloudSpeedEndScale || 1, m.cloudSpeedEndScale);
-            if(m.cloudAccelTime) s.cloudAccelTime = Math.max(s.cloudAccelTime || 0.1, m.cloudAccelTime);
-            if(m.cloudCurveStrength) s.cloudCurveStrength = Math.max(s.cloudCurveStrength || 0, m.cloudCurveStrength);
-            if(m.cloudFadeTime) s.cloudFadeTime = Math.max(s.cloudFadeTime || 0.05, m.cloudFadeTime);
+            if(m.cloudDotMult) s.cloudDotMult = Math.max(s.cloudDotMult || 0, scaleWeaponAdditive(m.cloudDotMult, duplicateScale));
+            if(m.cloudStartScale) s.cloudStartScale = Math.min(s.cloudStartScale || m.cloudStartScale, scaleWeaponMultiplier(m.cloudStartScale, duplicateScale));
+            if(m.cloudEndScale) s.cloudEndScale = Math.max(s.cloudEndScale || 1, scaleWeaponMultiplier(m.cloudEndScale, duplicateScale));
+            if(m.cloudGrowthDistance) s.cloudGrowthDistance = Math.max(s.cloudGrowthDistance || 1, scaleWeaponAdditive(m.cloudGrowthDistance, duplicateScale));
+            if(m.cloudSpeedStartScale) s.cloudSpeedStartScale = Math.min(s.cloudSpeedStartScale || m.cloudSpeedStartScale, scaleWeaponMultiplier(m.cloudSpeedStartScale, duplicateScale));
+            if(m.cloudSpeedEndScale) s.cloudSpeedEndScale = Math.max(s.cloudSpeedEndScale || 1, scaleWeaponMultiplier(m.cloudSpeedEndScale, duplicateScale));
+            if(m.cloudAccelTime) s.cloudAccelTime = Math.max(s.cloudAccelTime || 0.1, scaleWeaponAdditive(m.cloudAccelTime, duplicateScale));
+            if(m.cloudCurveStrength) s.cloudCurveStrength = Math.max(s.cloudCurveStrength || 0, scaleWeaponAdditive(m.cloudCurveStrength, duplicateScale));
+            if(m.cloudFadeTime) s.cloudFadeTime = Math.max(s.cloudFadeTime || 0.05, scaleWeaponAdditive(m.cloudFadeTime, duplicateScale));
             if(m.miniTorpedo) s.miniTorpedo = true;
-            if(m.torpedoExplosionRadius) s.torpedoExplosionRadius = Math.max(s.torpedoExplosionRadius || 0, m.torpedoExplosionRadius);
-            if(m.torpedoExplosionDamageMult) s.torpedoExplosionDamageMult = Math.max(s.torpedoExplosionDamageMult || 0, m.torpedoExplosionDamageMult);
-            if(m.torpedoRange) s.torpedoRange = Math.max(s.torpedoRange || 0, m.torpedoRange);
-            if(m.splashVisualDebris) s.splashVisualDebris = Math.min(s.splashVisualDebris || m.splashVisualDebris, m.splashVisualDebris);
+            if(m.torpedoExplosionRadius) s.torpedoExplosionRadius = Math.max(s.torpedoExplosionRadius || 0, scaleWeaponAdditive(m.torpedoExplosionRadius, duplicateScale));
+            if(m.torpedoExplosionDamageMult) s.torpedoExplosionDamageMult = Math.max(s.torpedoExplosionDamageMult || 0, scaleWeaponAdditive(m.torpedoExplosionDamageMult, duplicateScale));
+            if(m.torpedoRange) s.torpedoRange = Math.max(s.torpedoRange || 0, scaleWeaponAdditive(m.torpedoRange, duplicateScale));
+            if(m.splashVisualDebris) s.splashVisualDebris = Math.min(s.splashVisualDebris || m.splashVisualDebris, Math.max(1, scaleWeaponAdditive(m.splashVisualDebris, duplicateScale)));
             if(m.pellets) {
                 if(s.pelletCount === 1) s.pelletCount = m.pellets;
-                else s.pelletCount += (m.pellets - 1);
+                else s.pelletCount += scaleWeaponAdditive(m.pellets - 1, duplicateScale);
             }
-            if(m.spread) s.spreadAngle = Math.max(s.spreadAngle, m.spread);
-            if(m.inaccuracy) s.inaccuracy = Math.max(s.inaccuracy, m.inaccuracy);
-            if(m.ricochetCount) s.ricochetCount += m.ricochetCount;
-            if(m.ricochetDamageMult) s.ricochetDamageMult = Math.min(s.ricochetDamageMult || 1, m.ricochetDamageMult);
-            if(m.critChance) s.critChance += m.critChance;
+            if(m.spread) s.spreadAngle = Math.max(s.spreadAngle, scaleWeaponAdditive(m.spread, duplicateScale));
+            if(m.inaccuracy) s.inaccuracy = Math.max(s.inaccuracy, scaleWeaponAdditive(m.inaccuracy, duplicateScale));
+            if(m.ricochetCount) s.ricochetCount += scaleWeaponAdditive(m.ricochetCount, duplicateScale);
+            if(m.ricochetDamageMult) s.ricochetDamageMult = Math.min(s.ricochetDamageMult || 1, scaleWeaponMultiplier(m.ricochetDamageMult, duplicateScale));
+            if(m.critChance) s.critChance += scaleWeaponAdditive(m.critChance, duplicateScale);
             if(m.critDamageMult) {
-                s.critDamageMult = s.critDamageMult > 1 ? s.critDamageMult + (m.critDamageMult - 1) : m.critDamageMult;
+                s.critDamageMult += scaleWeaponAdditive(m.critDamageMult - 1, duplicateScale);
             }
         }
 
@@ -1047,11 +1076,12 @@
             s.hitboxMult = clampValue(s.hitboxMult, g.minHitboxMult, g.maxHitboxMult);
             s.splashRadius = Math.min(s.splashRadius || 0, g.maxSplashRadius);
             s.torpedoExplosionRadius = Math.min(s.torpedoExplosionRadius || 0, g.maxTorpedoExplosionRadius);
-            s.pelletCount = Math.max(1, Math.min(s.pelletCount || 1, g.maxPelletCount));
-            s.rearFireFan = Math.max(1, Math.min(s.rearFireFan || 1, g.maxRearFireFan));
-            s.chainCount = Math.min(s.chainCount || 0, g.maxChainCount);
+            s.pelletCount = Math.round(Math.max(1, Math.min(s.pelletCount || 1, g.maxPelletCount)));
+            s.rearFireFan = Math.round(Math.max(1, Math.min(s.rearFireFan || 1, g.maxRearFireFan)));
+            s.pierceCount = Math.round(s.pierceCount || 0);
+            s.chainCount = Math.round(Math.min(s.chainCount || 0, g.maxChainCount));
             s.cloudDotMult = Math.min(s.cloudDotMult || 0, g.maxCloudDotMult);
-            s.ricochetCount = Math.max(0, Math.min(s.ricochetCount || 0, g.maxRicochetCount));
+            s.ricochetCount = Math.round(Math.max(0, Math.min(s.ricochetCount || 0, g.maxRicochetCount)));
             s.critChance = clampValue(s.critChance || 0, 0, g.maxCritChance);
             s.critDamageMult = clampValue(s.critDamageMult || 1, 1, g.maxCritDamageMult);
         }
@@ -1060,8 +1090,12 @@
             const activeWeapons = player.weapons.slice();
             player.weaponStats = createBaseWeaponStats();
             player.drones = [];
+            const duplicateCounts = {};
             for (let i = 0; i < activeWeapons.length; i++) {
-                applyWeapon(activeWeapons[i]);
+                const weaponName = activeWeapons[i].name || `weapon-${i}`;
+                const duplicateIndex = duplicateCounts[weaponName] || 0;
+                duplicateCounts[weaponName] = duplicateIndex + 1;
+                applyWeapon(activeWeapons[i], duplicateIndex);
             }
             applyWeaponStatGuardrails();
         }

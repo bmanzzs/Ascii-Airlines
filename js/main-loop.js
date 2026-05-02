@@ -59,5 +59,7 @@
             requestAnimationFrame(gameLoop);
         }
 
-        window.addEventListener('resize', resize); resize();
+        window.addEventListener('resize', resize);
+        document.addEventListener('fullscreenchange', resize);
+        resize();
         document.fonts.ready.then(() => { resize(); requestAnimationFrame(gameLoop); });

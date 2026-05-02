@@ -54,7 +54,7 @@
         }
 
         function ensureHudStructure() {
-            if (document.querySelector('#hud-wave-panel #hud-score-value')) return;
+            if (document.querySelector('#hud-wave-panel #hud-score-value') && document.getElementById('hud-combo-value')) return;
             hud.innerHTML = `
                 <div class="hud-left">
                     <div class="hud-meters">
@@ -82,8 +82,13 @@
                                 <span id="hud-level-text" class="hud-level-main">LVL 1</span>
                                 <span id="hud-score-value" class="hud-level-score">000000</span>
                             </span>
+                            <span id="hud-combo-chip" class="hud-combo-chip">
+                                <span class="hud-combo-label">COMBO</span>
+                                <span id="hud-combo-value" class="hud-combo-main">000</span>
+                                <span id="hud-combo-mult" class="hud-combo-mult">x1.00</span>
+                            </span>
                             <span id="hud-wave-text" class="hud-wave-main">WAVE 1</span>
-                            <span id="hud-wave-mod-text" class="hud-wave-mod">CLEAR SIGNAL</span>
+                            <span id="hud-wave-mod-text" class="hud-wave-mod">STANDARD ROUTE</span>
                         </span>
                     </div>
                 </div>`;
@@ -93,6 +98,9 @@
             hudRefs.bombBar = document.getElementById('hud-bomb-bar');
             hudRefs.weaponGrid = document.getElementById('hud-weapon-grid');
             hudRefs.levelText = document.getElementById('hud-level-text');
+            hudRefs.comboChip = document.getElementById('hud-combo-chip');
+            hudRefs.comboValue = document.getElementById('hud-combo-value');
+            hudRefs.comboMult = document.getElementById('hud-combo-mult');
             hudRefs.wavePanel = document.getElementById('hud-wave-panel');
             hudRefs.waveText = document.getElementById('hud-wave-text');
             hudRefs.waveModText = document.getElementById('hud-wave-mod-text');
@@ -230,8 +238,8 @@
             if (!drift) {
                 return {
                     id: 'standard',
-                    label: 'CLEAR',
-                    desc: 'STANDARD ROUTE',
+                    label: 'STANDARD ROUTE',
+                    desc: '',
                     color: currentThemeColor,
                     standard: true
                 };
@@ -240,7 +248,7 @@
             return {
                 id: drift.id,
                 label: drift.hudLabel || drift.name,
-                desc: drift.hudDesc || drift.desc,
+                desc: Object.prototype.hasOwnProperty.call(drift, 'hudDesc') ? drift.hudDesc : drift.desc,
                 color: drift.color || currentThemeColor,
                 standard: false
             };
@@ -250,12 +258,12 @@
             if (!hudRefs.wavePanel) return;
             const info = waveInfo || {
                 id: 'standard',
-                label: 'CLEAR',
-                desc: 'STANDARD ROUTE',
+                label: 'STANDARD ROUTE',
+                desc: '',
                 color: currentThemeColor,
                 standard: true
             };
-            const modText = `${info.label}: ${info.desc}`;
+            const modText = info.desc ? `${info.label}: ${info.desc}` : info.label;
             const className = `hud-wave-panel ${info.standard ? 'is-standard' : 'is-signal'}${isFresh ? ' is-fresh' : ''}`;
 
             if (hudRefs.wavePanel.dataset.className !== className) {
@@ -276,10 +284,16 @@
 
         let hudUpdateTimer = 0;
         let lastHudScoreText = '';
+        let lastHudComboSignature = '';
+        let lastHudComboEventSerial = -1;
         let lastHudHpSignature = '';
         let lastHudXpSignature = '';
         let lastHudBombSignature = '';
         let lastHudStaticSignature = '';
+        let lastHudStatsSignature = '';
+        let lastHudStatValues = null;
+        let hudStatDeltaEvents = {};
+        const HUD_STAT_DELTA_MS = 1550;
         const hudRefs = {
             scoreValue: null,
             hpBar: null,
@@ -287,13 +301,189 @@
             bombBar: null,
             weaponGrid: null,
             levelText: null,
+            comboChip: null,
+            comboValue: null,
+            comboMult: null,
             wavePanel: null,
             waveText: null,
             waveModText: null
         };
+
+        function escapeHudText(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function formatHudStatMult(value) {
+            const n = Number.isFinite(value) ? value : 1;
+            return `x${n >= 10 ? n.toFixed(1) : n.toFixed(2)}`;
+        }
+
+        function formatHudStatPercent(value) {
+            const n = Number.isFinite(value) ? value : 0;
+            return `${Math.round(n * 100)}%`;
+        }
+
+        function isHudStatChanged(value, base = 0, epsilon = 0.001) {
+            return Math.abs((value || 0) - base) > epsilon;
+        }
+
+        function createHudStatRow(label, value, numericValue = null, deltaType = 'mult', baseValue = 0) {
+            return { label, value, numericValue, deltaType, baseValue };
+        }
+
+        function formatHudStatDelta(delta, type = 'mult', currentValue = 0, previousValue = 0) {
+            const sign = delta >= 0 ? '+' : '-';
+            const absDelta = Math.abs(delta);
+            if (type === 'count') {
+                if (currentValue >= 999 && previousValue < 999) return `${sign}INF`;
+                return `${sign}${Math.round(absDelta)}`;
+            }
+            if (type === 'rad') return `${sign}${absDelta.toFixed(2)}r`;
+            if (type === 'percent') return `${sign}${Math.round(absDelta * 100)}%`;
+            return `${sign}${absDelta >= 10 ? absDelta.toFixed(1) : absDelta.toFixed(2)}`;
+        }
+
+        function getHudStatDeltaClass(delta) {
+            return delta >= 0 ? 'is-up' : 'is-down';
+        }
+
+        function buildHudPlayerStatRows() {
+            if (!player || !player.weaponStats) return [];
+            const s = player.weaponStats;
+            const m = player.modifiers || {};
+            const totalFireRateBonus = m.fireRate || 0;
+            const actualFireRate = getClampedPlayerFireInterval((player.fireRate / (s.fireRateMult || 1)) / (1 + totalFireRateBonus));
+            const shipDamage = getPlayerShipConfigById(player.shipId).damageMult || 1;
+            const modDamage = 1 + (m.damageMult || 0);
+            const godDamage = player.godMode ? GOD_MODE_DAMAGE_MULT : 1;
+            const damageMult = ((10 * (s.damageMult || 1) + (m.laserDamage || 0)) * shipDamage * modDamage * godDamage) / 10;
+            const fireRateMult = 306 / actualFireRate;
+
+            const rows = [
+                createHudStatRow('DMG', formatHudStatMult(damageMult), damageMult, 'mult', 1),
+                createHudStatRow('RATE', formatHudStatMult(fireRateMult), fireRateMult, 'mult', 1),
+                createHudStatRow('SPEED', formatHudStatMult(s.speedMult || 1), s.speedMult || 1, 'mult', 1),
+                createHudStatRow('SIZE', formatHudStatMult(s.sizeMult || 1), s.sizeMult || 1, 'mult', 1)
+            ];
+
+            const shipHitbox = typeof getPlayerHitboxScale === 'function' ? getPlayerHitboxScale() : 1;
+            if (isHudStatChanged(shipHitbox, 1)) rows.push(createHudStatRow('SHIPBOX', formatHudStatMult(shipHitbox), shipHitbox, 'mult', 1));
+            if (isHudStatChanged(s.hitboxMult, 1)) rows.push(createHudStatRow('BUL BOX', formatHudStatMult(s.hitboxMult), s.hitboxMult || 1, 'mult', 1));
+            if ((s.pierceCount || 0) > 0) rows.push(createHudStatRow('PIERCE', s.pierceCount >= 999 ? 'INF' : String(s.pierceCount), s.pierceCount || 0, 'count', 0));
+            if ((s.pelletCount || 1) > 1) rows.push(createHudStatRow('PELLETS', String(s.pelletCount), s.pelletCount || 1, 'count', 1));
+            if ((s.spreadAngle || 0) > 0) rows.push(createHudStatRow('SPREAD', `${s.spreadAngle.toFixed(2)}r`, s.spreadAngle || 0, 'rad', 0));
+            if ((s.inaccuracy || 0) > 0) rows.push(createHudStatRow('INACC', `${s.inaccuracy.toFixed(3)}r`, s.inaccuracy || 0, 'rad', 0));
+            if ((s.splashRadius || 0) > 0) rows.push(createHudStatRow('SPLASH', formatHudStatMult(s.splashRadius), s.splashRadius || 0, 'mult', 0));
+            if ((s.splashDamagePercent || 0) > 0) rows.push(createHudStatRow('SPL %', formatHudStatPercent(s.splashDamagePercent), s.splashDamagePercent || 0, 'percent', 0));
+            if (s.mode && s.mode !== 'projectile') rows.push(createHudStatRow('MODE', String(s.mode).toUpperCase()));
+            if (s.pathFunction && s.pathFunction !== 'straight') rows.push(createHudStatRow('PATH', String(s.pathFunction).toUpperCase()));
+
+            const flags = [];
+            if (s.homing) flags.push('HOMING');
+            if ((s.chainCount || 0) > 0) flags.push(`CHAIN${s.chainCount}`);
+            if (s.hasRearFire) flags.push('REAR');
+            if (s.hasOrbitalDrones) flags.push(`DRONE${player.drones.length}`);
+            if (s.returning) flags.push('RETURN');
+            if (s.orbitDelay > 0) flags.push('ORBIT');
+            if (s.lightningBall) flags.push('SPHERE');
+            if (s.plasmaCloud) flags.push('CLOUD');
+            if (s.miniTorpedo) flags.push('TORP');
+            if ((s.ricochetCount || 0) > 0) flags.push(`RICO${s.ricochetCount}`);
+            if ((s.critChance || 0) > 0) flags.push(`CRIT ${Math.round(s.critChance * 100)}%`);
+            if (flags.length) rows.push(createHudStatRow('FLAGS', flags.join(' / ')));
+
+            const other = [];
+            if ((s.cloudDotMult || 0) > 0) other.push(`DOT ${s.cloudDotMult.toFixed(1)}x`);
+            if ((s.cloudCurveStrength || 0) > 0) other.push(`CURVE ${Math.round(s.cloudCurveStrength)}`);
+            if ((s.torpedoExplosionRadius || 0) > 0) other.push(`AOE ${Math.round(s.torpedoExplosionRadius)}`);
+            if ((s.torpedoExplosionDamageMult || 0) > 0) other.push(`BOOM ${formatHudStatMult(s.torpedoExplosionDamageMult)}`);
+            if ((s.ricochetDamageMult || 1) < 0.999) other.push(`RICO ${formatHudStatPercent(s.ricochetDamageMult)}`);
+            if ((s.critDamageMult || 1) > 1) other.push(`CRIT ${formatHudStatMult(s.critDamageMult)}`);
+            if ((m.momentumFireRate || 0) > 0) other.push(`KIN ${formatHudStatPercent(m.momentumFireRate)}`);
+            if ((m.adrenaline || 0) > 0) other.push(`ADRN ${formatHudStatPercent(m.adrenaline)}`);
+            if (other.length) rows.push(createHudStatRow('OTHER', other.join(' / ')));
+
+            return rows;
+        }
+
+        function updateHudStatDeltaEvents(rows, now) {
+            const currentValues = {};
+            if (!lastHudStatValues) {
+                lastHudStatValues = {};
+                for (const row of rows) {
+                    if (Number.isFinite(row.numericValue)) lastHudStatValues[row.label] = row.numericValue;
+                }
+                return '';
+            }
+
+            for (const row of rows) {
+                if (!Number.isFinite(row.numericValue)) continue;
+                const previousValue = Object.prototype.hasOwnProperty.call(lastHudStatValues, row.label)
+                    ? lastHudStatValues[row.label]
+                    : row.baseValue;
+                const delta = row.numericValue - previousValue;
+                if (Math.abs(delta) > 0.001) {
+                    hudStatDeltaEvents[row.label] = {
+                        text: formatHudStatDelta(delta, row.deltaType, row.numericValue, previousValue),
+                        className: getHudStatDeltaClass(delta),
+                        expiresAt: now + HUD_STAT_DELTA_MS
+                    };
+                }
+                currentValues[row.label] = row.numericValue;
+            }
+
+            lastHudStatValues = currentValues;
+            const activeKeys = [];
+            for (const [label, event] of Object.entries(hudStatDeltaEvents)) {
+                if (!event || event.expiresAt <= now) {
+                    delete hudStatDeltaEvents[label];
+                } else {
+                    activeKeys.push(`${label}:${event.text}:${event.className}`);
+                }
+            }
+            return activeKeys.join('|');
+        }
+
+        function syncStatsPanel(forceHide = false) {
+            if (!statsPanel) return;
+            const hiddenForState = forceHide || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GAMEOVER' || window.innerHeight < 700 || window.innerWidth < 525;
+            const visible = showStatsPanel && !hiddenForState;
+            statsPanel.style.display = visible ? 'block' : 'none';
+            if (!visible) {
+                lastHudStatsSignature = '';
+                lastHudStatValues = null;
+                hudStatDeltaEvents = {};
+                return;
+            }
+
+            const rows = buildHudPlayerStatRows();
+            const now = currentFrameNow || performance.now();
+            const deltaSignature = updateHudStatDeltaEvents(rows, now);
+            const signature = rows.map(row => `${row.label}:${row.value}`).join('|') + `~${deltaSignature}~${currentThemeColor}~${glowEnabled ? 1 : 0}`;
+            if (signature === lastHudStatsSignature) return;
+            statsPanel.innerHTML = `
+                <div class="stats-panel-title">SHIP STATS</div>
+                ${rows.map(row => {
+                    const event = hudStatDeltaEvents[row.label];
+                    return `
+                    <div class="stats-row">
+                        <span class="stats-label">${escapeHudText(row.label)}</span>
+                        <span class="stats-value">
+                            <span class="stats-main">${escapeHudText(row.value)}</span>
+                            ${event ? `<span class="stats-delta ${event.className}">${escapeHudText(event.text)}</span>` : ''}
+                        </span>
+                    </div>`;
+                }).join('')}`;
+            lastHudStatsSignature = signature;
+        }
+
         function updateHud() {
-            if (window.innerHeight < 700 || window.innerWidth < 525) { hud.style.display = 'none'; return; }
-            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GAMEOVER') { hud.style.opacity = 0; return; }
+            if (window.innerHeight < 700 || window.innerWidth < 525) { hud.style.display = 'none'; syncStatsPanel(true); return; }
+            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GAMEOVER') { hud.style.opacity = 0; syncStatsPanel(true); return; }
             
             hud.style.display = 'flex';
             if (gameState === 'LAUNCHING') {
@@ -312,7 +502,43 @@
                 lastHudScoreText = scoreText;
             }
 
+            const comboText = comboCount >= 1000 ? comboCount.toString() : comboCount.toString().padStart(3, '0');
+            const comboMultiplierText = `x${getComboScoreMultiplier().toFixed(2)}`;
+            const comboEventAge = (currentFrameNow || performance.now()) - comboEventAt;
+            const showComboEvent = comboEventType === 'boss'
+                ? comboEventAge < 2200
+                : (comboEventType === 'break' && comboEventAge < 900);
+            const comboSubText = showComboEvent ? comboEventText : comboMultiplierText;
+            const comboSignature = [
+                comboText,
+                comboSubText,
+                comboMultiplierText,
+                comboEventType,
+                showComboEvent ? 1 : 0,
+                currentThemeColor,
+                glowEnabled ? 1 : 0
+            ].join('~');
+            if (comboSignature !== lastHudComboSignature) {
+                if (hudRefs.comboValue) hudRefs.comboValue.textContent = comboText;
+                if (hudRefs.comboMult) hudRefs.comboMult.textContent = comboSubText;
+                if (hudRefs.comboChip) {
+                    hudRefs.comboChip.style.setProperty('--hud-combo-color', comboEventType === 'break' && showComboEvent ? '#ff5e8a' : currentThemeColor);
+                    hudRefs.comboChip.classList.toggle('is-empty', comboCount <= 0);
+                    hudRefs.comboChip.classList.toggle('is-event-text', showComboEvent);
+                }
+                lastHudComboSignature = comboSignature;
+            }
+            if (hudRefs.comboChip && comboEventSerial !== lastHudComboEventSerial) {
+                hudRefs.comboChip.classList.remove('is-combo-pop', 'is-combo-break', 'is-boss-break');
+                void hudRefs.comboChip.offsetWidth;
+                if (comboEventType === 'boss') hudRefs.comboChip.classList.add('is-boss-break');
+                else if (comboEventType === 'break') hudRefs.comboChip.classList.add('is-combo-break');
+                else if (comboEventType === 'kill' || comboEventType === 'focus') hudRefs.comboChip.classList.add('is-combo-pop');
+                lastHudComboEventSerial = comboEventSerial;
+            }
+
             hudUpdateTimer--;
+            syncStatsPanel();
             if (hudUpdateTimer > 0) return;
             hudUpdateTimer = 6; // Update at ~10Hz
             
@@ -382,7 +608,7 @@
                 glowEnabled ? 1 : 0
             ].join('~');
             if (bombSignature !== lastHudBombSignature) {
-                syncMeterBar(hudRefs.bombBar, bombBlocks, HUD_BAR_BLOCKS, '#1e3da8', '#d12ad6', '#39428a', {
+                syncMeterBar(hudRefs.bombBar, bombBlocks, HUD_BAR_BLOCKS, '#ff3030', '#ff9f1a', '#3f2520', {
                     effectClass: bombReady ? 'is-bomb is-bomb-ready is-full' : 'is-bomb',
                     glowAlpha: bombReady ? 0.88 : bombRatio * 0.8,
                     glowBlur: bombReady ? 9 : 8
@@ -408,4 +634,5 @@
                 syncWeaponGrid(currentThemeColor);
                 lastHudStaticSignature = staticSignature;
             }
+            syncStatsPanel();
         }

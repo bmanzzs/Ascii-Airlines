@@ -219,7 +219,9 @@
                                 : pauseSelection - 1;
                         }
                         if (k === 'arrowdown' || k === 's') {
-                            pauseSelection = pauseSelection === pauseMenuOptions.length - 1 ? 0 : pauseSelection + 1;
+                            pauseSelection = pauseSelection === pauseMenuOptions.length - 1
+                                ? (hasPowerups ? -1 : 0)
+                                : pauseSelection + 1;
                         }
                     }
                     if (hasPowerups) {
@@ -263,8 +265,8 @@
                             }
                         }
                         else if (pauseSelection === 5) location.reload();
-                    }
-                } else if (pauseState === 'SETTINGS') {
+                }
+            } else if (pauseState === 'SETTINGS') {
                     if (k === 'arrowup' || k === 'w') settingsSelection = (settingsSelection === 0) ? 6 : settingsSelection - 1;
                     if (k === 'arrowdown' || k === 's') settingsSelection = (settingsSelection === 6) ? 0 : settingsSelection + 1;
                     
@@ -274,13 +276,13 @@
                             if (k === 'arrowright' || k === 'd') currentThemeIndex = (currentThemeIndex + 1) % 4;
                             applyTheme();
                         } else if (settingsSelection === 1 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
-                            if (k === 'arrowleft' || k === 'a') renderStyleMode = (renderStyleMode + RENDER_STYLE_NAMES.length - 1) % RENDER_STYLE_NAMES.length;
-                            else renderStyleMode = (renderStyleMode + 1) % RENDER_STYLE_NAMES.length;
-                            sessionStorage.setItem('ascii_render_style', renderStyleMode.toString());
-                        } else if (settingsSelection === 2 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
                             showFpsCounter = !showFpsCounter;
                             sessionStorage.setItem('ascii_show_fps', showFpsCounter.toString());
                             applyFpsVisibility();
+                        } else if (settingsSelection === 2 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+                            showStatsPanel = !showStatsPanel;
+                            sessionStorage.setItem('ascii_show_stats', showStatsPanel.toString());
+                            applyStatsVisibility();
                         } else if (settingsSelection === 3 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
                             userFpsCap = !userFpsCap;
                         } else if (settingsSelection === 4 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {

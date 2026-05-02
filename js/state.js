@@ -2,20 +2,20 @@
         // UI Themes
         const themes = ['CYBERPUNK', 'MATRIX GREEN', 'AMBER', 'WHITE PHOSPHOR'];
         let currentThemeIndex = 0;
-        let currentThemeColor = '#00ffff';
-        let currentBgColor = '#050510';
+        let currentThemeColor = '#6aa8ff';
+        let currentBgColor = '#050712';
         let userFpsCap = false;
         let showFpsCounter = true;
-        const RENDER_STYLE_NAMES = ['SOFT', 'HYBRID', 'CRISP'];
-        let renderStyleMode = 1;
+        let showStatsPanel = true;
+        let renderStyleMode = 2;
         let glowEnabled = true;
         let crtFilterEnabled = false;
         
         function applyTheme() {
             const root = document.documentElement;
             let color, bg, fpsColor, shadow;
-            if (currentThemeIndex === 0) { 
-                color = '#00ffff'; bg = '#050510'; fpsColor = '#888888'; shadow = '0 0 5px #00ffff'; currentBgColor = '#050510'; 
+            if (currentThemeIndex === 0) {
+                color = '#6aa8ff'; bg = '#050712'; fpsColor = '#a2b7d0'; shadow = '0 0 5px #6aa8ff'; currentBgColor = '#050712';
             } else if (currentThemeIndex === 1) { 
                 color = '#00ff00'; bg = '#001100'; fpsColor = '#00aa00'; shadow = '0 0 5px #00ff00'; currentBgColor = '#001100'; 
             } else if (currentThemeIndex === 2) { 
@@ -43,14 +43,10 @@
         applyTheme();
         let savedFpsVisibility = sessionStorage.getItem('ascii_show_fps');
         if (savedFpsVisibility !== null) showFpsCounter = savedFpsVisibility === 'true';
-        let savedRenderStyle = sessionStorage.getItem('ascii_render_style');
-        if (savedRenderStyle !== null) {
-            const parsedRenderStyle = parseInt(savedRenderStyle, 10);
-            if (!Number.isNaN(parsedRenderStyle)) {
-                renderStyleMode = Math.max(0, Math.min(RENDER_STYLE_NAMES.length - 1, parsedRenderStyle));
-            }
-        }
         applyFpsVisibility();
+        let savedStatsVisibility = sessionStorage.getItem('ascii_show_stats');
+        if (savedStatsVisibility !== null) showStatsPanel = savedStatsVisibility === 'true';
+        applyStatsVisibility();
 
         // FPS Counter & Benchmark State
         let frameCount = 0;
@@ -74,18 +70,73 @@
         let P_MAX_SPEED = 720;
 
         // Cyberpunk Synthwave Palette
-        const COLORS = ['#0a0a2a', '#1a1a4a', '#3a0088', '#00d0ff', '#ff00ff'];
+        const COLORS = ['#0b1028', '#141f3f', '#47337d', '#6aa8ff', '#ff5e8a'];
         
         // State
         let lastTime = performance.now();
         let currentFrameNow = lastTime;
         let score = 0;
+        let comboCount = 0;
+        let comboPeak = 0;
+        let comboEventSerial = 0;
+        let comboEventType = 'idle';
+        let comboEventText = '';
+        let comboEventAt = 0;
+        let comboFocusNoticeText = '';
+        let comboFocusNoticeAt = 0;
+        let comboFocusNoticeX = 0;
+        let comboFocusNoticeY = 0;
         let gameState = 'START';
         let titleAlpha = 1.0;
         let autoLaunch = false;
         let pauseState = 'MAIN'; // 'MAIN' or 'SETTINGS'
         let pauseSelection = 0;
         let pausePowerupSelection = 0;
+        let pausePowerupBarAnim = {
+            mode: 'idle',
+            startTime: 0,
+            closeTime: 0,
+            lastTableY: 0
+        };
+        let pauseMenuShipCursor = {
+            x: 0,
+            y: 0,
+            vx: 0,
+            vy: 0,
+            rot: 0,
+            scale: 0.34,
+            speed: 0,
+            trail: [],
+            trailEmitAcc: 0,
+            settleBlend: 0,
+            initialized: false,
+            lastNow: 0,
+            targetKey: '',
+            routeKey: '',
+            approachComplete: false
+        };
+        const PAUSE_CURSOR_SHIP = {
+            x: 0,
+            y: 0,
+            vx: 0,
+            vy: 0,
+            shipId: 'arrowhead',
+            _renderLayoutCache: null
+        };
+
+        function resetPauseMenuShipCursor() {
+            pauseMenuShipCursor.vx = 0;
+            pauseMenuShipCursor.vy = 0;
+            pauseMenuShipCursor.speed = 0;
+            pauseMenuShipCursor.trail = [];
+            pauseMenuShipCursor.trailEmitAcc = 0;
+            pauseMenuShipCursor.settleBlend = 0;
+            pauseMenuShipCursor.initialized = false;
+            pauseMenuShipCursor.lastNow = 0;
+            pauseMenuShipCursor.targetKey = '';
+            pauseMenuShipCursor.routeKey = '';
+            pauseMenuShipCursor.approachComplete = false;
+        }
         let settingsSelection = 0;
         let isMuted = false;
         let currentVolume = 0.4;
@@ -107,6 +158,92 @@
         const PAUSE_VOLUME_RETURN_FADE_SECONDS = 0.35;
         const POST_RESUME_BOMB_LOCK_SECONDS = 0.5;
         let pauseVolumePreviewTimeout = null;
+
+        const COMBO_SCORE_MULT_PER_KILL = 0.01;
+        const COMBO_FOCUS_STEP = 12;
+        const COMBO_FOCUS_DAMAGE_PER_STEP = 0.01;
+        const COMBO_FOCUS_DAMAGE_CAP = 0.08;
+
+        function getComboScoreMultiplier(comboValue = comboCount) {
+            return 1 + Math.max(0, comboValue) * COMBO_SCORE_MULT_PER_KILL;
+        }
+
+        function getComboFocusDamageBonus(comboValue = comboCount) {
+            const focusTier = Math.floor(Math.max(0, comboValue) / COMBO_FOCUS_STEP);
+            return Math.min(COMBO_FOCUS_DAMAGE_CAP, focusTier * COMBO_FOCUS_DAMAGE_PER_STEP);
+        }
+
+        function getComboDamageMultiplier(comboValue = comboCount) {
+            return 1 + getComboFocusDamageBonus(comboValue);
+        }
+
+        function addScore(baseScore, useCombo = true) {
+            const amount = Math.max(0, baseScore || 0);
+            const multiplier = useCombo ? getComboScoreMultiplier() : 1;
+            score += Math.round(amount * multiplier);
+        }
+
+        function markComboEvent(type, text) {
+            comboEventSerial++;
+            comboEventType = type;
+            comboEventText = text || '';
+            comboEventAt = currentFrameNow || performance.now();
+        }
+
+        function triggerComboFocusNotice(focusBonus) {
+            comboFocusNoticeText = `DMG +${Math.round(Math.max(0, focusBonus) * 100)}%`;
+            comboFocusNoticeAt = currentFrameNow || performance.now();
+            const px = player && Number.isFinite(player.x) ? player.x : width / 2;
+            const py = player && Number.isFinite(player.y) ? player.y : height * 0.72;
+            const bottomLimit = typeof getGameplayBottomLimit === 'function' ? getGameplayBottomLimit(86) : height - 130;
+            comboFocusNoticeX = Math.max(86, Math.min(width - 86, px + 68));
+            comboFocusNoticeY = Math.max(92, Math.min(bottomLimit, py - 62));
+        }
+
+        function registerComboKill(enemy, baseScore = 150) {
+            if (!(enemy && enemy.suppressComboReward)) {
+                const previousFocusBonus = getComboFocusDamageBonus();
+                comboCount++;
+                comboPeak = Math.max(comboPeak, comboCount);
+                const nextFocusBonus = getComboFocusDamageBonus();
+                if (nextFocusBonus > previousFocusBonus) {
+                    markComboEvent('focus', `DMG +${Math.round(nextFocusBonus * 100)}%`);
+                    triggerComboFocusNotice(nextFocusBonus);
+                } else {
+                    markComboEvent('kill', '+1');
+                }
+            }
+            addScore(baseScore, true);
+        }
+
+        function getBossComboStageCount(bossObj) {
+            if (!bossObj) return 1;
+            if (bossObj.isEclipseWarden) return 3;
+            if (bossObj.isGlitch) return 2;
+            if (bossObj.name === 'GHOST SIGNAL' || bossObj.name === 'OVERHEATING FIREWALL') return Math.max(2, bossObj.stage || 1);
+            return Math.max(1, bossObj.stage || 1);
+        }
+
+        function registerBossComboBreak(bossObj, baseScore = 20000) {
+            const heldCombo = comboCount;
+            const stageCount = getBossComboStageCount(bossObj);
+            const hpWeight = Math.sqrt(Math.max(1, bossObj && bossObj.maxHp ? bossObj.maxHp : 1000)) / 11;
+            const streakEcho = Math.sqrt(Math.max(0, heldCombo)) * (1.1 + stageCount * 0.22);
+            const echoGain = Math.max(stageCount * 3, Math.round(hpWeight + streakEcho));
+            comboCount += echoGain;
+            comboPeak = Math.max(comboPeak, comboCount);
+            markComboEvent('boss', `ECHO +${echoGain}`);
+
+            const phaseBonus = Math.min(baseScore * 0.35, baseScore * 0.055 * stageCount);
+            const streakBonus = Math.min(baseScore * 0.45, baseScore * Math.sqrt(Math.max(0, heldCombo)) * 0.006);
+            addScore(baseScore + phaseBonus + streakBonus, true);
+        }
+
+        function resetComboOnPlayerDamage() {
+            if (comboCount <= 0) return;
+            comboCount = 0;
+            markComboEvent('break', 'CHAIN BREAK');
+        }
         
         function clearPauseVolumePreview() {
             if (!pauseVolumePreviewTimeout) return;
@@ -148,6 +285,10 @@
             pauseState = 'MAIN';
             pauseSelection = 0;
             pausePowerupSelection = 0;
+            pausePowerupBarAnim.mode = 'opening';
+            pausePowerupBarAnim.startTime = performance.now();
+            pausePowerupBarAnim.closeTime = 0;
+            resetPauseMenuShipCursor();
             applyCurrentVolume(PAUSE_VOLUME_SCALE);
         }
 
@@ -155,13 +296,21 @@
             if (gameState !== 'PAUSED') return;
             clearPauseVolumePreview();
             gameState = 'PLAYING';
+            pausePowerupBarAnim.mode = 'closing';
+            pausePowerupBarAnim.closeTime = performance.now();
             postResumeBombLockTimer = POST_RESUME_BOMB_LOCK_SECONDS;
             keys[' '] = false;
+            resetPauseMenuShipCursor();
             applyCurrentVolume();
         }
 
         function applyFpsVisibility() {
             fpsElement.style.display = showFpsCounter ? 'flex' : 'none';
+        }
+
+        function applyStatsVisibility() {
+            if (!statsPanel) return;
+            statsPanel.style.display = showStatsPanel ? 'block' : 'none';
         }
 
         function snapSpriteCoord(value) {

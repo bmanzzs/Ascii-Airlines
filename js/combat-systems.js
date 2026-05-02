@@ -71,7 +71,7 @@
             } else if (enemy.flyByDropType === 'healthSmall') {
                 drops.push(createHealthDrop(enemy.x, enemy.y, 0.05, 22));
             }
-            addShake(5); score += 150; applyWakeForce(enemy.x, enemy.y, 160, 18);
+            addShake(5); registerComboKill(enemy, 150); applyWakeForce(enemy.x, enemy.y, 160, 18);
 
             const killHeal = player && player.modifiers ? (player.modifiers.killHeal || 0) : 0;
             if (killHeal > 0 && player.hp > 0 && player.hp < player.maxHp) {
@@ -408,7 +408,7 @@
                 });
             }
             
-            addShake(25); score += 20000;
+            addShake(25); registerBossComboBreak(bossObj, 20000);
             applyWakeForce(bossObj.x, bossObj.y, 400, 50);
         }
 
@@ -621,8 +621,12 @@
                 const canCrit = projectileStats.critChance > 0 && !isPlasmaCloud;
                 const isCrit = canCrit && Math.random() < projectileStats.critChance;
                 if (isCrit) pdmg *= projectileStats.critDamageMult || 1;
-                const baseSprite = projectileStats.lightningBall || isPlasmaCloud ? '' : (isMiniTorpedo ? 'o' : (s.pathFunction === 'parabolic' ? '◓' : (orbiting ? '☼' : (returning ? '✚' : '|'))));
-                const baseColor = isPlasmaCloud ? '#66f2ff' : (isMiniTorpedo ? '#ffb347' : (projectileStats.lightningBall ? '#8ff7ff' : (orbiting ? '#ffcf6d' : (returning ? '#77ffe7' : '#ffffff'))));
+                const isRicochetShard = projectileStats.ricochetCount > 0
+                    && !projectileStats.lightningBall && !isPlasmaCloud && !isMiniTorpedo
+                    && s.pathFunction !== 'parabolic' && s.pathFunction !== 'sine'
+                    && !orbiting && !returning;
+                const baseSprite = projectileStats.lightningBall || isPlasmaCloud ? '' : (isMiniTorpedo ? 'o' : (s.pathFunction === 'parabolic' ? '◓' : (orbiting ? '☼' : (returning ? '✚' : (isRicochetShard ? '◇' : '|')))));
+                const baseColor = isPlasmaCloud ? '#66f2ff' : (isMiniTorpedo ? '#ffb347' : (projectileStats.lightningBall ? '#8ff7ff' : (orbiting ? '#ffcf6d' : (returning ? '#77ffe7' : (isRicochetShard ? '#9bf7ff' : '#ffffff')))));
                 comboProjectiles.push({
                     x, y,
                     vx: orbiting ? 0 : vx,
@@ -637,6 +641,7 @@
                     maxLife: projectileLife,
                     damage: pdmg,
                     isCrit,
+                    isRicochetShard,
                     bouncesUsed: 0,
                     pierceHits: [],
                     pierceCount: isPlasmaCloud ? Math.max(s.pierceCount, 999) : s.pierceCount,
@@ -773,8 +778,28 @@
             canvas.style.height = `${outerCanvasH}px`;
 
             const container = document.getElementById('game-container');
-            container.style.width = `${outerCanvasW}px`;
-            container.style.height = `${outerCanvasH}px`;
+            const fullscreenContainer = document.fullscreenElement === container;
+            if (fullscreenContainer) {
+                container.style.width = '100vw';
+                container.style.height = '100vh';
+                canvas.style.position = 'absolute';
+                canvas.style.left = '50%';
+                canvas.style.top = '50%';
+                canvas.style.transform = 'translate(-50%, -50%)';
+                hud.style.left = '50%';
+                hud.style.bottom = `${Math.max(0, Math.round((winH - outerCanvasH) / 2))}px`;
+                hud.style.transform = 'translateX(-50%)';
+            } else {
+                container.style.width = `${outerCanvasW}px`;
+                container.style.height = `${outerCanvasH}px`;
+                canvas.style.position = '';
+                canvas.style.left = '';
+                canvas.style.top = '';
+                canvas.style.transform = '';
+                hud.style.left = '0';
+                hud.style.bottom = '0';
+                hud.style.transform = '';
+            }
             hud.style.width = `${outerCanvasW}px`;
             hud.style.maxWidth = `${outerCanvasW}px`;
             document.documentElement.style.setProperty('--hud-ui-scale', hudScale.toFixed(3));
@@ -931,6 +956,16 @@
         function resetGame() {
             teardownBossCinematic();
             score = 0;
+            comboCount = 0;
+            comboPeak = 0;
+            comboEventSerial = 0;
+            comboEventType = 'idle';
+            comboEventText = '';
+            comboEventAt = 0;
+            comboFocusNoticeText = '';
+            comboFocusNoticeAt = 0;
+            comboFocusNoticeX = 0;
+            comboFocusNoticeY = 0;
             WaveManager.currentWave = 0;
             WaveManager.waveDelay = 0;
             WaveManager.hasSpawnedWave = false;
@@ -972,6 +1007,10 @@
             clearPauseVolumePreview();
             applyCurrentVolume();
             pauseState = 'MAIN'; pauseSelection = 0; pausePowerupSelection = 0;
+            pausePowerupBarAnim.mode = 'idle';
+            pausePowerupBarAnim.startTime = 0;
+            pausePowerupBarAnim.closeTime = 0;
+            resetPauseMenuShipCursor();
             titleAlpha = 0; autoLaunch = true;
             restartLoadingSequence = true;
             postResumeBombLockTimer = 0;

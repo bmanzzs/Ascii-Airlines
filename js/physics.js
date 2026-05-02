@@ -66,32 +66,46 @@
             radialExplosion(p.x, p.y, stats.splashRadius * 22, p.damage * stats.splashDamagePercent, stats.splashVisualDebris ?? 20);
         }
 
-        const ELEMENTAL_TRAIL_SOFT_CAP = 210;
-        const ELEMENTAL_TRAIL_HARD_CAP = 300;
+        const ELEMENTAL_TRAIL_SOFT_CAP = 190;
+        const ELEMENTAL_TRAIL_HARD_CAP = 260;
+        const FIREWALL_TRAIL_SOFT_CAP = 92;
+        const FIREWALL_TRAIL_HARD_CAP = 150;
         const GHOST_SIGNAL_STAGE_TWO_TRANSITION_DURATION = 1.3;
 
         function emitElementalBulletTrail(b, dt, isWraith = false) {
             if (gameState !== 'PLAYING') return;
-            if (thrusterParticles.length > ELEMENTAL_TRAIL_HARD_CAP) return;
+            const isFirewallTrail = !!b.isFirewallBullet && !isWraith;
+            const hardCap = isFirewallTrail ? FIREWALL_TRAIL_HARD_CAP : ELEMENTAL_TRAIL_HARD_CAP;
+            if (thrusterParticles.length > hardCap) return;
+            if (isFirewallTrail && typeof b.trailSkipSeed !== 'number') b.trailSkipSeed = Math.random();
+            if (isFirewallTrail && thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP && b.trailSkipSeed < 0.48) return;
 
             b.trailTimer = (b.trailTimer || 0) + dt;
-            const interval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.085 : 0.052;
+            let interval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.085 : 0.052;
+            if (isFirewallTrail) {
+                const load = enemyBullets.length;
+                interval = load > 76 ? 0.16 : (load > 52 ? 0.13 : (load > 30 ? 0.1 : 0.072));
+                if (thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP) interval *= 1.45;
+            }
             if (b.trailTimer < interval) return;
             b.trailTimer %= interval;
 
             const speed = Math.max(1, Math.hypot(b.vx || 0, b.vy || 0));
             const backX = -(b.vx || 0) / speed;
             const backY = -(b.vy || 0) / speed;
+            const spread = isFirewallTrail ? 6 : 8;
+            const life = isFirewallTrail ? 0.38 : 0.56;
             thrusterParticles.push({
-                x: b.x + backX * 7 + (Math.random() - 0.5) * 8,
-                y: b.y + backY * 7 + (Math.random() - 0.5) * 8,
-                vx: backX * (24 + Math.random() * 28) + (Math.random() - 0.5) * 22,
-                vy: backY * (24 + Math.random() * 28) + (Math.random() - 0.5) * 22,
+                x: b.x + backX * 7 + (Math.random() - 0.5) * spread,
+                y: b.y + backY * 7 + (Math.random() - 0.5) * spread,
+                vx: backX * (22 + Math.random() * 24) + (Math.random() - 0.5) * (isFirewallTrail ? 16 : 22),
+                vy: backY * (22 + Math.random() * 24) + (Math.random() - 0.5) * (isFirewallTrail ? 16 : 22),
                 char: ELEMENTAL_TRAIL_CHARS[Math.floor(Math.random() * ELEMENTAL_TRAIL_CHARS.length)],
                 color: null,
-                life: 0.56,
+                life,
                 isGuardianFlame: !isWraith,
-                isWraithFlame: isWraith
+                isWraithFlame: isWraith,
+                isFirewallTrail
             });
         }
 
@@ -880,7 +894,7 @@
                         player.xpNeeded = getXpNeededForLevel(player.level);
                         beginLevelUpOffer();
                     }
-                    xpOrbs.splice(i, 1); score += 50;
+                    xpOrbs.splice(i, 1); addScore(50);
                 } else if (orb.y > height + 60) xpOrbs.splice(i, 1);
             }
 
@@ -895,9 +909,8 @@
                     }
                 }
                 if (e.y > 0 && isEnemyDamageable(e) && !e.isFlameGuardian && !e.isWraith && !e.isVoidSentinel && !e.disableRandomFire && Math.random() < NON_BOSS_ENEMY_RANDOM_FIRE_CHANCE) {
-                    const dx = player.x - e.x, dy = player.y - e.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*320, vy: (dy/dist)*320, char: 'o', color: '#ff00ff' });
+                    const shot = getNonBossEnemyShotVector(e.x, e.y, 320);
+                    enemyBullets.push({ x: e.x, y: e.y, vx: shot.vx, vy: shot.vy, char: 'o', color: '#ff00ff' });
                 }
             }
 
@@ -1024,7 +1037,8 @@
                 
                 if (dx * dx + dy * dy < hitboxR * hitboxR * bulletHitboxScale * bulletHitboxScale * (b.decay ? Math.max(0.1, b.life) : 1)) {
                     if (!player.godMode && player.invincibilityTimer <= 0) {
-                        player.hp -= 10; 
+                        player.hp -= 10;
+                        resetComboOnPlayerDamage();
                         addShake(15); 
                         wobble = 1.0; 
                         player.invincibilityTimer = 0.4 + player.modifiers.invincibility;
@@ -1607,8 +1621,9 @@
                             boss.x = width / 2 + Math.sin(boss.driftTimer * (firewallStageTwo ? 0.72 : 0.5)) * (firewallStageTwo ? 78 : 50);
 
                             boss.smokeTimer = (boss.smokeTimer || 0) + dt;
-                            const smokeInterval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.11 : (firewallStageTwo ? 0.052 : 0.065);
-                            if (boss.smokeTimer >= smokeInterval && thrusterParticles.length < ELEMENTAL_TRAIL_HARD_CAP) {
+                            const firewallSmokeCap = firewallStageTwo ? FIREWALL_TRAIL_HARD_CAP : Math.min(ELEMENTAL_TRAIL_HARD_CAP, 185);
+                            const smokeInterval = thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP ? 0.16 : (firewallStageTwo ? 0.092 : 0.096);
+                            if (boss.smokeTimer >= smokeInterval && thrusterParticles.length < firewallSmokeCap) {
                                 boss.smokeTimer %= smokeInterval;
                                 thrusterParticles.push({
                                     x: boss.x + (Math.random() - 0.5) * 150,
@@ -1617,8 +1632,9 @@
                                     vy: -50 - Math.random() * 50,
                                     char: ['\u2591', '\u2592', '\u00B7'][Math.floor(Math.random() * 3)],
                                     color: ['#555555', '#444444'][Math.floor(Math.random() * 2)],
-                                    life: 1.2,
-                                    isSmoke: true
+                                    life: 0.95,
+                                    isSmoke: true,
+                                    isFirewallTrail: true
                                 });
                             }
                         }
@@ -1897,7 +1913,7 @@
                     let perpY = p.baseVx / (1400 * p.stats.speedMult);
                     let linearX = p.startX + p.baseVx * t;
                     let linearY = p.startY + p.baseVy * t;
-                    let offset = Math.sin(t * 15) * 40;
+                    let offset = Math.sin(t * 15) * 40 * (p.stats.sineAmplitudeMult || 1);
                     p.x = linearX + perpX * offset;
                     p.y = linearY + perpY * offset;
                 } else {
@@ -2312,24 +2328,43 @@
                     e.hoverTimer = (e.hoverTimer || 0) + dt;
                     
                     e.flameTrailTimer = (e.flameTrailTimer || 0) + dt;
-                    const guardianTrailInterval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.12 : 0.075;
-                    if (e.flameTrailTimer >= guardianTrailInterval && thrusterParticles.length < ELEMENTAL_TRAIL_HARD_CAP) {
+                    const guardianTrailInterval = thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP ? 0.17 : 0.105;
+                    if (e.flameTrailTimer >= guardianTrailInterval && thrusterParticles.length < FIREWALL_TRAIL_HARD_CAP) {
                         e.flameTrailTimer %= guardianTrailInterval;
                         thrusterParticles.push({
                             x: e.x + (Math.random() - 0.5) * 20, y: e.y - 20,
                             vx: (Math.random() - 0.5) * 45, vy: -60 - Math.random() * 40,
                             char: ['^', '*', '░', '▒'][Math.floor(Math.random() * 4)],
-                            color: null, life: 1.0, isGuardianFlame: true
+                            color: null, life: 0.72, isGuardianFlame: true, isFirewallTrail: true
                         });
                     }
 
                     e.fireTimer += dt;
                     if (e.onScreen && e.fireTimer > (e.flameFireInterval || 2.5) * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT) {
                         e.fireTimer = 0;
-                        const dx = player.x - e.x, dy = player.y - e.y;
-                        const dist = Math.sqrt(dx * dx + dy * dy);
                         const flameShotSpeed = e.flameShotSpeed || 250;
-                        enemyBullets.push({ x: e.x, y: e.y, vx: (dx/dist)*flameShotSpeed, vy: (dy/dist)*flameShotSpeed, char: '❋', color: '#e38914', isLargeFlame: true });
+                        let vx, vy;
+                        if (e.isBossMinion) {
+                            const dx = player.x - e.x, dy = player.y - e.y;
+                            const dist = Math.max(1, Math.hypot(dx, dy));
+                            vx = (dx / dist) * flameShotSpeed;
+                            vy = (dy / dist) * flameShotSpeed;
+                        } else {
+                            const shot = getNonBossEnemyShotVector(e.x, e.y, flameShotSpeed, {
+                                targetJitter: 46,
+                                angleJitter: 0.1,
+                                speedJitter: 0.03
+                            });
+                            vx = shot.vx;
+                            vy = shot.vy;
+                        }
+                        enemyBullets.push({
+                            x: e.x, y: e.y, vx, vy,
+                            char: '❋', color: '#e38914',
+                            isLargeFlame: true,
+                            isFirewallBullet: !!e.isBossMinion,
+                            firewallBulletType: e.isBossMinion ? 'flame' : null
+                        });
                     }
                     
                     // Allow Flame Guardian to follow path if one exists
@@ -2386,12 +2421,14 @@
                             e.vy = (ny - oldY) / Math.max(0.001, dt);
 
                             while (e.flyByShotsFired < (e.flyByShotThresholds || []).length && progress >= e.flyByShotThresholds[e.flyByShotsFired]) {
-                                const dx = player.x - nx;
-                                const dy = player.y - ny;
-                                const dist = Math.max(1, Math.hypot(dx, dy));
+                                const shot = getNonBossEnemyShotVector(nx, ny, 260, {
+                                    targetJitter: e.isScoutFlyBy ? 42 : 50,
+                                    angleJitter: e.isScoutFlyBy ? 0.09 : 0.11,
+                                    speedJitter: 0.03
+                                });
                                 enemyBullets.push({
                                     x: nx, y: ny,
-                                    vx: (dx / dist) * 260, vy: (dy / dist) * 260,
+                                    vx: shot.vx, vy: shot.vy,
                                     char: '✦',
                                     color: e.isScoutFlyBy ? '#e6edf5' : e.color,
                                     isFlyByBullet: true
@@ -2581,15 +2618,16 @@
                     e.fireTimer += dt;
                     if (e.fireTimer >= e.orbiterFireInterval * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT) {
                         e.fireTimer = 0;
-                        const dx = player.x - e.x;
-                        const dy = player.y - e.y;
-                        const dist = Math.max(1, Math.hypot(dx, dy));
+                        const shot = getNonBossEnemyShotVector(e.x, e.y, e.orbiterFireSpeed || 215, {
+                            targetJitter: 48,
+                            angleJitter: 0.1
+                        });
                         pushVoidProjectile({
                             x: e.x,
                             y: e.y,
-                            vx: (dx / dist) * (e.orbiterFireSpeed || 215),
-                            vy: (dy / dist) * (e.orbiterFireSpeed || 215),
-                            speed: e.orbiterFireSpeed || 215,
+                            vx: shot.vx,
+                            vy: shot.vy,
+                            speed: shot.speed,
                             char: e.orbiterFireChar || '◦',
                             color: e.orbiterFireColor || '#e2ddff',
                             voidBulletSize: 20
@@ -2601,11 +2639,13 @@
                     const hitboxR = 30 * getPlayerHitboxScale();
                     if (doesCircleHitTargetMask(player.x, player.y, hitboxR, e)) {
                         player.hp -= e.flyByDamage || 12;
+                        resetComboOnPlayerDamage();
                         addShake(18);
                         wobble = 1.0;
                         player.invincibilityTimer = 0.45 + player.modifiers.invincibility;
                         player.flashTimer = player.invincibilityTimer;
                         resolveWaveEnemy(e);
+                        e.suppressComboReward = true;
                         explodeEnemy(e);
                         enemies.splice(i, 1);
                         if (player.hp <= 0) {

@@ -232,7 +232,10 @@
         function fireVoidSentinelAttack(enemy) {
             if (!enemy) return;
             if (enemy.voidAttackMode === 'fan') {
-                fireVoidAimedFan(enemy.x, enemy.y + 10, player.x, player.y, 5, 0.9, 235, {
+                const target = typeof getNonBossEnemyAimTarget === 'function'
+                    ? getNonBossEnemyAimTarget(enemy.x, enemy.y + 10, { targetJitter: 50, angleJitter: 0.08, leadTime: 0.04 })
+                    : player;
+                fireVoidAimedFan(enemy.x, enemy.y + 10, target.x, target.y, 5, 0.9, 235, {
                     char: '⟡',
                     color: '#c4b6ff',
                     voidBulletSize: 24
@@ -275,7 +278,10 @@
                     });
                 }
             } else if (enemy.voidAttackMode === 'cinder') {
-                fireVoidAimedFan(enemy.x, enemy.y + 12, player.x, player.y, 6, 1.05, 255, {
+                const target = typeof getNonBossEnemyAimTarget === 'function'
+                    ? getNonBossEnemyAimTarget(enemy.x, enemy.y + 12, { targetJitter: 52, angleJitter: 0.08, leadTime: 0.04 })
+                    : player;
+                fireVoidAimedFan(enemy.x, enemy.y + 12, target.x, target.y, 6, 1.05, 255, {
                     char: '✦',
                     color: '#f4f6ff',
                     voidBulletSize: 30,

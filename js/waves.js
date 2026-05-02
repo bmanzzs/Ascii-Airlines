@@ -1,36 +1,39 @@
         // Wave sequencing and enemy formation spawning. See js/README.md for load order and ownership.
         const NON_BOSS_ENEMY_FIRE_INTERVAL_MULT = 1.18;
         const NON_BOSS_ENEMY_RANDOM_FIRE_CHANCE = 0.007;
+        const NON_BOSS_ENEMY_AIM_TARGET_JITTER = 56;
+        const NON_BOSS_ENEMY_AIM_ANGLE_JITTER = 0.12;
+        const NON_BOSS_ENEMY_SHOT_SPEED_JITTER = 0.04;
         const SIGNAL_DRIFT_POOL = [
             {
                 id: 'mirror',
                 name: 'MIRROR SIGNAL',
-                hudLabel: 'MIRROR',
-                hudDesc: 'ROUTES MIRRORED',
+                hudLabel: 'MIRRORED ROUTES',
+                hudDesc: '',
                 desc: 'Enemy routes are reflected across the starfield.',
                 color: '#8ff7ff'
             },
             {
                 id: 'surge',
                 name: 'OVERDRIVE CURRENT',
-                hudLabel: 'SURGE',
-                hudDesc: 'FAST, BRITTLE',
+                hudLabel: 'FAST BRITTLE SURGE',
+                hudDesc: '',
                 desc: 'Enemies move faster but their hulls run brittle.',
                 color: '#ff6fae'
             },
             {
                 id: 'crossfire',
                 name: 'CROSSFIRE ECHO',
-                hudLabel: 'CROSSFIRE',
-                hudDesc: 'REMIXED SHOTS',
+                hudLabel: 'CROSSFIRE REMIX',
+                hudDesc: '',
                 desc: 'A few extra ships carry remixed weapon patterns.',
                 color: '#fff07a'
             },
             {
                 id: 'vanguard',
                 name: 'VANGUARD STATIC',
-                hudLabel: 'VANGUARD',
-                hudDesc: 'SIDE PATROLS',
+                hudLabel: 'SIDE PATROL',
+                hudDesc: '',
                 desc: 'Side patrols slip into the wave.',
                 color: '#9bffcf'
             }
@@ -46,6 +49,39 @@
             if (max <= min) return value;
             while (value === exclude) value = pickRandomIntInclusive(min, max);
             return value;
+        }
+
+        function getNonBossEnemyAimTarget(sourceX, sourceY, options = {}) {
+            const targetJitter = options.targetJitter ?? NON_BOSS_ENEMY_AIM_TARGET_JITTER;
+            const leadTime = options.leadTime ?? 0.035;
+            const px = player && Number.isFinite(player.x) ? player.x : width / 2;
+            const py = player && Number.isFinite(player.y) ? player.y : height * 0.78;
+            const leadX = px + ((player && player.vx) || 0) * leadTime;
+            const leadY = py + ((player && player.vy) || 0) * leadTime;
+            const jitterAngle = Math.random() * Math.PI * 2;
+            const jitterRadius = Math.sqrt(Math.random()) * targetJitter;
+            return {
+                x: leadX + Math.cos(jitterAngle) * jitterRadius,
+                y: leadY + Math.sin(jitterAngle) * jitterRadius
+            };
+        }
+
+        function getNonBossEnemyAimAngle(sourceX, sourceY, options = {}) {
+            const target = getNonBossEnemyAimTarget(sourceX, sourceY, options);
+            const angleJitter = options.angleJitter ?? NON_BOSS_ENEMY_AIM_ANGLE_JITTER;
+            return Math.atan2(target.y - sourceY, target.x - sourceX) + (Math.random() - 0.5) * angleJitter;
+        }
+
+        function getNonBossEnemyShotVector(sourceX, sourceY, speed, options = {}) {
+            const angle = getNonBossEnemyAimAngle(sourceX, sourceY, options);
+            const speedJitter = options.speedJitter ?? NON_BOSS_ENEMY_SHOT_SPEED_JITTER;
+            const shotSpeed = speed * (1 + (Math.random() - 0.5) * 2 * speedJitter);
+            return {
+                angle,
+                speed: shotSpeed,
+                vx: Math.cos(angle) * shotSpeed,
+                vy: Math.sin(angle) * shotSpeed
+            };
         }
 
         function cloneWavePath(path) {
@@ -300,13 +336,12 @@
         function fireRemasteredWavePattern(enemy) {
             if (!enemy || !enemy.onScreen) return;
 
-            const dx = player.x - enemy.x;
-            const dy = player.y - enemy.y;
-            const aimAngle = Math.atan2(dy, dx);
+            const aimAngle = getNonBossEnemyAimAngle(enemy.x, enemy.y);
             const color = enemy.remasterFireColor || enemy.color || '#ff00ff';
 
             if (enemy.remasterFirePattern === 'aimedPulse') {
-                pushRemasterEnemyBullet(enemy.x, enemy.y, aimAngle, 245, 'o', color);
+                const shot = getNonBossEnemyShotVector(enemy.x, enemy.y, 245);
+                pushRemasterEnemyBullet(enemy.x, enemy.y, shot.angle, shot.speed, 'o', color);
             } else if (enemy.remasterFirePattern === 'downFan') {
                 for (const offset of [-0.28, 0, 0.28]) {
                     pushRemasterEnemyBullet(enemy.x, enemy.y, Math.PI / 2 + offset, 225, '.', color);

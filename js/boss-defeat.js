@@ -318,6 +318,7 @@
                 if (!belongsToBoss) continue;
 
                 resolveWaveEnemy(enemy);
+                enemy.suppressComboReward = true;
                 explodeEnemy(enemy);
                 enemies.splice(i, 1);
             }

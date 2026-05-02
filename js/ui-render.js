@@ -645,8 +645,8 @@
 
         function drawChainLightningPowerupIcon(x, y, size, color, selected = false) {
             const scale = size / 28;
-            const pulse = selected ? 1 + Math.sin(currentFrameNow * 0.014) * 0.08 : 1;
-            const jitterSeed = Math.floor(currentFrameNow / 72);
+            const renderTime = selected ? currentFrameNow : 0;
+            const jitterSeed = selected ? Math.floor(renderTime / 72) : 0;
             const chars = ['/', '\\', '/', '<', '>'];
             const bolts = [
                 { x: -9, y: -9, r: -0.22, c: 0 },
@@ -657,12 +657,12 @@
 
             ctx.save();
             ctx.translate(x, y);
-            ctx.scale(scale * pulse, scale * pulse);
+            ctx.scale(scale, scale);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             if (glowEnabled) {
                 ctx.shadowColor = color;
-                ctx.shadowBlur = selected ? 20 : 11;
+                ctx.shadowBlur = selected ? 14 : 11;
             }
 
             ctx.font = `bold 18px "Courier New", monospace`;
@@ -675,10 +675,10 @@
                 ctx.restore();
             }
 
-            ctx.font = `bold ${selected ? 20 : 18}px "Courier New", monospace`;
+            ctx.font = `bold 18px "Courier New", monospace`;
             for (let i = 0; i < bolts.length; i++) {
                 const b = bolts[i];
-                const twitch = Math.sin(jitterSeed + i * 4.7 + currentFrameNow * 0.025) * (selected ? 1.7 : 0.8);
+                const twitch = selected ? Math.sin(jitterSeed + i * 4.7 + renderTime * 0.025) * 0.8 : 0;
                 ctx.fillStyle = i % 2 === 0 ? '#f7feff' : color;
                 ctx.save();
                 ctx.translate(b.x + twitch, b.y - twitch * 0.35);
@@ -738,6 +738,359 @@
             ctx.restore();
         }
 
+        const PAUSE_MENU_GLOW_COLOR = '#151b3f';
+        const PAUSE_CURSOR_EXHAUST_ANCHORS = [
+            { x: -18, y: 38, seed: 3 },
+            { x: 18, y: 38, seed: 17 }
+        ];
+        const PAUSE_CURSOR_TRAIL_MAX = 72;
+
+        function normalizePauseCursorAngle(angle) {
+            while (angle > Math.PI) angle -= Math.PI * 2;
+            while (angle < -Math.PI) angle += Math.PI * 2;
+            return angle;
+        }
+
+        function lerpPauseCursorAngle(from, to, t) {
+            return from + normalizePauseCursorAngle(to - from) * t;
+        }
+
+        function getPauseCursorParticleNoise(seed) {
+            const x = Math.sin(seed * 12.9898) * 43758.5453;
+            return x - Math.floor(x);
+        }
+
+        function drawPauseGlowText(text, x, y, font, color, selected = false) {
+            ctx.save();
+            ctx.font = font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.lineJoin = 'round';
+
+            ctx.strokeStyle = '#000000';
+            ctx.shadowColor = '#000000';
+            ctx.globalAlpha = selected ? 0.98 : 0.58;
+            ctx.shadowBlur = selected ? 36 : 20;
+            ctx.lineWidth = selected ? 16 : 10;
+            ctx.strokeText(text, x | 0, y | 0);
+
+            ctx.globalAlpha = selected ? 0.92 : 0.38;
+            ctx.shadowBlur = selected ? 16 : 8;
+            ctx.lineWidth = selected ? 8 : 5;
+            ctx.strokeText(text, x | 0, y | 0);
+
+            ctx.globalAlpha = 1;
+            if (glowEnabled) {
+                ctx.shadowColor = selected ? color : PAUSE_MENU_GLOW_COLOR;
+                ctx.shadowBlur = selected ? 18 : 7;
+            } else {
+                ctx.shadowBlur = 0;
+            }
+            ctx.fillStyle = color;
+            ctx.fillText(text, x | 0, y | 0);
+            ctx.restore();
+        }
+
+        function easePauseBarMaximize(t) {
+            const clamped = Math.max(0, Math.min(1, t));
+            return 1 - Math.pow(1 - clamped, 3);
+        }
+
+        function easePauseBarMinimize(t) {
+            const clamped = Math.max(0, Math.min(1, t));
+            return clamped * clamped;
+        }
+
+        function getHudWeaponGridCanvasRect() {
+            if (typeof hudRefs !== 'undefined' && hudRefs.weaponGrid && typeof canvas !== 'undefined') {
+                const gridRect = hudRefs.weaponGrid.getBoundingClientRect();
+                const canvasRect = canvas.getBoundingClientRect();
+                if (gridRect.width > 0 && gridRect.height > 0 && canvasRect.width > 0 && canvasRect.height > 0) {
+                    const sx = LOGICAL_W / canvasRect.width;
+                    const sy = LOGICAL_H / canvasRect.height;
+                    return {
+                        x: (gridRect.left - canvasRect.left) * sx,
+                        y: (gridRect.top - canvasRect.top) * sy,
+                        w: gridRect.width * sx,
+                        h: gridRect.height * sy
+                    };
+                }
+            }
+            const cell = Math.max(6, hudWeaponCellSize || 12);
+            const gap = Math.max(1, Math.round(cell / 6));
+            const pad = Math.max(3, Math.round(cell / 3));
+            const w = cell * 5 + gap * 4 + pad * 2;
+            const h = cell * 2 + gap + pad * 2;
+            return {
+                x: Math.round(width * 0.48 - w / 2),
+                y: height - HUD_HEIGHT + Math.max(6, (HUD_HEIGHT - h) / 2),
+                w,
+                h
+            };
+        }
+
+        function applyPausePowerupBarTransition(panelX, panelY, panelW, panelH) {
+            const anim = pausePowerupBarAnim;
+            const now = currentFrameNow || performance.now();
+            const isClosing = anim.mode === 'closing';
+            const duration = isClosing ? 135 : 340;
+            const start = isClosing ? anim.closeTime : anim.startTime;
+            const raw = start ? (now - start) / duration : 1;
+            if (!isClosing && raw >= 1) anim.mode = 'idle';
+            if (isClosing && raw >= 1) {
+                anim.mode = 'idle';
+                return false;
+            }
+            const mini = getHudWeaponGridCanvasRect();
+            const t = isClosing ? 1 - easePauseBarMinimize(raw) : easePauseBarMaximize(raw);
+            const x = mini.x + (panelX - mini.x) * t;
+            const y = mini.y + (panelY - mini.y) * t;
+            const w = mini.w + (panelW - mini.w) * t;
+            const h = mini.h + (panelH - mini.h) * t;
+            const sx = w / panelW;
+            const sy = h / panelH;
+
+            ctx.translate(x + w / 2, y + h / 2);
+            ctx.scale(sx, sy);
+            ctx.translate(-(panelX + panelW / 2), -(panelY + panelH / 2));
+            ctx.globalAlpha *= Math.max(0.18, Math.min(1, 0.24 + t * 0.76));
+            return true;
+        }
+
+        function getPauseCursorTargetForText(text, x, y, key) {
+            ctx.save();
+            ctx.font = `bold 28px 'Electrolize', sans-serif`;
+            const metrics = ctx.measureText(text);
+            const boxW = Math.max(1, metrics.width);
+            ctx.restore();
+            return {
+                x: Math.max(32, x - boxW / 2 - 34),
+                y: y - 1,
+                faceX: x,
+                faceY: y,
+                scale: 0.34,
+                key
+            };
+        }
+
+        function updatePauseMenuShipCursor(target, now = currentFrameNow) {
+            if (!target) return null;
+            const cursor = pauseMenuShipCursor;
+            const targetKey = target.key || '';
+            const previousKey = cursor.targetKey || targetKey;
+            const changedTarget = targetKey !== cursor.targetKey;
+            const powerupToPowerup = String(previousKey).startsWith('powerup-') && String(targetKey).startsWith('powerup-');
+
+            if (!cursor.initialized) {
+                cursor.x = target.x;
+                cursor.y = target.y;
+                cursor.vx = 0;
+                cursor.vy = 0;
+                cursor.rot = Math.atan2(target.faceY - target.y, target.faceX - target.x) + Math.PI / 2;
+                cursor.scale = target.scale || 0.34;
+                cursor.settleBlend = 1;
+                cursor.lastNow = now;
+                cursor.targetKey = targetKey;
+                cursor.routeKey = targetKey;
+                cursor.approachComplete = true;
+                cursor.initialized = true;
+            } else if (changedTarget) {
+                cursor.routeKey = previousKey;
+                cursor.targetKey = targetKey;
+                cursor.settleBlend = 0;
+                cursor.approachComplete = powerupToPowerup || !Number.isFinite(target.approachX) || !Number.isFinite(target.approachY);
+            }
+
+            const dt = Math.min(0.05, Math.max(0.001, (now - (cursor.lastNow || now)) / 1000));
+            cursor.lastNow = now;
+
+            const activeTarget = { ...target };
+            if (!cursor.approachComplete && Number.isFinite(target.approachX) && Number.isFinite(target.approachY)) {
+                activeTarget.x = target.approachX;
+                activeTarget.y = target.approachY;
+                if (Math.hypot(activeTarget.x - cursor.x, activeTarget.y - cursor.y) < 15) {
+                    cursor.approachComplete = true;
+                    activeTarget.x = target.x;
+                    activeTarget.y = target.y;
+                }
+            }
+
+            const dx = activeTarget.x - cursor.x;
+            const dy = activeTarget.y - cursor.y;
+            cursor.vx += dx * 34 * dt;
+            cursor.vy += dy * 34 * dt;
+
+            const drag = Math.pow(0.0009, dt);
+            cursor.vx *= drag;
+            cursor.vy *= drag;
+            const speed = Math.hypot(cursor.vx, cursor.vy);
+            if (speed > 760) {
+                const scale = 760 / speed;
+                cursor.vx *= scale;
+                cursor.vy *= scale;
+            }
+
+            cursor.x += cursor.vx * dt;
+            cursor.y += cursor.vy * dt;
+            cursor.scale += ((activeTarget.scale || 0.34) - cursor.scale) * Math.min(1, dt * 9);
+            cursor.speed = Math.hypot(cursor.vx, cursor.vy);
+
+            const distToTarget = Math.hypot(activeTarget.x - cursor.x, activeTarget.y - cursor.y);
+            const isSettled = cursor.speed < 42 && distToTarget < 13;
+            const isArriving = cursor.speed < 150 && distToTarget < 58;
+            const settleRate = isSettled ? 2.8 : (isArriving ? 1.35 : -5);
+            cursor.settleBlend = Math.max(0, Math.min(1, cursor.settleBlend + dt * settleRate));
+
+            const travelRot = cursor.speed > 1
+                ? Math.atan2(cursor.vy, cursor.vx) + Math.PI / 2
+                : cursor.rot;
+            const faceRot = Math.atan2(activeTarget.faceY - cursor.y, activeTarget.faceX - cursor.x) + Math.PI / 2;
+            const distanceTravelWeight = Math.max(0, Math.min(1, (distToTarget - 16) / 65));
+            const speedTravelWeight = Math.max(0, Math.min(1, (cursor.speed - 32) / 120));
+            const travelWeight = distanceTravelWeight * speedTravelWeight * (1 - cursor.settleBlend * 0.65);
+            const desiredRot = lerpPauseCursorAngle(faceRot, travelRot, travelWeight);
+            const turnSpeed = isArriving ? 5.4 : 9;
+            cursor.rot = normalizePauseCursorAngle(cursor.rot + normalizePauseCursorAngle(desiredRot - cursor.rot) * Math.min(1, dt * turnSpeed));
+
+            const hover = cursor.settleBlend;
+            return {
+                x: cursor.x + Math.sin(now * 0.0047) * (2.2 + hover * 1.2),
+                y: cursor.y + Math.cos(now * 0.0039) * (1.4 + hover * 1.4),
+                rot: cursor.rot,
+                scale: cursor.scale,
+                speed: cursor.speed,
+                dt
+            };
+        }
+
+        function getPauseCursorWorldPoint(cursor, localX, localY) {
+            const scaledX = localX * cursor.scale;
+            const scaledY = localY * cursor.scale;
+            const cos = Math.cos(cursor.rot);
+            const sin = Math.sin(cursor.rot);
+            return {
+                x: cursor.x + scaledX * cos - scaledY * sin,
+                y: cursor.y + scaledX * sin + scaledY * cos
+            };
+        }
+
+        function emitPauseMenuShipExhaustTrail(cursor, now, speedRatio) {
+            const state = pauseMenuShipCursor;
+            const dt = Math.min(0.05, Math.max(0.001, cursor.dt || 0.016));
+            state.trailEmitAcc += dt * (28 + speedRatio * 24);
+            const emitCount = Math.min(3, Math.floor(state.trailEmitAcc));
+            if (emitCount <= 0) return;
+            state.trailEmitAcc -= emitCount;
+
+            const behindX = -Math.sin(cursor.rot);
+            const behindY = Math.cos(cursor.rot);
+            const sideX = Math.cos(cursor.rot);
+            const sideY = Math.sin(cursor.rot);
+
+            for (let e = 0; e < emitCount; e++) {
+                for (const anchor of PAUSE_CURSOR_EXHAUST_ANCHORS) {
+                    const noise = getPauseCursorParticleNoise(now * 0.003 + e * 17.13 + anchor.seed);
+                    const origin = getPauseCursorWorldPoint(cursor, anchor.x + (noise - 0.5) * 5, anchor.y + 15);
+                    const sideDrift = (noise - 0.5) * (24 + speedRatio * 18);
+                    const baseSpeed = 54 + speedRatio * 74;
+                    state.trail.push({
+                        x: origin.x,
+                        y: origin.y,
+                        vx: behindX * baseSpeed + sideX * sideDrift,
+                        vy: behindY * baseSpeed + sideY * sideDrift,
+                        life: 0.42 + noise * 0.12,
+                        maxLife: 0.42 + noise * 0.12,
+                        size: (16 + noise * 9) * cursor.scale * 1.08,
+                        char: EXHAUST_PARTICLE_CHARS[(e + anchor.seed + Math.floor(now * 0.01)) % EXHAUST_PARTICLE_CHARS.length],
+                        isSmoke: false
+                    });
+
+                    if ((e + anchor.seed + Math.floor(now * 0.02)) % 2 === 0) {
+                        state.trail.push({
+                            x: origin.x + sideX * sideDrift * 0.05,
+                            y: origin.y + sideY * sideDrift * 0.05,
+                            vx: behindX * (34 + speedRatio * 32) - sideX * sideDrift * 0.25,
+                            vy: behindY * (34 + speedRatio * 32) - sideY * sideDrift * 0.25,
+                            life: 0.72 + noise * 0.16,
+                            maxLife: 0.72 + noise * 0.16,
+                            size: (12 + noise * 7) * cursor.scale * 1.12,
+                            char: SMOKE_PARTICLE_CHARS[(e + anchor.seed) % SMOKE_PARTICLE_CHARS.length],
+                            color: SMOKE_PARTICLE_COLORS[(e + anchor.seed) % SMOKE_PARTICLE_COLORS.length],
+                            isSmoke: true
+                        });
+                    }
+                }
+            }
+
+            if (state.trail.length > PAUSE_CURSOR_TRAIL_MAX) {
+                state.trail.splice(0, state.trail.length - PAUSE_CURSOR_TRAIL_MAX);
+            }
+        }
+
+        function drawPauseMenuShipTrail(dt) {
+            const trail = pauseMenuShipCursor.trail;
+            if (!trail.length) return;
+            const step = Math.min(0.05, Math.max(0.001, dt || 0.016));
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = trail.length - 1; i >= 0; i--) {
+                const p = trail[i];
+                p.life -= step;
+                if (p.life <= 0) {
+                    trail.splice(i, 1);
+                    continue;
+                }
+                p.x += p.vx * step;
+                p.y += p.vy * step;
+                const drag = Math.pow(p.isSmoke ? 0.32 : 0.18, step);
+                p.vx *= drag;
+                p.vy *= drag;
+                const lifeRatio = Math.max(0, p.life / p.maxLife);
+                ctx.globalAlpha = lifeRatio * (p.isSmoke ? 0.22 : 0.72);
+                ctx.fillStyle = p.isSmoke ? p.color : getExhaustColor(lifeRatio);
+                if (!p.isSmoke && glowEnabled) {
+                    ctx.shadowColor = ctx.fillStyle;
+                    ctx.shadowBlur = 8 + lifeRatio * 8;
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+                ctx.font = `bold ${Math.max(8, p.size * (0.72 + lifeRatio * 0.38))}px Courier New`;
+                ctx.fillText(p.char, p.x | 0, p.y | 0);
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawPauseMenuShipCursor(target) {
+            const cursor = updatePauseMenuShipCursor(target, currentFrameNow);
+            if (!cursor) return;
+            const speedRatio = Math.min(1, cursor.speed / 420);
+
+            drawPauseMenuShipTrail(cursor.dt);
+            ctx.save();
+            ctx.translate(cursor.x, cursor.y);
+            ctx.rotate(cursor.rot);
+            ctx.scale(cursor.scale, cursor.scale);
+            PAUSE_CURSOR_SHIP.x = 0;
+            PAUSE_CURSOR_SHIP.y = 0;
+            PAUSE_CURSOR_SHIP.vx = 0;
+            PAUSE_CURSOR_SHIP.vy = 0;
+            PAUSE_CURSOR_SHIP.shipId = 'arrowhead';
+            PAUSE_CURSOR_SHIP._renderLayoutCache = null;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#f4fbff';
+            ctx.shadowColor = currentThemeColor;
+            ctx.shadowBlur = glowEnabled ? 18 : 0;
+            drawPlayerShip(PAUSE_CURSOR_SHIP, 'center');
+            ctx.restore();
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+            emitPauseMenuShipExhaustTrail(cursor, currentFrameNow, speedRatio);
+        }
+
         function drawPausePowerupBar(tableY = 62) {
             const slotCount = 10;
             const cols = 5;
@@ -750,25 +1103,46 @@
             const selectedIndex = Math.max(0, Math.min(Math.max(0, player.weapons.length - 1), pausePowerupSelection));
             pausePowerupSelection = selectedIndex;
             const detailH = focused ? 86 : 0;
+            const panelX = tableX - 14;
+            const panelY = tableY - 30;
+            const panelW = tableW + 28;
+            const panelH = tableH + 44 + detailH;
+            let cursorTarget = null;
+            pausePowerupBarAnim.lastTableY = tableY;
 
             ctx.save();
+            if (pausePowerupBarAnim.mode === 'opening' || pausePowerupBarAnim.mode === 'closing') {
+                const shouldDraw = applyPausePowerupBarTransition(panelX, panelY, panelW, panelH);
+                if (!shouldDraw) {
+                    ctx.restore();
+                    return null;
+                }
+            }
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.48)';
-            ctx.fillRect(tableX - 14, tableY - 30, tableW + 28, tableH + 44 + detailH);
-            ctx.strokeStyle = focused ? currentThemeColor : 'rgba(0, 255, 255, 0.28)';
-            ctx.lineWidth = focused ? 2 : 1;
-            if (focused && glowEnabled) {
-                ctx.shadowColor = currentThemeColor;
-                ctx.shadowBlur = 12;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.50)';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            if (glowEnabled) {
+                ctx.shadowColor = focused ? currentThemeColor : '#ffffff';
+                ctx.shadowBlur = focused ? 11 : 5;
             }
-            ctx.strokeRect(tableX - 14, tableY - 30, tableW + 28, tableH + 44 + detailH);
+            ctx.strokeStyle = focused ? colorWithAlpha(currentThemeColor, 0.72) : 'rgba(255,255,255,0.22)';
+            ctx.lineWidth = focused ? 2 : 1;
+            ctx.strokeRect(panelX, panelY, panelW, panelH);
+            ctx.shadowBlur = 0;
+            if (glowEnabled) {
+                ctx.shadowColor = focused ? currentThemeColor : '#ffffff';
+                ctx.shadowBlur = focused ? 12 : 8;
+            }
+            ctx.strokeStyle = focused ? colorWithAlpha(currentThemeColor, 0.18) : 'rgba(255,255,255,0.08)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(panelX + 5, panelY + 5, panelW - 10, panelH - 10);
             ctx.shadowBlur = 0;
 
             ctx.fillStyle = focused ? currentThemeColor : 'rgba(170, 220, 255, 0.7)';
             ctx.font = `bold 12px 'Electrolize', sans-serif`;
-            ctx.fillText('POWERUPS', tableX + tableW / 2, tableY - 15);
+            drawPauseGlowText('POWERUPS', tableX + tableW / 2, tableY - 15, `bold 12px 'Electrolize', sans-serif`, ctx.fillStyle, focused);
 
             for (let i = 0; i < slotCount; i++) {
                 const col = i % cols;
@@ -777,10 +1151,22 @@
                 const y = tableY + row * (cell + gap);
                 const powerup = player.weapons[i];
                 const isSelected = focused && i === selectedIndex && !!powerup;
+                if (isSelected) {
+                    cursorTarget = {
+                        x: x + cell - 5,
+                        y: y + 5,
+                        faceX: x + cell / 2,
+                        faceY: y + cell / 2,
+                        approachX: Math.max(34, tableX - 30),
+                        approachY: y + cell / 2,
+                        scale: 0.2,
+                        key: `powerup-${selectedIndex}`
+                    };
+                }
 
-                ctx.fillStyle = powerup ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)';
+                ctx.fillStyle = powerup ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.10)';
                 ctx.fillRect(x, y, cell, cell);
-                ctx.strokeStyle = isSelected ? powerup.color : 'rgba(255,255,255,0.22)';
+                ctx.strokeStyle = isSelected ? powerup.color : 'rgba(255,255,255,0.20)';
                 ctx.lineWidth = isSelected ? 2.5 : 1;
                 if (isSelected && glowEnabled) {
                     ctx.shadowColor = powerup.color;
@@ -791,13 +1177,14 @@
 
                 if (powerup) {
                     ctx.fillStyle = powerup.color;
-                    const iconPulse = isSelected ? (0.5 + Math.sin(currentFrameNow * 0.012) * 0.5) : 0;
-                    const iconSize = isSelected ? Math.round(29 + iconPulse * 4) : 28;
-                    const iconSpin = isSelected ? Math.sin(currentFrameNow * 0.008) * 0.08 : 0;
+                    const isChainLightning = powerup.icon === 'chainLightning';
+                    const iconPulse = isSelected && !isChainLightning ? (0.5 + Math.sin(currentFrameNow * 0.012) * 0.5) : 0;
+                    const iconSize = isSelected ? (isChainLightning ? 28 : Math.round(29 + iconPulse * 4)) : 28;
+                    const iconSpin = isSelected && !isChainLightning ? Math.sin(currentFrameNow * 0.008) * 0.08 : 0;
                     ctx.font = `bold ${iconSize}px Courier New`;
                     if (glowEnabled) {
                         ctx.shadowColor = powerup.color;
-                        ctx.shadowBlur = isSelected ? 14 + iconPulse * 10 : 7;
+                        ctx.shadowBlur = isSelected ? (isChainLightning ? 11 : 14 + iconPulse * 10) : 7;
                     }
                     if (isSelected) {
                         ctx.save();
@@ -820,51 +1207,42 @@
                 drawPausePowerupDetail(player.weapons[selectedIndex], tableX, tableY + tableH + 14, tableW);
             }
             ctx.restore();
+            return cursorTarget;
         }
 
         function drawPauseMenu() {
             ctx.fillStyle = currentBgColor + 'dd';
             ctx.fillRect(0, 0, width | 0, height | 0);
             const midX = width / 2;
-            const lFrame = [..."⣠⣄⡆⠇⠋⠙⠸⢰"][Math.floor(currentFrameNow / 160) % 8];
-            const border = `${lFrame}`;
+            let shipCursorTarget = null;
 
             if (pauseState === 'MAIN') {
                 const options = ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
-                const pauseOptionGap = 80;
+                const pauseOptionGap = 74;
                 const powerupDetailReserve = player.weapons.length > 0 ? 86 : 0;
                 const powerupPanelH = 2 * 42 + 8 + 44 + powerupDetailReserve;
-                const powerupTableY = 58;
-                const powerupPanelBottom = powerupTableY - 30 + powerupPanelH;
-                const centeredMidY = Math.round(height / 2 - ((options.length - 1) * pauseOptionGap) / 2);
-                const midY = Math.max(centeredMidY, powerupPanelBottom + 52);
-                drawPausePowerupBar(powerupTableY);
+                const powerupPanelBottomMargin = Math.max(122, Math.round(height * 0.145));
+                const powerupTableY = Math.round(height - powerupPanelBottomMargin - powerupPanelH + 30);
+                const powerupPanelTop = powerupTableY - 30;
+                const textBlockH = (options.length - 1) * pauseOptionGap;
+                const preferredMidY = Math.round(height * 0.235);
+                const maxMidY = powerupPanelTop - 84 - textBlockH;
+                const minMidY = Math.round(height * 0.16);
+                const midY = Math.max(minMidY, Math.min(preferredMidY, maxMidY));
+                shipCursorTarget = drawPausePowerupBar(powerupTableY);
+
                 options.forEach((opt, i) => {
                     const isSel = pauseSelection === i;
-                    ctx.fillStyle = isSel ? currentThemeColor : '#444488';
-                    
-                    let displayText = opt;
-                    if (i === 2 && isSel) displayText = '< ' + opt + ' >';
+                    const y = midY + i * pauseOptionGap;
+                    const color = isSel ? currentThemeColor : '#444488';
+                    if (isSel) shipCursorTarget = getPauseCursorTargetForText(opt, midX, y, `main-${i}`);
+                    drawPauseGlowText(opt, midX, y, `bold 28px 'Electrolize', sans-serif`, color, isSel);
 
-                    if (isSel) { 
-                        ctx.shadowColor = currentThemeColor; 
-                        ctx.shadowBlur = 15; 
-                        ctx.font = `bold 28px 'Electrolize', sans-serif`;
-                        const textW = ctx.measureText(displayText).width;
-                        
-                        ctx.font = `bold 28px Courier New`;
-                        ctx.fillText(border, (midX - textW/2 - 25) | 0, (midY + i * pauseOptionGap) | 0);
-                        ctx.fillText(border, (midX + textW/2 + 25) | 0, (midY + i * pauseOptionGap) | 0);
-                    }
-                    
-                    ctx.font = `bold 28px 'Electrolize', sans-serif`;
-                    ctx.fillText(displayText, midX | 0, (midY + i * pauseOptionGap) | 0);
-                    
                     if (i === 2) {
                         const blocks = Math.round(currentVolume * 20);
                         const barStr = '▓'.repeat(blocks) + '░'.repeat(20 - blocks);
-                        const muteStr = isMuted ? ' 🔇M' : '';
-                        const barY = (midY + i * pauseOptionGap + 25) | 0;
+                        const muteStr = isMuted ? ' MUTE' : '';
+                        const barY = (y + 25) | 0;
                         ctx.textAlign = 'left';
                         ctx.font = `bold 18px Courier New`;
                         const bracketW = ctx.measureText('[').width;
@@ -872,22 +1250,23 @@
                         const blockBarW = ctx.measureText(barStr).width;
                         const totalW = bracketW * 2 + blockBarW;
                         const startX = midX - totalW / 2;
+                        ctx.fillStyle = color;
                         ctx.font = `bold 18px Courier New`;
-                        ctx.fillText('[', (startX) | 0, barY);
+                        ctx.fillText('[', startX | 0, barY);
                         ctx.font = `bold 10px Courier New`;
                         ctx.fillText(barStr, (startX + bracketW) | 0, barY);
                         ctx.font = `bold 18px Courier New`;
                         ctx.fillText(']' + muteStr, (startX + bracketW + blockBarW) | 0, barY);
                         ctx.textAlign = 'center';
                     }
-
                     ctx.shadowBlur = 0;
                 });
+                drawPauseMenuShipCursor(shipCursorTarget);
             } else if (pauseState === 'SETTINGS') {
                 const options = [
-                    'THEME: < ' + themes[currentThemeIndex] + ' >', 
-                    'RENDER STYLE: < ' + RENDER_STYLE_NAMES[renderStyleMode] + ' >',
+                    'THEME: < ' + themes[currentThemeIndex] + ' >',
                     'SHOW FPS: < ' + (showFpsCounter ? 'ON' : 'OFF') + ' >',
+                    'SHOW STATS: < ' + (showStatsPanel ? 'ON' : 'OFF') + ' >',
                     'FPS CAP 60: < ' + (userFpsCap ? 'ON' : 'OFF') + ' >',
                     'GLOW EFFECT: < ' + (glowEnabled ? 'ON' : 'OFF') + ' >',
                     'CRT FILTER: < ' + (crtFilterEnabled ? 'ON' : 'OFF') + ' >',
@@ -895,24 +1274,14 @@
                 ];
                 const midY = Math.round(height / 2 - ((options.length - 1) * 80) / 2);
                 options.forEach((opt, i) => {
-                    const isSel = settingsSelection === i; 
-                    ctx.fillStyle = isSel ? currentThemeColor : '#444488';
-                    
-                    if (isSel && glowEnabled) { 
-                        ctx.shadowColor = currentThemeColor; 
-                        ctx.shadowBlur = 15; 
-                        ctx.font = `bold 28px 'Electrolize', sans-serif`;
-                        const textW = ctx.measureText(opt).width;
-                        
-                        ctx.font = `bold 28px Courier New`;
-                        ctx.fillText(border, (midX - textW/2 - 25) | 0, (midY + i * 80) | 0);
-                        ctx.fillText(border, (midX + textW/2 + 25) | 0, (midY + i * 80) | 0);
-                    }
-                    
-                    ctx.font = `bold 28px 'Electrolize', sans-serif`;
-                    ctx.fillText(opt, midX | 0, (midY + i * 80) | 0);
+                    const isSel = settingsSelection === i;
+                    const y = midY + i * 80;
+                    const color = isSel ? currentThemeColor : '#444488';
+                    if (isSel) shipCursorTarget = getPauseCursorTargetForText(opt, midX, y, `settings-${i}`);
+                    drawPauseGlowText(opt, midX, y, `bold 28px 'Electrolize', sans-serif`, color, isSel);
                     ctx.shadowBlur = 0;
                 });
+                drawPauseMenuShipCursor(shipCursorTarget);
             }
         }
 
@@ -2461,6 +2830,9 @@
             }
 
             if (gameState === 'PAUSED') drawPauseMenu();
+            else if (pausePowerupBarAnim.mode === 'closing') {
+                drawPausePowerupBar(pausePowerupBarAnim.lastTableY || Math.round(height * 0.68));
+            }
             if (gameState === 'LEVELUP') drawLevelUpMenu(dt);
             
             if (consoleOpen) drawConsoleOverlay();
