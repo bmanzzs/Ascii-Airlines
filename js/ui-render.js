@@ -861,11 +861,24 @@
                     ctx.fillText(displayText, midX | 0, (midY + i * pauseOptionGap) | 0);
                     
                     if (i === 2) {
-                        ctx.font = `bold 18px Courier New`;
-                        const blocks = Math.round(currentVolume * 10);
-                        const barStr = '▓'.repeat(blocks) + '░'.repeat(10 - blocks);
+                        const blocks = Math.round(currentVolume * 20);
+                        const barStr = '▓'.repeat(blocks) + '░'.repeat(20 - blocks);
                         const muteStr = isMuted ? ' 🔇M' : '';
-                        ctx.fillText(`[${barStr}]${muteStr}`, midX | 0, (midY + i * pauseOptionGap + 25) | 0);
+                        const barY = (midY + i * pauseOptionGap + 25) | 0;
+                        ctx.textAlign = 'left';
+                        ctx.font = `bold 18px Courier New`;
+                        const bracketW = ctx.measureText('[').width;
+                        ctx.font = `bold 10px Courier New`;
+                        const blockBarW = ctx.measureText(barStr).width;
+                        const totalW = bracketW * 2 + blockBarW;
+                        const startX = midX - totalW / 2;
+                        ctx.font = `bold 18px Courier New`;
+                        ctx.fillText('[', (startX) | 0, barY);
+                        ctx.font = `bold 10px Courier New`;
+                        ctx.fillText(barStr, (startX + bracketW) | 0, barY);
+                        ctx.font = `bold 18px Courier New`;
+                        ctx.fillText(']' + muteStr, (startX + bracketW + blockBarW) | 0, barY);
+                        ctx.textAlign = 'center';
                     }
 
                     ctx.shadowBlur = 0;

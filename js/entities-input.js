@@ -231,11 +231,11 @@
                     
                     if (pauseSelection === 2) {
                         if (k === 'arrowleft' || k === 'a') {
-                            currentVolume = Math.max(0, Math.round((currentVolume - 0.1) * 10) / 10);
+                            currentVolume = Math.max(0, Math.round((currentVolume - 0.05) * 20) / 20);
                             previewPauseVolumeAdjustment();
                         }
                         if (k === 'arrowright' || k === 'd') {
-                            currentVolume = Math.min(1.0, Math.round((currentVolume + 0.1) * 10) / 10);
+                            currentVolume = Math.min(1.0, Math.round((currentVolume + 0.05) * 20) / 20);
                             previewPauseVolumeAdjustment();
                         }
                     }
