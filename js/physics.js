@@ -10,20 +10,22 @@
             return radius;
         }
 
-        function emitProjectileImpactDebris(p, count = null) {
+        function emitProjectileImpactDebris(p, count = null, impactColor = null) {
             const stats = p.stats || {};
-            const impactDebrisCount = count ?? (stats.lightningBall ? 2 : 6 + Math.floor(Math.random() * 3));
+            const impactDebrisCount = count ?? (stats.lightningBall ? 1 : 2 + Math.floor(Math.random() * 2));
+            const baseColor = impactColor || p.color || '#dfeaff';
+            const impactChars = ['*', '+', '\u00b7', '\u2591'];
             for (let k = 0; k < impactDebrisCount; k++) {
                 const ang = Math.random() * Math.PI * 2;
-                const spd = 60 + Math.random() * 40;
+                const spd = 60 + Math.random() * 200;
                 debris.push({
                     x: p.x,
                     y: p.y,
-                    vx: Math.cos(ang) * spd,
-                    vy: Math.sin(ang) * spd,
-                    char: IMPACT_DEBRIS_CHARS[Math.floor(Math.random() * IMPACT_DEBRIS_CHARS.length)],
-                    color: IMPACT_DEBRIS_COLORS[Math.floor(Math.random() * IMPACT_DEBRIS_COLORS.length)],
-                    life: 0.2,
+                    vx: Math.cos(ang) * spd + (p.baseVx || p.vx || 0) * 0.025,
+                    vy: Math.sin(ang) * spd + (p.baseVy || p.vy || 0) * 0.025,
+                    char: impactChars[k % impactChars.length],
+                    color: k % 3 === 0 ? '#ffffff' : baseColor,
+                    life: 0.18 + Math.random() * 0.22,
                     isImpact: true
                 });
             }
@@ -64,6 +66,74 @@
             const stats = p.stats || {};
             if ((stats.splashRadius || 0) <= 0) return;
             radialExplosion(p.x, p.y, stats.splashRadius * 22, p.damage * stats.splashDamagePercent, stats.splashVisualDebris ?? 20);
+        }
+
+        function spawnPrismSplitProjectiles(p) {
+            const stats = p.stats || {};
+            if (!stats.prismSplit || p.hasPrismSplit || (p.orbitTime || 0) > 0) return;
+            if (stats.plasmaCloud || stats.miniTorpedo || stats.lightningBall || stats.mode === 'beam' || stats.pathFunction === 'parabolic') return;
+            p.hasPrismSplit = true;
+            const baseAngle = Math.atan2(p.baseVy || p.vy || -1, p.baseVx || p.vx || 0);
+            const baseSpeed = Math.max(120, Math.hypot(p.baseVx || p.vx || 0, p.baseVy || p.vy || 0));
+            const splitAngle = stats.prismSplitAngle || 0.34;
+            const splitSpeed = baseSpeed * (stats.prismSplitSpeedMult || 0.92);
+            const splitDamage = p.damage * (stats.prismSplitDamageMult || 0.42);
+            const splitLife = Math.max(0.42, Math.min(p.life || 0.9, 0.92));
+            const splitStats = {
+                ...stats,
+                prismSplit: false,
+                sizeMult: (stats.sizeMult || 1) * (stats.prismSplitSizeMult || 0.72),
+                splashRadius: 0
+            };
+            for (const side of [-1, 1]) {
+                const angle = baseAngle + splitAngle * side;
+                comboProjectiles.push({
+                    x: p.x,
+                    y: p.y,
+                    vx: Math.cos(angle) * splitSpeed,
+                    vy: Math.sin(angle) * splitSpeed,
+                    baseVx: Math.cos(angle) * splitSpeed,
+                    baseVy: Math.sin(angle) * splitSpeed,
+                    startX: p.x,
+                    startY: p.y,
+                    sprite: '>',
+                    color: '#b6f7ff',
+                    stats: splitStats,
+                    life: splitLife,
+                    maxLife: splitLife,
+                    damage: splitDamage,
+                    pierceHits: [],
+                    pierceCount: 0,
+                    isPrismShard: true,
+                    visualSeed: Math.random() * 1000,
+                    age: 0
+                });
+            }
+            if (debris.length < 620) {
+                for (let i = 0; i < 4; i++) {
+                    const a = baseAngle + (Math.random() - 0.5) * 1.8;
+                    const spd = 70 + Math.random() * 90;
+                    debris.push({ x: p.x, y: p.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, char: i % 2 ? '/' : '\\', color: '#b6f7ff', life: 0.22, isImpact: true });
+                }
+            }
+        }
+
+        function applyPhaseNeedleProjectileBoost(p) {
+            const stats = p.stats || {};
+            if (!stats.phaseNeedle) return;
+            const maxStacks = Math.max(1, stats.phaseMaxStacks || 3);
+            const nextStack = Math.min(maxStacks, (p.phaseStacks || 0) + 1);
+            if (nextStack <= (p.phaseStacks || 0)) return;
+            p.phaseStacks = nextStack;
+            p.damage *= stats.phaseDamageRamp || 1.16;
+            if (!stats.plasmaCloud && !stats.miniTorpedo) {
+                const speedRamp = stats.phaseSpeedRamp || 1.04;
+                p.baseVx *= speedRamp;
+                p.baseVy *= speedRamp;
+                p.vx = p.baseVx;
+                p.vy = p.baseVy;
+            }
+            p.color = '#82ffc8';
         }
 
         const ELEMENTAL_TRAIL_SOFT_CAP = 190;
@@ -493,6 +563,55 @@
             return true;
         }
 
+        function updateFieldParticles(dt) {
+            const now = currentFrameNow || performance.now();
+            const highlightDecay = Math.pow(FIELD_HIGHLIGHT_DECAY, dt * 60);
+            for (let i = 0; i < numParticles; i++) {
+                const depth = fpDepth ? fpDepth[i] || 1 : 1;
+                fpHY[i] += SCROLL_SPEED * (0.52 + depth * 0.72) * dt;
+                if (fpHY[i] > height + CELL_SIZE) {
+                    fpHY[i] -= (height + CELL_SIZE * 2);
+                    fpY[i] = fpHY[i];
+                    fpX[i] = fpHX[i];
+                    fpVX[i] = 0;
+                    fpVY[i] = 0;
+                }
+
+                const wobbleX = Math.sin(now * FIELD_WOBBLE_SPEED + (fpWobblePhase ? fpWobblePhase[i] : 0)) * FIELD_WOBBLE_AMPLITUDE * depth;
+                const targetX = fpHX[i] + wobbleX;
+                fpVX[i] += (targetX - fpX[i]) * SPRING_CONST;
+                fpVY[i] += (fpHY[i] - fpY[i]) * SPRING_CONST;
+                fpVX[i] *= DAMPING;
+                fpVY[i] *= DAMPING;
+
+                const maxVelPerSecond = FIELD_VELOCITY_MIN + (FIELD_VELOCITY_MAX - FIELD_VELOCITY_MIN) * depth;
+                const maxStep = maxVelPerSecond * Math.min(0.05, Math.max(dt, 1 / 120));
+                const speed = Math.hypot(fpVX[i], fpVY[i]);
+                if (speed > maxStep && speed > 0) {
+                    const scale = maxStep / speed;
+                    fpVX[i] *= scale;
+                    fpVY[i] *= scale;
+                }
+
+                fpX[i] += fpVX[i];
+                fpY[i] += fpVY[i];
+
+                const homeDx = fpX[i] - fpHX[i];
+                const homeDy = fpY[i] - fpHY[i];
+                const homeDist = Math.hypot(homeDx, homeDy);
+                const maxDisplacement = FIELD_DISPLACEMENT_MIN + (FIELD_DISPLACEMENT_MAX - FIELD_DISPLACEMENT_MIN) * depth;
+                if (homeDist > maxDisplacement && homeDist > 0) {
+                    const clampScale = maxDisplacement / homeDist;
+                    fpX[i] = fpHX[i] + homeDx * clampScale;
+                    fpY[i] = fpHY[i] + homeDy * clampScale;
+                    fpVX[i] *= 0.45;
+                    fpVY[i] *= 0.45;
+                }
+
+                fpHighlight[i] *= highlightDecay;
+            }
+        }
+
         // Main simulation update loop.
         function updatePhysics(dt) {
             if (window.innerHeight < 700 || window.innerWidth < 525) return;
@@ -519,24 +638,13 @@
                 // Ease out cubic
                 let easeT = 1 - Math.pow(1 - t, 3);
 
-                // Background Matrix Physics keeps going
-                for (let i = 0; i < numParticles; i++) {
-                    fpHY[i] += SCROLL_SPEED * dt;
-                    if (fpHY[i] > height + CELL_SIZE) {
-                        fpHY[i] -= (height + CELL_SIZE * 2); fpY[i] = fpHY[i]; fpX[i] = fpHX[i];
-                    }
-                    fpVX[i] += (fpHX[i] - fpX[i]) * SPRING_CONST; fpVY[i] += (fpHY[i] - fpY[i]) * SPRING_CONST;
-                    fpVX[i] *= DAMPING; fpVY[i] *= DAMPING;
-                    fpX[i] += fpVX[i]; fpY[i] += fpVY[i];
-                    
-                    fpHighlight[i] *= 0.98;
-                }
+                updateFieldParticles(dt);
 
                 const launchTargetY = Math.min(height * 0.8, getGameplayBottomLimit(150));
                 player.y = (height + 100) + easeT * (launchTargetY - (height + 100));
 
                 if (Math.random() > 0.3) {
-                    const thrusterAnchors = getPlayerThrusterAnchors(getPlayerRenderLayout(player));
+                    const thrusterAnchors = getPlayerThrusterAnchors(getPlayerRenderLayout(player, 'center'));
                     for (let i = 0; i < thrusterAnchors.length; i++) {
                         const anchor = thrusterAnchors[i];
                         thrusterParticles.push({ 
@@ -570,7 +678,7 @@
                 if (deathTimer > 1.0 && !playerExploded) {
                     playerExploded = true;
                     playPlayerExplosionSFX();
-                    const layout = getPlayerRenderLayout(player);
+                    const layout = getPlayerRenderLayout(player, 'center');
                     forEachPlayerDebrisPiece(layout, piece => {
                         const ox = piece.x - player.x;
                         const oy = piece.y - player.y;
@@ -602,19 +710,7 @@
 
             if (gameState !== 'PLAYING') return;
 
-            // Background Matrix Physics
-
-            for (let i = 0; i < numParticles; i++) {
-                fpHY[i] += SCROLL_SPEED * dt;
-                if (fpHY[i] > height + CELL_SIZE) {
-                    fpHY[i] -= (height + CELL_SIZE * 2); fpY[i] = fpHY[i]; fpX[i] = fpHX[i];
-                }
-                fpVX[i] += (fpHX[i] - fpX[i]) * SPRING_CONST; fpVY[i] += (fpHY[i] - fpY[i]) * SPRING_CONST;
-                fpVX[i] *= DAMPING; fpVY[i] *= DAMPING;
-                fpX[i] += fpVX[i]; fpY[i] += fpVY[i];
-                
-                fpHighlight[i] *= 0.98;
-            }
+            updateFieldParticles(dt);
 
             if (postResumeBombLockTimer > 0) {
                 postResumeBombLockTimer = Math.max(0, postResumeBombLockTimer - dt);
@@ -636,6 +732,7 @@
             const playerSpeedRatio = Math.min(1, Math.sqrt(player.vx * player.vx + player.vy * player.vy) / P_MAX_SPEED);
             applyWakeForce(player.x, player.y, 110, playerSpeedRatio * 14);
             const playerLayout = getPlayerRenderLayout(player);
+            const playerVisualLayout = getPlayerRenderLayout(player, 'center');
 
             const momentumFireRate = (player.modifiers.momentumFireRate || 0) * playerSpeedRatio;
             const totalFireRateBonus = player.modifiers.fireRate + momentumFireRate;
@@ -833,7 +930,7 @@
             }
 
             if (Math.random() > 0.3) {
-                const thrusterAnchors = getPlayerThrusterAnchors(playerLayout);
+                const thrusterAnchors = getPlayerThrusterAnchors(playerVisualLayout);
                 for (let i = 0; i < thrusterAnchors.length; i++) {
                     const anchor = thrusterAnchors[i];
                     thrusterParticles.push({ 
@@ -846,7 +943,7 @@
                 }
             }
             if (Math.random() > 0.7) {
-                const thrusterAnchors = getPlayerThrusterAnchors(playerLayout);
+                const thrusterAnchors = getPlayerThrusterAnchors(playerVisualLayout);
                 for (let i = 0; i < thrusterAnchors.length; i++) {
                     const anchor = thrusterAnchors[i];
                     thrusterParticles.push({
@@ -910,7 +1007,8 @@
                 }
                 if (e.y > 0 && isEnemyDamageable(e) && !e.isFlameGuardian && !e.isWraith && !e.isVoidSentinel && !e.disableRandomFire && Math.random() < NON_BOSS_ENEMY_RANDOM_FIRE_CHANCE) {
                     const shot = getNonBossEnemyShotVector(e.x, e.y, 320);
-                    enemyBullets.push({ x: e.x, y: e.y, vx: shot.vx, vy: shot.vy, char: 'o', color: '#ff00ff' });
+                    const bulletColor = e.enemyBulletColor || e.remasterFireColor || e.enemyShipBodyColor || e.color || '#ff8fd8';
+                    enemyBullets.push({ x: e.x, y: e.y, vx: shot.vx, vy: shot.vy, char: '\u25cb', color: bulletColor });
                 }
             }
 
@@ -1824,8 +1922,13 @@
             // Projectiles
             for (let i = comboProjectiles.length - 1; i >= 0; i--) {
                 const p = comboProjectiles[i];
+                if ((p.releaseDelay || 0) > 0) {
+                    p.releaseDelay = Math.max(0, p.releaseDelay - dt);
+                    continue;
+                }
                 p.life -= dt;
                 p.age = (p.age || 0) + dt;
+                if (((p.stats && p.stats.prismSplitDelay) || 0) <= p.age) spawnPrismSplitProjectiles(p);
                 
                 if (p.orbitTime > 0) {
                     p.orbitTime -= dt;
@@ -1968,7 +2071,7 @@
                                 triggerProjectileChain(p, e);
                             }
                             if (p.cloudSparkTimer <= 0) {
-                                emitProjectileImpactDebris(p, 1);
+                                emitProjectileImpactDebris(p, 1, e.enemyShipBodyColor || e.color || p.color);
                                 p.cloudSparkTimer = 0.08;
                             }
                             const enemyIndex = enemies.indexOf(e);
@@ -1986,6 +2089,7 @@
 
                         e.hp -= p.damage;
                         p.pierceHits.push(e);
+                        applyPhaseNeedleProjectileBoost(p);
                         
                         if (p.stats.splashRadius > 0) {
                             radialExplosion(p.x, p.y, p.stats.splashRadius * 22, p.damage * p.stats.splashDamagePercent, p.stats.splashVisualDebris ?? 20);
@@ -2018,11 +2122,7 @@
                             }
                         }
 
-                        const impactDebrisCount = p.stats.lightningBall ? 2 : 6 + Math.floor(Math.random() * 3);
-                        for (let k = 0; k < impactDebrisCount; k++) {
-                            const ang = Math.random() * Math.PI * 2; const spd = 60 + Math.random() * 40;
-                            debris.push({ x: p.x, y: p.y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, char: IMPACT_DEBRIS_CHARS[Math.floor(Math.random()*IMPACT_DEBRIS_CHARS.length)], color: IMPACT_DEBRIS_COLORS[Math.floor(Math.random()*IMPACT_DEBRIS_COLORS.length)], life: 0.2, isImpact: true });
-                        }
+                        emitProjectileImpactDebris(p, p.stats.lightningBall ? 1 : 3, e.enemyShipBodyColor || e.color || p.color);
                         const enemyIndex = enemies.indexOf(e);
                         if (e.hp <= 0) {
                             if (enemyIndex > -1) {
@@ -2059,6 +2159,7 @@
                     }
                     if (hitBoss) {
                         if (!alreadyHitBoss) p.pierceHits.push(boss);
+                        if (!projectileStats.plasmaCloud) applyPhaseNeedleProjectileBoost(p);
                         boss.flashTimer = projectileStats.plasmaCloud ? Math.max(boss.flashTimer || 0, 0.05) : 0.15;
                         if (maybeTriggerBossDeathCinematic(boss)) return;
                         if (!projectileStats.plasmaCloud) {
@@ -2066,14 +2167,10 @@
                             radialExplosion(p.x, p.y, p.stats.splashRadius * 22, p.damage * p.stats.splashDamagePercent, p.stats.splashVisualDebris ?? 20);
                             if (bossCinematic && bossCinematic.paused) return;
                         }
-                        const impactDebrisCount = p.stats.lightningBall ? 2 : 6 + Math.floor(Math.random() * 3);
-                        for (let k = 0; k < impactDebrisCount; k++) {
-                            const ang = Math.random() * Math.PI * 2; const spd = 60 + Math.random() * 40;
-                            debris.push({ x: p.x, y: p.y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, char: ['·', '∙', '•', '░'][Math.floor(Math.random()*4)], color: ['#888888', '#666666', '#999999', '#aaaaaa'][Math.floor(Math.random()*4)], life: 0.2, isImpact: true });
-                        }
+                        emitProjectileImpactDebris(p, p.stats.lightningBall ? 1 : 3, boss.color || p.color);
                         if (projectileStats.miniTorpedo || p.pierceCount-- <= 0) hit = true;
                         } else if (p.cloudSparkTimer <= 0) {
-                            emitProjectileImpactDebris(p, 1);
+                            emitProjectileImpactDebris(p, 1, boss.color || p.color);
                             p.cloudSparkTimer = 0.08;
                         }
                     }

@@ -138,6 +138,11 @@
             }
             
             const k = e.key.toLowerCase();
+            if (k === 'f9') {
+                subpixelRenderEnabled = !subpixelRenderEnabled;
+                e.preventDefault();
+                return;
+            }
             if (keys.hasOwnProperty(k)) {
                 keys[k] = true;
                 if (k === ' ' && !e.repeat && bombProjectiles.length > 0) {
@@ -267,8 +272,9 @@
                         else if (pauseSelection === 5) location.reload();
                 }
             } else if (pauseState === 'SETTINGS') {
-                    if (k === 'arrowup' || k === 'w') settingsSelection = (settingsSelection === 0) ? 6 : settingsSelection - 1;
-                    if (k === 'arrowdown' || k === 's') settingsSelection = (settingsSelection === 6) ? 0 : settingsSelection + 1;
+                    const lastSettingsIndex = SETTINGS_MENU_OPTION_COUNT - 1;
+                    if (k === 'arrowup' || k === 'w') settingsSelection = (settingsSelection === 0) ? lastSettingsIndex : settingsSelection - 1;
+                    if (k === 'arrowdown' || k === 's') settingsSelection = (settingsSelection === lastSettingsIndex) ? 0 : settingsSelection + 1;
                     
                     if (k === 'arrowleft' || k === 'a' || k === 'arrowright' || k === 'd' || k === 'enter' || k === ' ') {
                         if (settingsSelection === 0 && (k !== 'enter' && k !== ' ')) {
@@ -291,7 +297,9 @@
                         } else if (settingsSelection === 5 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
                             crtFilterEnabled = !crtFilterEnabled;
                             document.getElementById('crt-overlay').style.display = crtFilterEnabled ? 'block' : 'none';
-                        } else if (settingsSelection === 6 && (k === 'enter' || k === ' ')) {
+                        } else if (settingsSelection === 6 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+                            subpixelRenderEnabled = !subpixelRenderEnabled;
+                        } else if (settingsSelection === lastSettingsIndex && (k === 'enter' || k === ' ')) {
                             pauseState = 'MAIN';
                             settingsSelection = 0;
                         }
@@ -321,8 +329,8 @@
 
         // Field Particle System (Background)
         let numParticles = 0;
-        let fpHX, fpHY, fpX, fpY, fpVX, fpVY, fpChar, fpColor, fpAlpha, fpHighlight;
-        const PARTICLE_CHARS = ['+', '=', ':', '.', '-', 'x'];
+        let fpHX, fpHY, fpX, fpY, fpVX, fpVY, fpChar, fpColor, fpAlpha, fpHighlight, fpDepth, fpWobblePhase, fpTwinkle;
+        const PARTICLE_CHARS = ['·', '∙', "'", '.', '░'];
 
         // Spatial Hash for performance
         let spatialHash = new Map();

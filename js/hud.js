@@ -85,7 +85,6 @@
                             <span id="hud-combo-chip" class="hud-combo-chip">
                                 <span class="hud-combo-label">COMBO</span>
                                 <span id="hud-combo-value" class="hud-combo-main">000</span>
-                                <span id="hud-combo-mult" class="hud-combo-mult">x1.00</span>
                             </span>
                             <span id="hud-wave-text" class="hud-wave-main">WAVE 1</span>
                             <span id="hud-wave-mod-text" class="hud-wave-mod">STANDARD ROUTE</span>
@@ -179,6 +178,22 @@
                 </span>`;
         }
 
+        function buildHudPatternWeaponIcon(powerup) {
+            const pattern = typeof getWeaponIconPattern === 'function' ? getWeaponIconPattern(powerup) : null;
+            if (!pattern) return null;
+            const safeBaseColor = /^#[0-9a-f]{6}$/i.test(powerup.color) ? powerup.color : '#ffffff';
+            const parts = pattern.map(part => {
+                const color = /^#[0-9a-f]{6}$/i.test(part.color || '') ? part.color : safeBaseColor;
+                const left = 50 + ((part.x || 0) / 28) * 100;
+                const top = 50 + ((part.y || 0) / 28) * 100;
+                const fontScale = Math.max(0.28, (part.size || 18) / 28);
+                const rot = part.rot || 0;
+                const glow = glowEnabled ? `text-shadow:0 0 3px ${color},0 0 6px ${color};` : '';
+                return `<span class="hud-weapon-glyph-part" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;color:${color};font-size:calc(var(--hud-weapon-cell) * ${fontScale.toFixed(3)});transform:translate(-50%,-50%) rotate(${rot}rad);${glow}">${escapeHudText(part.char)}</span>`;
+            }).join('');
+            return `<span class="hud-weapon-icon" aria-hidden="true">${parts}</span>`;
+        }
+
         function syncWeaponGrid(themeColor) {
             const grid = hudRefs.weaponGrid;
             if (!grid) return;
@@ -201,7 +216,10 @@
                     const glow = glowEnabled ? `0 0 5px ${w.color}` : 'none';
                     const iconSignature = `${w.name}:${w.color}:${w.glyph}:${w.icon || ''}:${glowEnabled ? 1 : 0}`;
                     if (cell.dataset.iconSignature !== iconSignature) {
-                        if (w.icon === 'chainLightning') {
+                        const patternIcon = buildHudPatternWeaponIcon(w);
+                        if (patternIcon) {
+                            cell.innerHTML = patternIcon;
+                        } else if (w.icon === 'chainLightning') {
                             cell.innerHTML = buildHudChainLightningIcon(w.color);
                         } else {
                             cell.textContent = w.glyph;
@@ -359,8 +377,9 @@
             const actualFireRate = getClampedPlayerFireInterval((player.fireRate / (s.fireRateMult || 1)) / (1 + totalFireRateBonus));
             const shipDamage = getPlayerShipConfigById(player.shipId).damageMult || 1;
             const modDamage = 1 + (m.damageMult || 0);
+            const comboDamage = typeof getComboDamageMultiplier === 'function' ? getComboDamageMultiplier() : 1;
             const godDamage = player.godMode ? GOD_MODE_DAMAGE_MULT : 1;
-            const damageMult = ((10 * (s.damageMult || 1) + (m.laserDamage || 0)) * shipDamage * modDamage * godDamage) / 10;
+            const damageMult = ((10 * (s.damageMult || 1) + (m.laserDamage || 0)) * shipDamage * modDamage * comboDamage * godDamage) / 10;
             const fireRateMult = 306 / actualFireRate;
 
             const rows = [
@@ -383,6 +402,7 @@
             if (s.pathFunction && s.pathFunction !== 'straight') rows.push(createHudStatRow('PATH', String(s.pathFunction).toUpperCase()));
 
             const flags = [];
+            if (s.burstFire) flags.push(`BURST${s.burstCount || 3}`);
             if (s.homing) flags.push('HOMING');
             if ((s.chainCount || 0) > 0) flags.push(`CHAIN${s.chainCount}`);
             if (s.hasRearFire) flags.push('REAR');
@@ -394,6 +414,8 @@
             if (s.miniTorpedo) flags.push('TORP');
             if ((s.ricochetCount || 0) > 0) flags.push(`RICO${s.ricochetCount}`);
             if ((s.critChance || 0) > 0) flags.push(`CRIT ${Math.round(s.critChance * 100)}%`);
+            if (s.prismSplit) flags.push('PRISM');
+            if (s.phaseNeedle) flags.push('PHASE');
             if (flags.length) rows.push(createHudStatRow('FLAGS', flags.join(' / ')));
 
             const other = [];
@@ -469,8 +491,9 @@
                 <div class="stats-panel-title">SHIP STATS</div>
                 ${rows.map(row => {
                     const event = hudStatDeltaEvents[row.label];
+                    const wrapClass = row.label === 'OTHER' || row.label === 'FLAGS' ? ' is-wrap' : '';
                     return `
-                    <div class="stats-row">
+                    <div class="stats-row${wrapClass}">
                         <span class="stats-label">${escapeHudText(row.label)}</span>
                         <span class="stats-value">
                             <span class="stats-main">${escapeHudText(row.value)}</span>
@@ -503,16 +526,12 @@
             }
 
             const comboText = comboCount >= 1000 ? comboCount.toString() : comboCount.toString().padStart(3, '0');
-            const comboMultiplierText = `x${getComboScoreMultiplier().toFixed(2)}`;
             const comboEventAge = (currentFrameNow || performance.now()) - comboEventAt;
             const showComboEvent = comboEventType === 'boss'
                 ? comboEventAge < 2200
                 : (comboEventType === 'break' && comboEventAge < 900);
-            const comboSubText = showComboEvent ? comboEventText : comboMultiplierText;
             const comboSignature = [
                 comboText,
-                comboSubText,
-                comboMultiplierText,
                 comboEventType,
                 showComboEvent ? 1 : 0,
                 currentThemeColor,
@@ -520,11 +539,10 @@
             ].join('~');
             if (comboSignature !== lastHudComboSignature) {
                 if (hudRefs.comboValue) hudRefs.comboValue.textContent = comboText;
-                if (hudRefs.comboMult) hudRefs.comboMult.textContent = comboSubText;
                 if (hudRefs.comboChip) {
                     hudRefs.comboChip.style.setProperty('--hud-combo-color', comboEventType === 'break' && showComboEvent ? '#ff5e8a' : currentThemeColor);
                     hudRefs.comboChip.classList.toggle('is-empty', comboCount <= 0);
-                    hudRefs.comboChip.classList.toggle('is-event-text', showComboEvent);
+                    hudRefs.comboChip.classList.toggle('is-event-text', false);
                 }
                 lastHudComboSignature = comboSignature;
             }

@@ -47,7 +47,10 @@
             const plasmaScale = scale * wobble * flicker;
 
             ctx.save();
-            ctx.translate(p.x | 0, p.y | 0);
+            ctx.translate(
+                truncateSpriteCoord(p.x, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE),
+                truncateSpriteCoord(p.y, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE)
+            );
             ctx.scale(plasmaScale, plasmaScale);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -96,7 +99,10 @@
             ];
 
             ctx.save();
-            ctx.translate(p.x | 0, p.y | 0);
+            ctx.translate(
+                truncateSpriteCoord(p.x, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE),
+                truncateSpriteCoord(p.y, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE)
+            );
             ctx.scale(scale * pulse, scale * pulse);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -132,7 +138,10 @@
             const angle = Math.atan2(p.baseVy || p.vy || -1, p.baseVx || p.vx || 0);
 
             ctx.save();
-            ctx.translate(p.x | 0, p.y | 0);
+            ctx.translate(
+                truncateSpriteCoord(p.x, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE),
+                truncateSpriteCoord(p.y, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE)
+            );
             ctx.rotate(angle + Math.PI / 2);
             ctx.scale(scale * pulse, scale * pulse);
             ctx.textAlign = 'center';
@@ -161,8 +170,8 @@
             const phase = renderNow * 0.008 + seed;
             const pulse = 1 + Math.sin(phase) * 0.08;
             const glint = Math.sin(phase * 1.7) > 0.2;
-            const x = b.x | 0;
-            const y = b.y | 0;
+            const x = truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET);
+            const y = truncateSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET);
 
             ctx.save();
             ctx.translate(x, y);
@@ -172,23 +181,23 @@
 
             if (glowEnabled) {
                 ctx.shadowColor = color;
-                ctx.shadowBlur = 10 + Math.sin(phase * 1.3) * 2;
+                ctx.shadowBlur = 8 + Math.sin(phase * 1.3) * 1.5;
             }
             ctx.font = `bold 21px Courier New`;
-            ctx.globalAlpha = 0.9;
+            ctx.globalAlpha = 0.84;
             ctx.fillStyle = color;
-            ctx.fillText('○', 0, 0);
+            ctx.fillText('\u25cb', 0, 0);
 
-            ctx.shadowBlur = glowEnabled ? 5 : 0;
+            ctx.shadowBlur = glowEnabled ? 4 : 0;
             ctx.font = `bold 12px Courier New`;
-            ctx.globalAlpha = 0.78;
-            ctx.fillText('●', 0, 0);
+            ctx.globalAlpha = 0.68;
+            ctx.fillText('\u25cf', 0, 0);
 
             ctx.shadowBlur = 0;
             ctx.font = `bold 9px Courier New`;
-            ctx.globalAlpha = glint ? 0.72 : 0.38;
+            ctx.globalAlpha = glint ? 0.64 : 0.34;
             ctx.fillStyle = '#ffffff';
-            ctx.fillText('•', 0, 0);
+            ctx.fillText('\u2022', 0, 0);
 
             ctx.restore();
             ctx.globalAlpha = 1;
@@ -323,8 +332,8 @@
             const style = getBossProjectileStyle(b, renderNow);
             if (!style) return false;
             const load = enemyBullets.length;
-            const x = snapSpriteCoord(b.x);
-            const y = snapSpriteCoord(b.y);
+            const x = snapSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET);
+            const y = snapSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET);
             const allowGlow = glowEnabled && load <= BOSS_PROJECTILE_GLOW_LIMIT && !b.isPhantomBullet;
             const allowCore = !!style.core && load <= (b.isPhantomBullet ? 12 : BOSS_PROJECTILE_CORE_LIMIT);
             const sprite = getBossProjectileSprite(style, allowGlow, allowCore);
@@ -337,7 +346,10 @@
             const phase = renderNow * 0.011 + b.x * 0.019 + b.y * 0.013;
             const pulse = 0.88 + Math.sin(phase) * 0.12;
             ctx.save();
-            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.translate(
+                snapSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                snapSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+            );
             ctx.rotate(getProjectileRenderAngle(b) + Math.sin(phase * 1.7) * 0.18);
             ctx.scale(pulse, pulse);
             ctx.textAlign = 'center';
@@ -360,7 +372,10 @@
             const phase = renderNow * 0.009 + b.x * 0.015;
             const pulse = 0.92 + Math.sin(phase) * 0.1;
             ctx.save();
-            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.translate(
+                snapSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                snapSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+            );
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             if (type === 'zigzag') {
@@ -400,7 +415,10 @@
             const pulse = 0.9 + Math.sin(phase) * 0.12;
             const scale = b.decay ? Math.max(0.05, b.life || 1) : 1;
             ctx.save();
-            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.translate(
+                snapSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                snapSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+            );
             ctx.rotate(type === 'cinder' ? phase * 0.2 : getProjectileRenderAngle(b) + Math.PI / 2);
             ctx.scale(scale * pulse, scale * pulse);
             ctx.textAlign = 'center';
@@ -431,7 +449,10 @@
             const phase = renderNow * 0.01 + b.x * 0.011;
             const scale = b.decay ? Math.max(0.05, b.life || 1) : 1;
             ctx.save();
-            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.translate(
+                snapSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                snapSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+            );
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             if (type === 'beam') {
@@ -487,7 +508,10 @@
             const pulse = 0.9 + Math.sin(phase) * 0.1;
             const size = b.voidBulletSize || 24;
             ctx.save();
-            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.translate(
+                snapSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                snapSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+            );
             ctx.rotate(phase * 0.24);
             ctx.scale(pulse, pulse);
             ctx.textAlign = 'center';
@@ -511,7 +535,10 @@
             const lineShot = b.char === '╎' || b.char === '╏' || b.char === '═';
             const size = b.voidBulletSize || 24;
             ctx.save();
-            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.translate(
+                snapSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                snapSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+            );
             ctx.rotate(lineShot ? getProjectileRenderAngle(b) + Math.PI / 2 : phase * 0.18);
             ctx.scale(pulse, pulse);
             ctx.textAlign = 'center';
@@ -538,7 +565,10 @@
             const phase = renderNow * 0.02 + b.x * 0.017;
             const scale = b.isHuge ? Math.max(0.05, b.life || 1) : 1;
             ctx.save();
-            ctx.translate(snapSpriteCoord(b.x), snapSpriteCoord(b.y));
+            ctx.translate(
+                snapSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                snapSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+            );
             ctx.rotate(getProjectileRenderAngle(b) + Math.sin(phase) * 0.22);
             ctx.scale(scale, scale);
             ctx.textAlign = 'center';
@@ -575,10 +605,10 @@
         function drawChainLightningProjectile(p, renderNow) {
             const lifeRatio = Math.max(0, Math.min(1, p.life / (p.maxLife || 0.34)));
             const alpha = Math.min(1, lifeRatio * 1.9);
-            const sx = p.startX ?? p.x;
-            const sy = p.startY ?? p.y;
-            const tx = p.targetX ?? p.x;
-            const ty = p.targetY ?? p.y;
+            const sx = snapSpriteCoord(p.startX ?? p.x, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE);
+            const sy = snapSpriteCoord(p.startY ?? p.y, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE);
+            const tx = snapSpriteCoord(p.targetX ?? p.x, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE);
+            const ty = snapSpriteCoord(p.targetY ?? p.y, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE);
             const dx = tx - sx;
             const dy = ty - sy;
             const len = Math.max(1, Math.hypot(dx, dy));
@@ -622,7 +652,10 @@
                     const midY = (points[i].y + points[i + 1].y) * 0.5;
                     const twitch = Math.sin(seed + i * 5.41 + renderNow * 0.03) * (isFlash ? 2.6 : 1.2);
                     ctx.save();
-                    ctx.translate(midX + nx * twitch, midY + ny * twitch);
+                    ctx.translate(
+                        snapSpriteCoord(midX + nx * twitch, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE),
+                        snapSpriteCoord(midY + ny * twitch, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE)
+                    );
                     ctx.rotate((i % 4 === 2) ? 0 : a);
                     ctx.fillText(getBoltChar(a, i), 0, 0);
                     ctx.restore();
@@ -696,8 +729,30 @@
         }
 
         function drawPowerupIcon(powerup, x, y, size, selected = false) {
-            if (powerup && powerup.icon === 'chainLightning') {
-                drawChainLightningPowerupIcon(x, y, size, powerup.color, selected);
+            const pattern = typeof getWeaponIconPattern === 'function' ? getWeaponIconPattern(powerup) : null;
+            if (pattern) {
+                const scale = size / 28;
+                const pulse = selected ? 1 + Math.sin(currentFrameNow * 0.012) * 0.035 : 1;
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.scale(scale * pulse, scale * pulse);
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let i = 0; i < pattern.length; i++) {
+                    const part = pattern[i];
+                    ctx.save();
+                    ctx.translate(part.x || 0, part.y || 0);
+                    if (part.rot) ctx.rotate(part.rot);
+                    ctx.fillStyle = part.color || powerup.color;
+                    if (glowEnabled) {
+                        ctx.shadowColor = part.color || powerup.color;
+                        ctx.shadowBlur = selected ? 12 : 7;
+                    }
+                    ctx.font = `bold ${part.size || 18}px Courier New`;
+                    ctx.fillText(part.char, 0, 0);
+                    ctx.restore();
+                }
+                ctx.restore();
                 return;
             }
             ctx.fillText(powerup ? powerup.glyph : '', x, y);
@@ -1121,7 +1176,7 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.50)';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.66)';
             ctx.fillRect(panelX, panelY, panelW, panelH);
             if (glowEnabled) {
                 ctx.shadowColor = focused ? currentThemeColor : '#ffffff';
@@ -1164,7 +1219,7 @@
                     };
                 }
 
-                ctx.fillStyle = powerup ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.10)';
+                ctx.fillStyle = powerup ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.08)';
                 ctx.fillRect(x, y, cell, cell);
                 ctx.strokeStyle = isSelected ? powerup.color : 'rgba(255,255,255,0.20)';
                 ctx.lineWidth = isSelected ? 2.5 : 1;
@@ -1219,7 +1274,7 @@
             if (pauseState === 'MAIN') {
                 const options = ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
                 const pauseOptionGap = 74;
-                const powerupDetailReserve = player.weapons.length > 0 ? 86 : 0;
+                const powerupDetailReserve = 86;
                 const powerupPanelH = 2 * 42 + 8 + 44 + powerupDetailReserve;
                 const powerupPanelBottomMargin = Math.max(122, Math.round(height * 0.145));
                 const powerupTableY = Math.round(height - powerupPanelBottomMargin - powerupPanelH + 30);
@@ -1270,6 +1325,7 @@
                     'FPS CAP 60: < ' + (userFpsCap ? 'ON' : 'OFF') + ' >',
                     'GLOW EFFECT: < ' + (glowEnabled ? 'ON' : 'OFF') + ' >',
                     'CRT FILTER: < ' + (crtFilterEnabled ? 'ON' : 'OFF') + ' >',
+                    'SUBPIXEL RENDER: < ' + (subpixelRenderEnabled ? 'SMOOTH' : 'SNAP') + ' >',
                     'GO BACK'
                 ];
                 const midY = Math.round(height / 2 - ((options.length - 1) * 80) / 2);
@@ -1874,6 +1930,8 @@
             }
             ctx.fillStyle = currentBgColor; 
             ctx.fillRect(0, 0, width | 0, height | 0);
+            ctx.fillStyle = currentFieldBgColor;
+            ctx.fillRect(0, 0, width | 0, (height - HUD_HEIGHT) | 0);
             const renderNow = currentFrameNow;
             const allowScreenShake = gameState !== 'PAUSED' && gameState !== 'LEVELUP';
             if (!allowScreenShake) {
@@ -1886,21 +1944,38 @@
             
             ctx.globalCompositeOperation = 'source-over'; 
 
-            // Background Geometric Field
+            // Background starfield
+            let lastFieldFont = '';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
             for (let i = 0; i < numParticles; i++) {
                 if (fpY[i] < -CELL_SIZE || fpY[i] > height + CELL_SIZE) continue;
                 const char = PARTICLE_CHARS[fpChar[i]];
-                const baseColor = COLORS[fpColor[i]];
-                if (fpHighlight[i] > 0.1) {
-                    ctx.fillStyle = '#ffffff'; ctx.globalAlpha = fpHighlight[i];
-                    ctx.fillRect((fpX[i]-charW/2) | 0, (fpY[i]-charH/2) | 0, charW, charH);
-                    ctx.fillStyle = currentThemeColor; ctx.globalAlpha = 1.0;
-                } else {
-                    ctx.fillStyle = baseColor; ctx.globalAlpha = fpAlpha[i];
+                const depth = fpDepth ? fpDepth[i] || 1 : 1;
+                const highlight = fpHighlight[i] || 0;
+                const twinkle = 0.82 + Math.max(0, Math.sin(renderNow * FIELD_TWINKLE_SPEED + (fpTwinkle ? fpTwinkle[i] : 0))) * 0.18;
+                const baseAlpha = (fpAlpha[i] || 0.24) * twinkle * (char === '\u2591' ? 0.72 : 1);
+                const alpha = Math.min(0.82, baseAlpha + highlight * 0.58);
+                const particleX = truncateSpriteCoord(fpX[i], SUBPIXEL_RENDER_TARGETS.FIELD_PARTICLE);
+                const particleY = truncateSpriteCoord(fpY[i], SUBPIXEL_RENDER_TARGETS.FIELD_PARTICLE);
+                const fontSize = depth > 0.72 ? 12 : (depth > 0.42 ? 11 : 10);
+                const fieldFont = `bold ${fontSize}px Courier New`;
+                if (fieldFont !== lastFieldFont) {
+                    ctx.font = fieldFont;
+                    lastFieldFont = fieldFont;
                 }
-                ctx.fillText(char, fpX[i] | 0, fpY[i] | 0);
+                ctx.fillStyle = highlight > 0.42 || fpColor[i] === 1 ? '#dfeaff' : currentThemeColor;
+                ctx.globalAlpha = alpha;
+                if (glowEnabled && highlight > 0.32) {
+                    ctx.shadowColor = ctx.fillStyle;
+                    ctx.shadowBlur = 3 + highlight * 7;
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+                ctx.fillText(char, particleX, particleY);
             }
             ctx.globalAlpha = 1.0;
+            ctx.shadowBlur = 0;
 
             if (gameState === 'START' || gameState === 'LAUNCHING' || gameState === 'SHIP_SELECT') {
                 let alpha = titleAlpha;
@@ -2052,7 +2127,11 @@
                             ctx.shadowColor = '#ffffff';
                             ctx.shadowBlur = 18 * alpha + 8 * pop;
                         }
-                        ctx.fillText(b.bossClearChar || '✦', b.x | 0, b.y | 0);
+                        ctx.fillText(
+                            b.bossClearChar || '✦',
+                            truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                            truncateSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+                        );
                         ctx.restore();
                         ctx.globalAlpha = 1.0;
                         ctx.shadowBlur = 0;
@@ -2070,7 +2149,10 @@
                         if (b.isGlitchBullet && glowEnabled) { ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 25; }
                         const scale = Math.max(0.01, b.life);
                         ctx.save();
-                        ctx.translate(b.x | 0, b.y | 0);
+                        ctx.translate(
+                            truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                            truncateSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+                        );
                         ctx.scale(scale, scale);
                         ctx.fillText(b.char, 0, 0);
                         ctx.restore();
@@ -2090,7 +2172,10 @@
                         ctx.font = `bold 14px Courier New`;
                         if (glowEnabled) { ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 20 + Math.random() * 10; }
                         ctx.save();
-                        ctx.translate(b.x | 0, b.y | 0);
+                        ctx.translate(
+                            truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                            truncateSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+                        );
                         ctx.rotate(Math.atan2(b.vy, b.vx));
                         ctx.fillText(b.char, 0, 0);
                         ctx.restore();
@@ -2130,7 +2215,11 @@
                         drawEnemyBulletOrb(b, renderNow, bulletColor);
                         continue;
                     }
-                    ctx.fillText(b.char, b.x | 0, b.y | 0);
+                    ctx.fillText(
+                        b.char,
+                        truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                        truncateSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+                    );
                     if (b.isGlitchBullet || b.isWraithBolt || b.isFlyByBullet || b.isVoidProjectile) { ctx.shadowBlur = 0; }
                 }
                 if (hugeFontSet) {
@@ -2724,7 +2813,10 @@
                     const shellColor = blendProjectileHexColor(bomb.launchColor || '#ffffff', '#ffffff', colorMix);
                     const coreColor = blendProjectileHexColor(bomb.launchColor || '#9edfff', '#9edfff', colorMix);
                     ctx.save();
-                    ctx.translate(bomb.x | 0, bomb.y | 0);
+                    ctx.translate(
+                        truncateSpriteCoord(bomb.x, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE),
+                        truncateSpriteCoord(bomb.y, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE)
+                    );
                     ctx.fillStyle = shellColor;
                     if (glowEnabled) {
                         ctx.shadowColor = shellColor;
@@ -2739,6 +2831,7 @@
                 }
                 
                 for (const p of comboProjectiles) { 
+                    if ((p.releaseDelay || 0) > 0) continue;
                     if (p.isChainLightning) {
                         drawChainLightningProjectile(p, renderNow);
                         continue;
@@ -2754,7 +2847,10 @@
                         ctx.font = `bold 24px Courier New`;
                     }
                     ctx.save();
-                    ctx.translate(p.x | 0, p.y | 0);
+                    ctx.translate(
+                        truncateSpriteCoord(p.x, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE),
+                        truncateSpriteCoord(p.y, SUBPIXEL_RENDER_TARGETS.PLAYER_PROJECTILE)
+                    );
                     let scale = p.stats.sizeMult;
                     if (p.stats.pathFunction === 'parabolic') {
                         let arc = Math.sin((p.life / p.maxLife) * Math.PI);
@@ -2774,6 +2870,22 @@
                     if (p.isLightningBall || p.stats.lightningBall) {
                         ctx.restore();
                         drawLightningBallProjectile(p, renderNow, scale);
+                        continue;
+                    }
+                    if (p.isBurstRound) {
+                        if (glowEnabled) {
+                            ctx.shadowColor = '#aa00ff';
+                            ctx.shadowBlur = 10;
+                        }
+                        ctx.fillStyle = p.color;
+                        ctx.font = `bold 22px Courier New`;
+                        ctx.scale(scale * 0.92, scale * 1.05);
+                        ctx.fillText('|', 0, 0);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = `bold 8px Courier New`;
+                        ctx.fillText('.', 0, -5);
+                        ctx.restore();
+                        ctx.shadowBlur = 0;
                         continue;
                     }
                     ctx.scale(scale, scale);

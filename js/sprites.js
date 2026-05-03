@@ -709,9 +709,9 @@
         };
 
         const ENEMY_SHIP_VISUAL_PROFILES = {
-            base: { tier: 1, bodySize: 34, thrusterSize: 18, spread: 9.5, thrusterY: -8.5, bodyY: 4, glowBlur: 4.6 },
-            armored: { tier: 2, bodySize: 37, thrusterSize: 19, spread: 10.5, thrusterY: -9.5, bodyY: 4.5, glowBlur: 5.1 },
-            elite: { tier: 3, bodySize: 40, thrusterSize: 20, spread: 11.5, thrusterY: -10.5, bodyY: 5, glowBlur: 5.6 }
+            base: { tier: 1, bodyGlyph: '◆', wingGlyph: '◦', bodySize: 28, wingSize: 13, coreSize: 9, glowBlur: 9, defaultColor: '#ff8fd8', collisionBodySize: 34, collisionThrusterSize: 18, collisionSpread: 9.5, collisionThrusterY: -8.5, collisionBodyY: 4 },
+            armored: { tier: 2, bodyGlyph: '▰', wingGlyph: '▪', bodySize: 32, wingSize: 14, coreSize: 10, glowBlur: 10, defaultColor: '#fff07a', collisionBodySize: 37, collisionThrusterSize: 19, collisionSpread: 10.5, collisionThrusterY: -9.5, collisionBodyY: 4.5 },
+            elite: { tier: 3, bodyGlyph: '◈', wingGlyph: '✦', bodySize: 34, wingSize: 14, coreSize: 10, glowBlur: 11, defaultColor: '#9bffcf', collisionBodySize: 40, collisionThrusterSize: 20, collisionSpread: 11.5, collisionThrusterY: -10.5, collisionBodyY: 5 }
         };
 
         const enemyShipColorCache = {};
@@ -761,19 +761,47 @@
             return result;
         }
 
+        function getSoftEnemyBaseColor(sourceColor, kind) {
+            const profile = ENEMY_SHIP_VISUAL_PROFILES[kind] || ENEMY_SHIP_VISUAL_PROFILES.base;
+            const rgb = parseHexColor(sourceColor);
+            if (!rgb) return profile.defaultColor;
+            if (rgb.g > 190 && rgb.b > 190) return '#8fdcff';
+            if (rgb.g > 180 && rgb.r < 140) return '#9bffcf';
+            if (rgb.r > 210 && rgb.g > 120 && rgb.b < 130) return '#fff07a';
+            return profile.defaultColor;
+        }
+
+        function getEnemyShipVisualPalette(sourceColor, kind) {
+            const base = getSoftEnemyBaseColor(sourceColor, kind);
+            const body = tintEnemyShipColor(base, sourceColor, 0.12);
+            return {
+                body,
+                glow: body,
+                wing: tintEnemyShipColor(body, '#ffffff', 0.18),
+                core: '#ffffff',
+                thruster: tintEnemyShipColor(body, '#050712', 0.28),
+                bullet: tintEnemyShipColor(body, '#ffffff', 0.10)
+            };
+        }
+
         function configureEnemyShipVisual(enemy, kind = 'base', options = {}) {
             if (!enemy) return enemy;
             const profile = ENEMY_SHIP_VISUAL_PROFILES[kind] || ENEMY_SHIP_VISUAL_PROFILES.base;
             const sourceColor = options.color || enemy.color || '#ff00ff';
-            const bodyColor = desaturateEnemyShipColor(sourceColor);
+            const palette = getEnemyShipVisualPalette(sourceColor, kind);
             enemy.enemyShipSprite = true;
             enemy.enemyShipKind = ENEMY_SHIP_VISUAL_PROFILES[kind] ? kind : 'base';
             enemy.enemyShipTier = options.tier || profile.tier;
             enemy.enemyShipVisualScale = options.visualScale || 1;
-            enemy.enemyShipBodyColor = bodyColor;
-            enemy.enemyShipThrusterColor = tintEnemyShipColor(sourceColor, '#222222', 0.28);
-            enemy.enemyShipHighlightColor = tintEnemyShipColor(sourceColor, '#ffffff', 0.34);
-            enemy.enemyShipGlowColor = bodyColor;
+            enemy.enemyShipBodyColor = palette.body;
+            enemy.enemyShipThrusterColor = palette.thruster;
+            enemy.enemyShipHighlightColor = palette.wing;
+            enemy.enemyShipGlowColor = palette.glow;
+            enemy.enemyShipCoreColor = palette.core;
+            enemy.enemyBulletColor = palette.bullet;
+            enemy.remasterFireColor = enemy.remasterFireColor || palette.bullet;
+            enemy.explosionDebrisVelocity = enemy.explosionDebrisVelocity || 280;
+            enemy.explosionDebrisLife = enemy.explosionDebrisLife || 0.62;
             enemy.sprite = ENEMY_SHIP_FOOTPRINTS[enemy.enemyShipKind] || ENEMY_SHIP_FOOTPRINTS.base;
             enemy.debrisColors = [
                 enemy.enemyShipBodyColor,
@@ -808,41 +836,26 @@
             const profile = ENEMY_SHIP_VISUAL_PROFILES[enemy.enemyShipKind] || ENEMY_SHIP_VISUAL_PROFILES.base;
             const visualScale = Math.max(0.85, Math.min(1.24, enemy.enemyShipVisualScale || 1));
             const bodySize = Math.round(profile.bodySize * visualScale);
-            const thrusterSize = Math.round(profile.thrusterSize * visualScale);
-            const spread = profile.spread * visualScale;
+            const wingSize = Math.round(profile.wingSize * visualScale);
+            const coreSize = Math.round(profile.coreSize * visualScale);
+            const spread = (profile.tier >= 3 ? 15 : 12) * visualScale;
             const x = enemy.x;
             const y = enemy.y;
-            const bodyColor = flashColor || enemy.enemyShipBodyColor || desaturateEnemyShipColor(enemy.color || '#ff00ff');
+            const bodyColor = flashColor || enemy.enemyShipBodyColor || getSoftEnemyBaseColor(enemy.color || '#ff00ff', enemy.enemyShipKind);
             const thrusterColor = flashColor || enemy.enemyShipThrusterColor || bodyColor;
             const highlightColor = flashColor || enemy.enemyShipHighlightColor || bodyColor;
             const glowColor = flashColor || enemy.enemyShipGlowColor || bodyColor;
             const glowBlur = glowEnabled ? profile.glowBlur * visualScale : 0;
-            const thrusterOffsets = profile.tier >= 3 ? [-spread, 0, spread] : [-spread, spread];
+            const pulse = 1 + Math.sin((currentFrameNow || 0) * 0.005 + (enemy.indexOffset || 0)) * 0.035;
 
-            for (let i = 0; i < thrusterOffsets.length; i++) {
-                const offset = thrusterOffsets[i];
-                const rotation = offset === 0 ? 0 : offset < 0 ? -0.06 : 0.06;
-                drawEnemyShipGlyph('▼', x + offset, y + profile.thrusterY * visualScale, thrusterSize, thrusterColor, rotation, 0.9, glowColor, glowBlur * 0.72);
+            if (profile.wingGlyph) {
+                drawEnemyShipGlyph(profile.wingGlyph, x - spread, y + 3 * visualScale, wingSize, highlightColor, -0.08, 0.58, glowColor, glowBlur * 0.28);
+                drawEnemyShipGlyph(profile.wingGlyph, x + spread, y + 3 * visualScale, wingSize, highlightColor, 0.08, 0.58, glowColor, glowBlur * 0.28);
             }
 
-            drawEnemyShipGlyph('■', x + 1.2 * visualScale, y + (profile.bodyY + 1.5) * visualScale, bodySize, thrusterColor, 0, 0.46, glowColor, glowBlur * 0.35);
-            drawEnemyShipGlyph('■', x, y + profile.bodyY * visualScale, bodySize, bodyColor, 0, 1, glowColor, glowBlur * 0.78);
-
-            if (profile.tier >= 2) {
-                const armorSize = Math.round(bodySize * 0.42);
-                drawEnemyShipGlyph('■', x - 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, bodyColor, 0, 0.9, glowColor, glowBlur * 0.48);
-                drawEnemyShipGlyph('■', x + 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, bodyColor, 0, 0.9, glowColor, glowBlur * 0.48);
-                drawEnemyShipGlyph('●', x, y + (profile.bodyY + 0.5) * visualScale, Math.round(bodySize * 0.34), highlightColor, 0, 0.74, glowColor, glowBlur * 0.5);
-            } else {
-                drawEnemyShipGlyph('▪', x - 3 * visualScale, y + (profile.bodyY - 2) * visualScale, Math.round(bodySize * 0.42), highlightColor, 0, 0.62, glowColor, glowBlur * 0.34);
-            }
-
-            if (profile.tier >= 3) {
-                const accentSize = Math.round(bodySize * 0.32);
-                drawEnemyShipGlyph('◆', x, y + (profile.bodyY + 8) * visualScale, accentSize, thrusterColor, 0, 0.72, glowColor, glowBlur * 0.42);
-                drawEnemyShipGlyph('▲', x - 13 * visualScale, y + (profile.bodyY - 3) * visualScale, Math.round(bodySize * 0.24), highlightColor, -0.12, 0.62, glowColor, glowBlur * 0.34);
-                drawEnemyShipGlyph('▲', x + 13 * visualScale, y + (profile.bodyY - 3) * visualScale, Math.round(bodySize * 0.24), highlightColor, 0.12, 0.62, glowColor, glowBlur * 0.34);
-            }
+            drawEnemyShipGlyph(profile.bodyGlyph, x, y, bodySize * pulse, bodyColor, 0, 1, glowColor, glowBlur);
+            drawEnemyShipGlyph('\u00b7', x, y + 1 * visualScale, coreSize, flashColor || (enemy.enemyShipCoreColor || '#ffffff'), 0, 0.82, '#ffffff', glowBlur * 0.22);
+            drawEnemyShipGlyph(profile.tier >= 2 ? '\u2219' : '.', x, y + 16 * visualScale, Math.round(11 * visualScale), thrusterColor, 0, 0.42, glowColor, glowBlur * 0.22);
         }
 
         function drawRisingStarThruster(enemy, renderNow, alpha = 1) {

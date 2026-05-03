@@ -4,24 +4,32 @@
         let currentThemeIndex = 0;
         let currentThemeColor = '#6aa8ff';
         let currentBgColor = '#050712';
+        let currentFieldBgColor = '#0a1026';
         let userFpsCap = false;
         let showFpsCounter = true;
         let showStatsPanel = true;
         let renderStyleMode = 2;
         let glowEnabled = true;
         let crtFilterEnabled = false;
+        let subpixelRenderEnabled = false;
+        const SUBPIXEL_RENDER_TARGETS = Object.freeze({
+            PLAYER_SHIP: 'playerShip',
+            ENEMY_BULLET: 'enemyBullet',
+            PLAYER_PROJECTILE: 'playerProjectile',
+            FIELD_PARTICLE: 'fieldParticle'
+        });
         
         function applyTheme() {
             const root = document.documentElement;
-            let color, bg, fpsColor, shadow;
+            let color, bg, fieldBg, fpsColor, shadow;
             if (currentThemeIndex === 0) {
-                color = '#6aa8ff'; bg = '#050712'; fpsColor = '#a2b7d0'; shadow = '0 0 5px #6aa8ff'; currentBgColor = '#050712';
+                color = '#6aa8ff'; bg = '#050712'; fieldBg = '#0a1026'; fpsColor = '#a2b7d0'; shadow = '0 0 5px #6aa8ff'; currentBgColor = bg; currentFieldBgColor = fieldBg;
             } else if (currentThemeIndex === 1) { 
-                color = '#00ff00'; bg = '#001100'; fpsColor = '#00aa00'; shadow = '0 0 5px #00ff00'; currentBgColor = '#001100'; 
+                color = '#00ff00'; bg = '#001100'; fieldBg = '#001807'; fpsColor = '#00aa00'; shadow = '0 0 5px #00ff00'; currentBgColor = bg; currentFieldBgColor = fieldBg;
             } else if (currentThemeIndex === 2) { 
-                color = '#ffb000'; bg = '#1a0b00'; fpsColor = '#aa7700'; shadow = '0 0 5px #ffb000'; currentBgColor = '#1a0b00'; 
+                color = '#ffb000'; bg = '#1a0b00'; fieldBg = '#201103'; fpsColor = '#aa7700'; shadow = '0 0 5px #ffb000'; currentBgColor = bg; currentFieldBgColor = fieldBg;
             } else if (currentThemeIndex === 3) { 
-                color = '#ffffff'; bg = '#000000'; fpsColor = '#aaaaaa'; shadow = '0 0 4px #ffffff, 0 0 10px rgba(255,255,255,0.45)'; currentBgColor = '#000000'; 
+                color = '#ffffff'; bg = '#000000'; fieldBg = '#05070d'; fpsColor = '#aaaaaa'; shadow = '0 0 4px #ffffff, 0 0 10px rgba(255,255,255,0.45)'; currentBgColor = bg; currentFieldBgColor = fieldBg;
             }
             
             currentThemeColor = color;
@@ -60,11 +68,23 @@
         let lastRafTime = 0;
 
         // Physics Constants
-        const SPRING_CONST = 0.018;
-        const DAMPING = 0.912;
+        const SPRING_CONST = 0.012;
+        const DAMPING = 0.88;
         const CELL_SIZE = 22; 
-        const SCROLL_SPEED = 50; 
+        const SCROLL_SPEED = 38;
         const HASH_SIZE = 80;
+        const FIELD_WAKE_FORCE_SCALE = 0.34;
+        const FIELD_WAKE_HIGHLIGHT_BASE = 0.06;
+        const FIELD_WAKE_HIGHLIGHT_SCALE = 0.018;
+        const FIELD_HIGHLIGHT_MAX = 0.72;
+        const FIELD_HIGHLIGHT_DECAY = 0.92;
+        const FIELD_DISPLACEMENT_MIN = 20;
+        const FIELD_DISPLACEMENT_MAX = 42;
+        const FIELD_VELOCITY_MIN = 80;
+        const FIELD_VELOCITY_MAX = 160;
+        const FIELD_WOBBLE_AMPLITUDE = 3.5;
+        const FIELD_WOBBLE_SPEED = 0.00115;
+        const FIELD_TWINKLE_SPEED = 0.0024;
         let P_ACCEL = 3800;
         const P_FRICTION = 0.95;
         let P_MAX_SPEED = 720;
@@ -158,9 +178,10 @@
         const PAUSE_VOLUME_RETURN_FADE_SECONDS = 0.35;
         const POST_RESUME_BOMB_LOCK_SECONDS = 0.5;
         let pauseVolumePreviewTimeout = null;
+        const SETTINGS_MENU_OPTION_COUNT = 8;
 
         const COMBO_SCORE_MULT_PER_KILL = 0.01;
-        const COMBO_FOCUS_STEP = 12;
+        const COMBO_FOCUS_STEP = 10;
         const COMBO_FOCUS_DAMAGE_PER_STEP = 0.01;
         const COMBO_FOCUS_DAMAGE_CAP = 0.08;
 
@@ -207,8 +228,7 @@
                 comboPeak = Math.max(comboPeak, comboCount);
                 const nextFocusBonus = getComboFocusDamageBonus();
                 if (nextFocusBonus > previousFocusBonus) {
-                    markComboEvent('focus', `DMG +${Math.round(nextFocusBonus * 100)}%`);
-                    triggerComboFocusNotice(nextFocusBonus);
+                    markComboEvent('focus', '');
                 } else {
                     markComboEvent('kill', '+1');
                 }
@@ -313,12 +333,23 @@
             statsPanel.style.display = showStatsPanel ? 'block' : 'none';
         }
 
-        function snapSpriteCoord(value) {
+        function shouldUseSubpixelRender(category) {
+            return !!(subpixelRenderEnabled && category);
+        }
+
+        function snapSpriteCoord(value, subpixelCategory = null) {
+            if (shouldUseSubpixelRender(subpixelCategory)) return value;
             if (renderStyleMode === 0) return value;
             return Math.round(value);
         }
 
-        function quantizeGlyphCoord(value) {
+        function truncateSpriteCoord(value, subpixelCategory = null) {
+            if (shouldUseSubpixelRender(subpixelCategory)) return value;
+            return value | 0;
+        }
+
+        function quantizeGlyphCoord(value, subpixelCategory = null) {
+            if (shouldUseSubpixelRender(subpixelCategory)) return value;
             if (renderStyleMode === 2) return Math.round(value);
             return value;
         }

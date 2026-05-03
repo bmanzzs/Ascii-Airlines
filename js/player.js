@@ -28,12 +28,14 @@
             maxSplashRadius: 4.0,
             maxTorpedoExplosionRadius: 112,
             maxPelletCount: 5,
+            maxBurstCount: 5,
             maxRearFireFan: 5,
             maxChainCount: 6,
             maxCloudDotMult: 8,
             maxRicochetCount: 4,
             maxCritChance: 0.85,
-            maxCritDamageMult: 6.0
+            maxCritDamageMult: 6.0,
+            maxPhaseStacks: 4
         };
         const DUPLICATE_WEAPON_VALUE_SCALES = [1, 0.6, 0.35];
         const DUPLICATE_WEAPON_VALUE_FLOOR = 0.2;
@@ -308,6 +310,7 @@
                 pierceCount: 0, splashRadius: 0, splashDamagePercent: 0, homing: false, homingStrength: 1,
                 chainCount: 0, chainChance: 1, pathFunction: 'straight', mode: 'projectile',
                 hasRearFire: false, rearFireEvery: 2, rearFireFan: 1, rearFireSpread: 0.22,
+                burstFire: false, burstCount: 1, burstSpacing: 0.045, burstAngleMin: 0.017, burstAngleMax: 0.052,
                 hasOrbitalDrones: false, pelletCount: 1, spreadAngle: 0, inaccuracy: 0,
                 returning: false, returnAfter: 0.5, orbitDelay: 0, orbitRadiusMult: 1,
                 sineAmplitudeMult: 1,
@@ -319,7 +322,10 @@
                 miniTorpedo: false, torpedoExplosionRadius: 0,
                 torpedoExplosionDamageMult: 0, torpedoRange: 0,
                 ricochetCount: 0, ricochetDamageMult: 1,
-                critChance: 0, critDamageMult: 1
+                critChance: 0, critDamageMult: 1,
+                prismSplit: false, prismSplitDelay: 0.28, prismSplitAngle: 0.34,
+                prismSplitDamageMult: 0.42, prismSplitSizeMult: 0.72, prismSplitSpeedMult: 0.92,
+                phaseNeedle: false, phaseDamageRamp: 1.16, phaseSpeedRamp: 1.04, phaseMaxStacks: 3
             };
         }
 
@@ -434,6 +440,8 @@
 
         const PLAYER_FIRE_FORWARD_ANGLE = -Math.PI / 2;
         const PLAYER_FIRE_SKEW_ANGLE = 8 * Math.PI / 180;
+        const PLAYER_RENDER_FACING = 'center';
+        const PLAYER_BANK_MAX_ROTATION = 0.11;
         const EXHAUST_PARTICLE_CHARS = ['^', '*', '.', 'v'];
         const SMOKE_PARTICLE_CHARS = ['░', '▒', '·'];
         const SMOKE_PARTICLE_COLORS = ['#555555', '#444444'];
@@ -445,6 +453,12 @@
             if (ship.vx < -450) return 'left';
             if (ship.vx > 450) return 'right';
             return 'center';
+        }
+
+        function getPlayerBankRotation(ship = player) {
+            if (ship !== player) return 0;
+            const maxSpeed = Math.max(1, P_MAX_SPEED || 720);
+            return clampValue((player.vx || 0) / maxSpeed, -1, 1) * PLAYER_BANK_MAX_ROTATION;
         }
 
         function isPlayerFirePressed() {
@@ -712,9 +726,14 @@
             return layout;
         }
 
-        function drawPlayerPart(part) {
+        function drawPlayerPart(part, renderOrigin = null) {
+            const x = renderOrigin ? part.x - renderOrigin.x : part.x;
+            const y = renderOrigin ? part.y - renderOrigin.y : part.y;
             ctx.save();
-            ctx.translate(snapSpriteCoord(part.x), snapSpriteCoord(part.y));
+            ctx.translate(
+                snapSpriteCoord(x, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
+                snapSpriteCoord(y, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
+            );
             if (part.rotation) ctx.rotate(part.rotation);
             ctx.font = `bold ${part.fontSize}px Courier New`;
             const previousFillStyle = ctx.fillStyle;
@@ -789,7 +808,7 @@
             };
         }
 
-        function drawPlayerBombReadyCue(layout, ship) {
+        function drawPlayerBombReadyCue(layout, ship, renderOrigin = null) {
             if (ship !== player || gameState !== 'PLAYING') return;
             const now = typeof currentFrameNow === 'number' ? currentFrameNow : performance.now();
             const visual = getPlayerBombIndicatorVisual(now);
@@ -797,6 +816,8 @@
             const coreSize = Math.max(8, Math.round(cueSize * 0.48));
             const cueX = layout.body.x;
             const cueY = layout.body.y - layout.body.fontSize * 0.04;
+            const renderCueX = renderOrigin ? cueX - renderOrigin.x : cueX;
+            const renderCueY = renderOrigin ? cueY - renderOrigin.y : cueY;
 
             ctx.save();
             ctx.textAlign = 'center';
@@ -808,13 +829,21 @@
                 ctx.shadowColor = visual.glowColor;
                 ctx.shadowBlur = visual.glow;
             }
-            ctx.fillText('◉', snapSpriteCoord(cueX), snapSpriteCoord(cueY));
+            ctx.fillText(
+                '◉',
+                snapSpriteCoord(renderCueX, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
+                snapSpriteCoord(renderCueY, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
+            );
 
             ctx.globalAlpha = visual.alpha * (visual.ready ? 0.9 : 0.54 + visual.charge * 0.3);
             ctx.shadowBlur = glowEnabled ? Math.max(3, visual.glow * 0.42) : 0;
             ctx.font = `bold ${coreSize}px Courier New`;
             ctx.fillStyle = visual.ready ? '#ffffff' : blendPlayerCueHex('#ff8888', '#ffffff', visual.charge);
-            ctx.fillText('*', snapSpriteCoord(cueX), snapSpriteCoord(cueY));
+            ctx.fillText(
+                '*',
+                snapSpriteCoord(renderCueX, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
+                snapSpriteCoord(renderCueY, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
+            );
             ctx.restore();
         }
 
@@ -857,16 +886,27 @@
             return isRear ? layout.rearOrigin : layout.weaponOrigin;
         }
 
-        function drawPlayerShip(ship = player, facing = getPlayerFacing(ship)) {
-            const layout = getPlayerRenderLayout(ship, facing);
+        function drawPlayerShip(ship = player, facing = PLAYER_RENDER_FACING) {
+            const layout = getPlayerRenderLayout(ship, PLAYER_RENDER_FACING);
+            const bankRotation = getPlayerBankRotation(ship);
+            const renderOrigin = bankRotation ? { x: ship.x, y: ship.y } : null;
+            if (bankRotation) {
+                ctx.save();
+                ctx.translate(
+                    snapSpriteCoord(ship.x, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
+                    snapSpriteCoord(ship.y, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
+                );
+                ctx.rotate(bankRotation);
+            }
             for (let i = 0; i < layout.thrusters.length; i++) {
-                drawPlayerPart(layout.thrusters[i]);
+                drawPlayerPart(layout.thrusters[i], renderOrigin);
             }
             for (let i = 0; i < layout.accents.length; i++) {
-                drawPlayerPart(layout.accents[i]);
+                drawPlayerPart(layout.accents[i], renderOrigin);
             }
-            drawPlayerPart(layout.body);
-            drawPlayerBombReadyCue(layout, ship);
+            drawPlayerPart(layout.body, renderOrigin);
+            drawPlayerBombReadyCue(layout, ship, renderOrigin);
+            if (bankRotation) ctx.restore();
             return layout;
         }
 
@@ -941,22 +981,52 @@
             { name: "Scatter Burst", cat: "hybrid", glyph: ":", color: "#aa00ff", desc: "Fires 2 angled shots at 75% damage", mults: { damage: 0.75, fireRate: 0.8, pellets: 2, spread: Math.PI/7 } },
             { name: "Mortar Shells", cat: "mode", glyph: "◓", color: "#ffff00", desc: "Slow, huge explosive splash", mults: { damage: 4.0, fireRate: 0.25, speed: 0.5, splashRadius: 3.0, splashPercent: 0.75, path: "parabolic" } },
             { name: "Piercing Lance", cat: "offense", glyph: "⇡", color: "#ff0000", desc: "Infinite pierce, large size", mults: { damage: 2.0, fireRate: 0.5, pierceCount: 999, size: 1.5 } },
-            { name: "Rear Turret", cat: "hybrid", glyph: "⇕", color: "#aa00ff", desc: "Fires a rear fan every volley", mults: { rearFire: true, rearFireEvery: 1, rearFireFan: 3, rearFireSpread: 0.34 } },
+            { name: "Burst Fire", cat: "hybrid", glyph: "|||", color: "#aa00ff", desc: "Fires three quick, slightly drifting rounds", mults: { damage: 0.58, fireRate: 0.70, burstFire: true, burstCount: 3, burstSpacing: 0.045, burstAngleMin: 0.017, burstAngleMax: 0.052 } },
             { name: "Wave Cannon", cat: "control", glyph: "∿", color: "#00ffff", desc: "Wide sine-wave path projectiles", mults: { damage: 1.1, fireRate: 0.8, speed: 0.9, size: 1.1, path: "sine", sineAmplitude: 1.2 } },
             { name: "Chain Lightning", cat: "control", glyph: "/\\/", icon: "chainLightning", color: "#00ffff", desc: "50% chance to arc lightning to nearby enemies", mults: { damage: 0.8, chainCount: 3, chainChance: 0.5 } },
             { name: "Orbital Drones", cat: "hybrid", glyph: "⟳", color: "#aa00ff", desc: "Adds one auto-firing drone", mults: { drones: true } },
             { name: "Homing Swarm", cat: "control", glyph: "⌖", color: "#00ffff", desc: "Projectiles lightly track targets", mults: { homing: true, homingStrength: 0.5 } },
             { name: "Gatling Array", cat: "offense", glyph: "▒", color: "#ff0000", desc: "Extremely fast, weak shots", mults: { damage: 0.35, fireRate: 3.0, inaccuracy: 0.0696 } },
             { name: "Boomerang Cross", cat: "control", glyph: "✚", color: "#77ffe7", desc: "Shots return once for a weaker second pass", mults: { damage: 0.82, fireRate: 0.82, speed: 0.88, pierceCount: 1, returning: true, returnAfter: 0.552 } },
-            { name: "Aegis Halo", cat: "hybrid", glyph: "☼", color: "#ffcf6d", desc: "Larger shots orbit close once, then launch from center", mults: { damage: 1.08, fireRate: 0.74, speed: 0.72, size: 1.89, hitbox: 0.68, orbitDelay: 0.68, orbitRadiusMult: 3, orbitReleaseCenter: true } },
-            { name: "Plasma Cloud", cat: "hybrid", glyph: "~", color: "#66f2ff", desc: "Piercing storm clouds grow, curve, and accelerate as they travel", mults: { damage: 0.85, fireRate: 0.28, speed: 0.25, size: 2.25, pierceCount: 999, hitbox: 1.12, plasmaCloud: true, cloudDotMult: 6.8, cloudStartScale: 0.28, cloudEndScale: 1.15, cloudGrowthDistance: 480, cloudSpeedStartScale: 0.42, cloudSpeedEndScale: 1.18, cloudAccelTime: 1.35, cloudCurveStrength: 52, cloudFadeTime: 0.5 } },
+            { name: "Aegis Halo", cat: "hybrid", glyph: "☼", color: "#ffcf6d", desc: "Larger shots orbit close once, then launch from center", mults: { damage: 1.14, fireRate: 0.82, speed: 0.92, size: 1.89, hitbox: 0.68, orbitDelay: 0.54, orbitRadiusMult: 2.65, orbitReleaseCenter: true } },
+            { name: "Plasma Cloud", cat: "hybrid", glyph: "~", color: "#66f2ff", desc: "Piercing storm clouds grow, curve, and accelerate as they travel", mults: { damage: 0.88, fireRate: 0.28, speed: 0.30, size: 2.25, pierceCount: 999, hitbox: 1.12, plasmaCloud: true, cloudDotMult: 6.8, cloudStartScale: 0.28, cloudEndScale: 1.15, cloudGrowthDistance: 510, cloudSpeedStartScale: 0.46, cloudSpeedEndScale: 1.18, cloudAccelTime: 1.35, cloudCurveStrength: 52, cloudFadeTime: 0.5 } },
             { name: "Explosive Torpedo", cat: "offense", glyph: "o", color: "#ffb347", desc: "Slow mini-bombs burst in a compact blast", mults: { damage: 1.4175, fireRate: 0.638, speed: 0.82, size: 1.25, hitbox: 0.82, miniTorpedo: true, torpedoExplosionRadius: 75.4, torpedoExplosionDamageMult: 0.85, torpedoRange: 520, splashVisualDebris: 8 } },
             { name: "Ricochet Rounds", cat: "control", glyph: "↯", color: "#9bf7ff", desc: "Shard shots ricochet off screen edges", mults: { damage: 1.0, fireRate: 0.9, speed: 0.9, ricochetCount: 1, ricochetDamageMult: 0.78 } },
-            { name: "Critical Circuit", cat: "offense", glyph: "✸", color: "#ff5e8a", desc: "Shots can surge for heavy critical damage", mults: { damage: 0.92, fireRate: 0.95, critChance: 0.18, critDamageMult: 2.5 } }
+            { name: "Critical Circuit", cat: "offense", glyph: "✸", color: "#ff5e8a", desc: "Shots can surge for heavy critical damage", mults: { damage: 0.92, fireRate: 0.95, critChance: 0.18, critDamageMult: 2.5 } },
+            { name: "Prism Splitter", cat: "hybrid", glyph: "<>", color: "#b6f7ff", desc: "Shots fork into weaker angled prism echoes", mults: { damage: 0.9, fireRate: 0.86, speed: 0.96, prismSplit: true, prismSplitDelay: 0.28, prismSplitAngle: 0.34, prismSplitDamageMult: 0.42, prismSplitSizeMult: 0.72, prismSplitSpeedMult: 0.92 } },
+            { name: "Phase Needle", cat: "control", glyph: ">|", color: "#82ffc8", desc: "Piercing hits sharpen shots for the next target", mults: { damage: 0.94, fireRate: 0.94, speed: 1.08, size: 0.9, pierceCount: 1, phaseNeedle: true, phaseDamageRamp: 1.16, phaseSpeedRamp: 1.04, phaseMaxStacks: 3 } }
         ];
 
         let weaponWeights = {};
         WEAPON_POOL.forEach(w => weaponWeights[w.name] = 1.0);
+
+        const WEAPON_ICON_PATTERNS = {
+            "Sphere Lightning": [{ char: 'O', x: 0, y: 0, size: 23 }, { char: '.', x: 0, y: 0, size: 10, color: '#ffffff' }],
+            "Laser Cannon": [{ char: '[', x: -5, y: 0, size: 20 }, { char: ']', x: 5, y: 0, size: 20 }, { char: '|', x: 0, y: 0, size: 24, color: '#ffffff' }],
+            "Ray Beam": [{ char: '|', x: -3, y: 0, size: 24 }, { char: '|', x: 3, y: 0, size: 24 }, { char: '.', x: 0, y: -8, size: 9, color: '#ffffff' }],
+            "Scatter Burst": [{ char: '.', x: -7, y: -7, size: 13 }, { char: '.', x: 7, y: -7, size: 13 }, { char: '.', x: 0, y: 6, size: 13, color: '#ffffff' }],
+            "Mortar Shells": [{ char: 'o', x: 0, y: -4, size: 20 }, { char: '_', x: 0, y: 7, size: 17, color: '#ffffff' }],
+            "Piercing Lance": [{ char: '^', x: 0, y: -8, size: 18 }, { char: '|', x: 0, y: 4, size: 23, color: '#ffffff' }],
+            "Burst Fire": [{ char: '|', x: -7, y: 0, size: 20 }, { char: '|', x: 0, y: 0, size: 22, color: '#ffffff' }, { char: '|', x: 7, y: 0, size: 20 }],
+            "Wave Cannon": [{ char: '~', x: -5, y: -2, size: 18 }, { char: '~', x: 6, y: 4, size: 18, color: '#ffffff' }],
+            "Chain Lightning": [{ char: '/', x: -8, y: -5, size: 20 }, { char: '\\', x: 0, y: 0, size: 20, color: '#ffffff' }, { char: '/', x: 8, y: 5, size: 20 }],
+            "Orbital Drones": [{ char: 'o', x: -8, y: 0, size: 14 }, { char: '.', x: 0, y: 0, size: 10, color: '#ffffff' }, { char: 'o', x: 8, y: 0, size: 14 }],
+            "Homing Swarm": [{ char: '<', x: -6, y: 0, size: 18 }, { char: 'o', x: 2, y: 0, size: 16, color: '#ffffff' }, { char: '>', x: 8, y: 0, size: 18 }],
+            "Gatling Array": [{ char: ':', x: -6, y: -1, size: 20 }, { char: ':', x: 5, y: 1, size: 20, color: '#ffffff' }],
+            "Boomerang Cross": [{ char: '<', x: -6, y: -2, size: 18 }, { char: '+', x: 4, y: 2, size: 18, color: '#ffffff' }],
+            "Aegis Halo": [{ char: 'O', x: 0, y: 0, size: 22 }, { char: '+', x: 0, y: 0, size: 14, color: '#ffffff' }],
+            "Plasma Cloud": [{ char: '~', x: -7, y: -3, size: 18 }, { char: '~', x: 5, y: 4, size: 18 }, { char: '.', x: 0, y: 0, size: 9, color: '#ffffff' }],
+            "Explosive Torpedo": [{ char: 'o', x: 0, y: 0, size: 20 }, { char: '*', x: 0, y: 0, size: 13, color: '#ffffff' }],
+            "Ricochet Rounds": [{ char: '<', x: -6, y: 0, size: 18 }, { char: '/', x: 1, y: 0, size: 18, color: '#ffffff' }, { char: '>', x: 8, y: 0, size: 18 }],
+            "Critical Circuit": [{ char: '*', x: 0, y: 0, size: 22 }, { char: '.', x: 0, y: 0, size: 9, color: '#ffffff' }],
+            "Prism Splitter": [{ char: '<', x: -6, y: 0, size: 19 }, { char: '>', x: 6, y: 0, size: 19 }, { char: '.', x: 0, y: 0, size: 9, color: '#ffffff' }],
+            "Phase Needle": [{ char: '>', x: -4, y: 0, size: 18 }, { char: '|', x: 5, y: 0, size: 22, color: '#ffffff' }]
+        };
+
+        function getWeaponIconPattern(powerup) {
+            if (!powerup) return null;
+            return WEAPON_ICON_PATTERNS[powerup.name] || null;
+        }
 
         function addPlayerDrone() {
             player.drones.push({ angle: 0, timer: 0 });
@@ -1027,6 +1097,14 @@
             if(m.path) s.pathFunction = m.path;
             if(m.sineAmplitude) s.sineAmplitudeMult *= scaleWeaponMultiplier(m.sineAmplitude, duplicateScale);
             if(m.mode) s.mode = m.mode;
+            if(m.burstFire) s.burstFire = true;
+            if(m.burstCount) {
+                if(s.burstCount === 1) s.burstCount = m.burstCount;
+                else s.burstCount += scaleWeaponAdditive(m.burstCount - 1, duplicateScale);
+            }
+            if(m.burstSpacing) s.burstSpacing = Math.min(s.burstSpacing || m.burstSpacing, m.burstSpacing);
+            if(m.burstAngleMin) s.burstAngleMin = Math.min(s.burstAngleMin || m.burstAngleMin, m.burstAngleMin);
+            if(m.burstAngleMax) s.burstAngleMax = Math.max(s.burstAngleMax || m.burstAngleMax, scaleWeaponAdditive(m.burstAngleMax, duplicateScale));
             if(m.rearFire) s.hasRearFire = true;
             if(m.rearFireEvery) s.rearFireEvery = Math.min(s.rearFireEvery || m.rearFireEvery, m.rearFireEvery);
             if(m.rearFireFan) s.rearFireFan += scaleWeaponAdditive(m.rearFireFan - 1, duplicateScale);
@@ -1065,6 +1143,16 @@
             if(m.critDamageMult) {
                 s.critDamageMult += scaleWeaponAdditive(m.critDamageMult - 1, duplicateScale);
             }
+            if(m.prismSplit) s.prismSplit = true;
+            if(m.prismSplitDelay) s.prismSplitDelay = Math.min(s.prismSplitDelay || m.prismSplitDelay, m.prismSplitDelay);
+            if(m.prismSplitAngle) s.prismSplitAngle = Math.max(s.prismSplitAngle || 0, scaleWeaponAdditive(m.prismSplitAngle, duplicateScale));
+            if(m.prismSplitDamageMult) s.prismSplitDamageMult = Math.max(s.prismSplitDamageMult || 0, scaleWeaponMultiplier(m.prismSplitDamageMult, duplicateScale));
+            if(m.prismSplitSizeMult) s.prismSplitSizeMult = Math.min(s.prismSplitSizeMult || 1, scaleWeaponMultiplier(m.prismSplitSizeMult, duplicateScale));
+            if(m.prismSplitSpeedMult) s.prismSplitSpeedMult = Math.max(s.prismSplitSpeedMult || 1, scaleWeaponMultiplier(m.prismSplitSpeedMult, duplicateScale));
+            if(m.phaseNeedle) s.phaseNeedle = true;
+            if(m.phaseDamageRamp) s.phaseDamageRamp = Math.max(s.phaseDamageRamp || 1, scaleWeaponMultiplier(m.phaseDamageRamp, duplicateScale));
+            if(m.phaseSpeedRamp) s.phaseSpeedRamp = Math.max(s.phaseSpeedRamp || 1, scaleWeaponMultiplier(m.phaseSpeedRamp, duplicateScale));
+            if(m.phaseMaxStacks) s.phaseMaxStacks = Math.max(s.phaseMaxStacks || 1, scaleWeaponAdditive(m.phaseMaxStacks, duplicateScale));
         }
 
         function applyWeaponStatGuardrails() {
@@ -1077,6 +1165,7 @@
             s.splashRadius = Math.min(s.splashRadius || 0, g.maxSplashRadius);
             s.torpedoExplosionRadius = Math.min(s.torpedoExplosionRadius || 0, g.maxTorpedoExplosionRadius);
             s.pelletCount = Math.round(Math.max(1, Math.min(s.pelletCount || 1, g.maxPelletCount)));
+            s.burstCount = Math.round(Math.max(1, Math.min(s.burstCount || 1, g.maxBurstCount)));
             s.rearFireFan = Math.round(Math.max(1, Math.min(s.rearFireFan || 1, g.maxRearFireFan)));
             s.pierceCount = Math.round(s.pierceCount || 0);
             s.chainCount = Math.round(Math.min(s.chainCount || 0, g.maxChainCount));
@@ -1084,6 +1173,23 @@
             s.ricochetCount = Math.round(Math.max(0, Math.min(s.ricochetCount || 0, g.maxRicochetCount)));
             s.critChance = clampValue(s.critChance || 0, 0, g.maxCritChance);
             s.critDamageMult = clampValue(s.critDamageMult || 1, 1, g.maxCritDamageMult);
+            s.phaseMaxStacks = Math.round(Math.max(1, Math.min(s.phaseMaxStacks || 3, g.maxPhaseStacks)));
+
+            if (s.plasmaCloud) {
+                s.speedMult = Math.max(s.speedMult, s.orbitDelay > 0 ? 0.38 : 0.30);
+                s.cloudSpeedStartScale = Math.max(s.cloudSpeedStartScale || 0.46, s.orbitDelay > 0 ? 0.58 : 0.46);
+                s.cloudEndScale = Math.max(s.cloudEndScale || 1, s.orbitDelay > 0 ? 1.22 : 1.15);
+                if (s.orbitDelay > 0) {
+                    s.orbitDelay = Math.min(s.orbitDelay, 0.42);
+                    s.damageMult = Math.max(s.damageMult, 0.82);
+                }
+            }
+            if (s.orbitDelay > 0 && s.speedMult < 0.55) {
+                s.speedMult = 0.55;
+            }
+            if (s.pathFunction === 'parabolic' && s.speedMult < 0.32) {
+                s.speedMult = 0.32;
+            }
         }
 
         function rebuildPlayerWeaponStats() {

@@ -100,9 +100,11 @@
         function getEnemyShipCollisionBoxes(target) {
             const profile = ENEMY_SHIP_VISUAL_PROFILES[target.enemyShipKind] || ENEMY_SHIP_VISUAL_PROFILES.base;
             const visualScale = Math.max(0.85, Math.min(1.24, target.enemyShipVisualScale || 1));
-            const bodySize = profile.bodySize * visualScale;
-            const thrusterSize = profile.thrusterSize * visualScale;
-            const spread = profile.spread * visualScale;
+            const bodySize = (profile.collisionBodySize || profile.bodySize) * visualScale;
+            const thrusterSize = (profile.collisionThrusterSize || profile.thrusterSize || profile.wingSize || profile.bodySize * 0.55) * visualScale;
+            const spread = (profile.collisionSpread || profile.spread || (profile.tier >= 3 ? 11.5 : 9.5)) * visualScale;
+            const thrusterY = profile.collisionThrusterY ?? profile.thrusterY ?? -8.5;
+            const bodyY = profile.collisionBodyY ?? profile.bodyY ?? 4;
             const x = target.x;
             const y = target.y;
             const boxes = [];
@@ -118,22 +120,22 @@
 
             const thrusterOffsets = profile.tier >= 3 ? [-spread, 0, spread] : [-spread, spread];
             for (let i = 0; i < thrusterOffsets.length; i++) {
-                addBox(x + thrusterOffsets[i], y + profile.thrusterY * visualScale, thrusterSize, 0.3, 0.34);
+                addBox(x + thrusterOffsets[i], y + thrusterY * visualScale, thrusterSize, 0.3, 0.34);
             }
 
-            addBox(x, y + profile.bodyY * visualScale, bodySize, 0.34, 0.38);
+            addBox(x, y + bodyY * visualScale, bodySize, 0.34, 0.38);
             if (profile.tier >= 2) {
                 const armorSize = bodySize * 0.42;
-                addBox(x - 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, 0.34, 0.36);
-                addBox(x + 9.5 * visualScale, y + (profile.bodyY + 1.5) * visualScale, armorSize, 0.34, 0.36);
-                addBox(x, y + (profile.bodyY + 0.5) * visualScale, bodySize * 0.34, 0.36, 0.36);
+                addBox(x - 9.5 * visualScale, y + (bodyY + 1.5) * visualScale, armorSize, 0.34, 0.36);
+                addBox(x + 9.5 * visualScale, y + (bodyY + 1.5) * visualScale, armorSize, 0.34, 0.36);
+                addBox(x, y + (bodyY + 0.5) * visualScale, bodySize * 0.34, 0.36, 0.36);
             } else {
-                addBox(x - 3 * visualScale, y + (profile.bodyY - 2) * visualScale, bodySize * 0.42, 0.3, 0.32);
+                addBox(x - 3 * visualScale, y + (bodyY - 2) * visualScale, bodySize * 0.42, 0.3, 0.32);
             }
             if (profile.tier >= 3) {
-                addBox(x, y + (profile.bodyY + 8) * visualScale, bodySize * 0.32, 0.34, 0.34);
-                addBox(x - 13 * visualScale, y + (profile.bodyY - 3) * visualScale, bodySize * 0.24, 0.3, 0.32);
-                addBox(x + 13 * visualScale, y + (profile.bodyY - 3) * visualScale, bodySize * 0.24, 0.3, 0.32);
+                addBox(x, y + (bodyY + 8) * visualScale, bodySize * 0.32, 0.34, 0.34);
+                addBox(x - 13 * visualScale, y + (bodyY - 3) * visualScale, bodySize * 0.24, 0.3, 0.32);
+                addBox(x + 13 * visualScale, y + (bodyY - 3) * visualScale, bodySize * 0.24, 0.3, 0.32);
             }
 
             return boxes;
@@ -603,7 +605,7 @@
             const frontOrigin = getPlayerWeaponOrigin(layout, false);
             const rearOrigin = getPlayerWeaponOrigin(layout, true);
 
-            function spawnBullet(x, y, vx, vy, isRear) {
+            function spawnBullet(x, y, vx, vy, isRear, options = {}) {
                 let pdmg = isRear ? baseDmg * 1.25 : baseDmg;
                 const projectileStats = { ...s };
                 const launchAngle = Math.atan2(vy, vx);
@@ -613,6 +615,7 @@
                 const projectileSpeed = Math.hypot(vx, vy);
                 const isPlasmaCloud = !!projectileStats.plasmaCloud;
                 const isMiniTorpedo = !!projectileStats.miniTorpedo;
+                const isBurstRound = !!options.isBurstRound && !isPlasmaCloud && !isMiniTorpedo && !projectileStats.lightningBall;
                 const orbitSpin = isRear ? -9.5 : 9.5;
                 const projectileLife = orbiting ? Math.max(2.45, orbitDelay + 1.55) : (isPlasmaCloud ? 2.5 : (isMiniTorpedo ? 1.6 : 2.0));
                 if (isPlasmaCloud && projectileStats.critChance > 0) {
@@ -625,8 +628,8 @@
                     && !projectileStats.lightningBall && !isPlasmaCloud && !isMiniTorpedo
                     && s.pathFunction !== 'parabolic' && s.pathFunction !== 'sine'
                     && !orbiting && !returning;
-                const baseSprite = projectileStats.lightningBall || isPlasmaCloud ? '' : (isMiniTorpedo ? 'o' : (s.pathFunction === 'parabolic' ? '◓' : (orbiting ? '☼' : (returning ? '✚' : (isRicochetShard ? '◇' : '|')))));
-                const baseColor = isPlasmaCloud ? '#66f2ff' : (isMiniTorpedo ? '#ffb347' : (projectileStats.lightningBall ? '#8ff7ff' : (orbiting ? '#ffcf6d' : (returning ? '#77ffe7' : (isRicochetShard ? '#9bf7ff' : '#ffffff')))));
+                const baseSprite = projectileStats.lightningBall || isPlasmaCloud ? '' : (isMiniTorpedo ? 'o' : (s.pathFunction === 'parabolic' ? '◓' : (orbiting ? '☼' : (returning ? '✚' : (isRicochetShard ? '◇' : (isBurstRound ? '!' : '|'))))));
+                const baseColor = isPlasmaCloud ? '#66f2ff' : (isMiniTorpedo ? '#ffb347' : (projectileStats.lightningBall ? '#8ff7ff' : (orbiting ? '#ffcf6d' : (returning ? '#77ffe7' : (isRicochetShard ? '#9bf7ff' : (isBurstRound ? '#dcb6ff' : '#ffffff'))))));
                 comboProjectiles.push({
                     x, y,
                     vx: orbiting ? 0 : vx,
@@ -641,6 +644,8 @@
                     maxLife: projectileLife,
                     damage: pdmg,
                     isCrit,
+                    isBurstRound,
+                    releaseDelay: options.releaseDelay || 0,
                     isRicochetShard,
                     bouncesUsed: 0,
                     pierceHits: [],
@@ -671,9 +676,22 @@
 
             const angles = getFirePatternAngles(s, baseAngle);
 
+            const burstCount = s.burstFire ? Math.max(1, Math.floor(s.burstCount || 3)) : 1;
+            const burstSpacing = s.burstSpacing || 0.045;
+            const burstMin = s.burstAngleMin || 0.017;
+            const burstMax = Math.max(burstMin, s.burstAngleMax || 0.052);
+
             for (let a of angles) {
-                let aSpread = a + (Math.random() - 0.5) * s.inaccuracy;
-                spawnBullet(frontOrigin.x, frontOrigin.y, Math.cos(aSpread) * speed, Math.sin(aSpread) * speed, false);
+                for (let burstIndex = 0; burstIndex < burstCount; burstIndex++) {
+                    const burstJitter = s.burstFire
+                        ? (burstMin + Math.random() * (burstMax - burstMin)) * (Math.random() < 0.5 ? -1 : 1)
+                        : 0;
+                    let aSpread = a + burstJitter + (Math.random() - 0.5) * s.inaccuracy;
+                    spawnBullet(frontOrigin.x, frontOrigin.y, Math.cos(aSpread) * speed, Math.sin(aSpread) * speed, false, {
+                        isBurstRound: s.burstFire,
+                        releaseDelay: s.burstFire ? burstIndex * burstSpacing : 0
+                    });
+                }
             }
 
             const rearEvery = Math.max(1, Math.floor(s.rearFireEvery || 2));
@@ -740,6 +758,7 @@
             fpVX = new Float32Array(size); fpVY = new Float32Array(size);
             fpChar = new Uint8Array(size); fpColor = new Uint8Array(size);
             fpAlpha = new Float32Array(size); fpHighlight = new Float32Array(size);
+            fpDepth = new Float32Array(size); fpWobblePhase = new Float32Array(size); fpTwinkle = new Float32Array(size);
         }
 
         function resize() {
@@ -827,11 +846,16 @@
             for (let y = -1; y <= rows; y++) {
                 for (let x = -1; x <= cols; x++) {
                     if (i >= numParticles) break;
-                    fpHX[i] = x * CELL_SIZE; fpHY[i] = y * CELL_SIZE;
+                    const depth = 0.22 + Math.random() * 0.78;
+                    fpHX[i] = x * CELL_SIZE + (Math.random() - 0.5) * CELL_SIZE * 0.64;
+                    fpHY[i] = y * CELL_SIZE + (Math.random() - 0.5) * CELL_SIZE * 0.64;
                     fpX[i] = fpHX[i]; fpY[i] = fpHY[i];
                     fpChar[i] = Math.floor(Math.random() * PARTICLE_CHARS.length);
-                    fpColor[i] = Math.floor(Math.random() * 4);
-                    fpAlpha[i] = 0.2 + Math.random() * 0.4;
+                    fpColor[i] = Math.random() < 0.08 ? 1 : 0;
+                    fpDepth[i] = depth;
+                    fpAlpha[i] = 0.10 + depth * 0.34 + Math.random() * 0.12;
+                    fpWobblePhase[i] = Math.random() * Math.PI * 2;
+                    fpTwinkle[i] = Math.random() * Math.PI * 2;
                     fpHighlight[i] = 0;
                     i++;
                 }
@@ -865,8 +889,12 @@
                         const dSq = dx * dx + dy * dy;
                         if (dSq < rSq && dSq > 0.1) {
                             const dist = Math.sqrt(dSq);
-                            const force = (1 - dist / radius) * forceAmt;
+                            const influence = 1 - dist / radius;
+                            const depth = fpDepth ? fpDepth[idx] || 1 : 1;
+                            const force = influence * forceAmt * FIELD_WAKE_FORCE_SCALE * (0.28 + depth * 0.72);
                             fpVX[idx] += (dx / dist) * force; fpVY[idx] += (dy / dist) * force;
+                            const brighten = influence * Math.min(FIELD_HIGHLIGHT_MAX, FIELD_WAKE_HIGHLIGHT_BASE + forceAmt * FIELD_WAKE_HIGHLIGHT_SCALE);
+                            fpHighlight[idx] = Math.min(FIELD_HIGHLIGHT_MAX, Math.max(fpHighlight[idx], brighten));
                         }
                     }
                 }

@@ -191,7 +191,7 @@
                 flyByCollisionY: flyByConfig.collisionY || 26,
                 flyByShotThresholds: (flyByConfig.shotThresholds || []).slice(),
                 flyByShotsFired: 0,
-                pathType: 'flyby', lifeTime: -index * (flyByConfig.isScout ? 0.34 : 0.45), speedMult: flyByConfig.speed,
+                pathType: 'flyby', lifeTime: -index * (flyByConfig.isScout ? 0.34 : 0.45), speedMult: (flyByConfig.speed || 1) * 0.9,
                 startX, startY, controlX, controlY, endX, endY, routeDuration: flyByConfig.isScout ? 2.25 : 2.6,
                 waveFormationId: 0, waveFormationResolved: true,
                 flyByDropType: flyByConfig.isScout ? null : 'health'
@@ -337,11 +337,11 @@
             if (!enemy || !enemy.onScreen) return;
 
             const aimAngle = getNonBossEnemyAimAngle(enemy.x, enemy.y);
-            const color = enemy.remasterFireColor || enemy.color || '#ff00ff';
+            const color = enemy.enemyBulletColor || enemy.remasterFireColor || enemy.enemyShipBodyColor || enemy.color || '#ff8fd8';
 
             if (enemy.remasterFirePattern === 'aimedPulse') {
                 const shot = getNonBossEnemyShotVector(enemy.x, enemy.y, 245);
-                pushRemasterEnemyBullet(enemy.x, enemy.y, shot.angle, shot.speed, 'o', color);
+                pushRemasterEnemyBullet(enemy.x, enemy.y, shot.angle, shot.speed, '\u25cb', color);
             } else if (enemy.remasterFirePattern === 'downFan') {
                 for (const offset of [-0.28, 0, 0.28]) {
                     pushRemasterEnemyBullet(enemy.x, enemy.y, Math.PI / 2 + offset, 225, '.', color);
@@ -821,13 +821,13 @@
             activeFormationId: 0,
             pendingFormationUnits: 0,
             waves: [
-                { count: 9, color: '#ff00ff', type: 'zig1', speed: 0.9, stagger: 0.72 }, // Wave 1
-                { count: 12, color: '#00ffff', type: 'wave3', speed: 0.704, stagger: 0.7 }, // Wave 2
-                { count: 11, color: '#ff0088', type: 'wave2', speed: 0.9, stagger: 0.68 }, // Wave 3
-                { count: 13, color: '#ff00ff', type: 'wave4', speed: 0.82, stagger: 0.74, firePattern: 'downFan', fireEveryNth: 6, fireInterval: 2.9 }, // Wave 4
+                { count: 9, color: '#ff00ff', type: 'zig1', speed: 0.72, stagger: 0.72 }, // Wave 1
+                { count: 12, color: '#00ffff', type: 'wave3', speed: 0.5632, stagger: 0.7 }, // Wave 2
+                { count: 11, color: '#ff0088', type: 'wave2', speed: 0.63, stagger: 0.68, reversePath: true }, // Wave 3
+                { count: 13, color: '#ff00ff', type: 'wave4', speed: 0.656, stagger: 0.74, alternateSideSpawn: true, firePattern: 'downFan', fireEveryNth: 6, fireInterval: 2.9 }, // Wave 4
                 { isBoss: true, name: 'NULL PHANTOM', sprite: NULL_PHANTOM_SOURCE, hp: 1000 }, // Wave 5
-                { count: 14, color: '#ff0088', type: 'wave6', speed: 0.66, stagger: 0.68, elite: true, firePattern: 'downFan', fireEveryNth: 5, fireInterval: 2.8 }, // Wave 6
-                { count: 12, color: '#00ffff', type: 'wave7', speed: 0.82, stagger: 0.36, elite: true, firePattern: 'aimedPulse', fireEveryNth: 4, fireInterval: 2.6 }, // Wave 7
+                { count: 18, color: '#ff0088', type: 'wave6', speed: 0.726, stagger: 0.68, elite: true, firePattern: 'downFan', fireEveryNth: 5, fireInterval: 2.8 }, // Wave 6
+                { count: 12, color: '#00ffff', type: 'wave7', speed: 0.656, stagger: 0.36, elite: true, firePattern: 'aimedPulse', fireEveryNth: 4, fireInterval: 2.6 }, // Wave 7
                 { count: 12, color: '#ff00ff', type: 'wave8', speed: 0.72, stagger: 2.25, elite: true, firePattern: 'aimedPulse', fireEveryNth: 4, fireInterval: 3.0 }, // Wave 8
                 { count: 14, color: '#ff0088', type: 'wave9', speed: 0.95, stagger: 0.34, firePattern: 'splitFan', fireEveryNth: 5, fireInterval: 2.7 }, // Wave 9
                 { isBoss: true, name: 'DISTORTED GLITCH', sprite: GLITCH_SPRITE_1, hp: 1300 }, // Wave 10
@@ -1065,6 +1065,7 @@
                         else if (w.type === 'wave9') path = buildWaveNineReturnPath();
                         else if (w.type === 'snake') path = buildSnakeLoopPath();
 
+                        if (path && w.reversePath) path = path.map(point => ({ x: 1 - point.x, y: point.y }));
                         if (path) path = applySignalDriftToPath(cloneWavePath(path), signalDrift);
                         if (pathA) pathA = applySignalDriftToPath(cloneWavePath(pathA), signalDrift);
                         if (pathB) pathB = applySignalDriftToPath(cloneWavePath(pathB), signalDrift);
@@ -1105,7 +1106,7 @@
                             if (w.type === 'wave8') {
                                 pathT = -i * stagger;
                             } else if (pathA && pathB) {
-                                pathT = -Math.floor(i / 2) * stagger;
+                                pathT = w.alternateSideSpawn ? -i * stagger : -Math.floor(i / 2) * stagger;
                             } else if (w.type === 'wave7') {
                                 pathT = -i * stagger;
                             } else if (w.type === 'wave9') {
