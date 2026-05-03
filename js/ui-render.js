@@ -172,6 +172,7 @@
             const glint = Math.sin(phase * 1.7) > 0.2;
             const x = truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET);
             const y = truncateSpriteCoord(b.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET);
+            drawFocusBulletTrailGlyph(b, '\u25cb', color, `bold 21px Courier New`, 0.82);
 
             ctx.save();
             ctx.translate(x, y);
@@ -206,6 +207,21 @@
 
         function getProjectileRenderAngle(b) {
             return Math.atan2(b.vy || 0, b.vx || 1);
+        }
+
+        function getPlayerProjectileGlyphRotation(p) {
+            let dx = 0;
+            let dy = 0;
+            if (Number.isFinite(p.prevX) && Number.isFinite(p.prevY)) {
+                dx = p.x - p.prevX;
+                dy = p.y - p.prevY;
+            }
+            if (Math.hypot(dx, dy) < 0.001) {
+                dx = Number.isFinite(p.baseVx) ? p.baseVx : (Number.isFinite(p.vx) ? p.vx : 0);
+                dy = Number.isFinite(p.baseVy) ? p.baseVy : (Number.isFinite(p.vy) ? p.vy : -1);
+            }
+            if (Math.hypot(dx, dy) < 0.001) return 0;
+            return Math.atan2(dy, dx) + Math.PI / 2;
         }
 
         function drawBossGlyphLayer(char, fontSize, color, x = 0, y = 0, alpha = 1) {
@@ -337,6 +353,16 @@
             const allowGlow = glowEnabled && load <= BOSS_PROJECTILE_GLOW_LIMIT && !b.isPhantomBullet;
             const allowCore = !!style.core && load <= (b.isPhantomBullet ? 12 : BOSS_PROJECTILE_CORE_LIMIT);
             const sprite = getBossProjectileSprite(style, allowGlow, allowCore);
+            const focusTrail = getFocusTrailIntensity();
+            if (focusTrail > 0.035) {
+                for (let layer = 2; layer >= 1; layer--) {
+                    const offset = getFocusTrailOffset(b, layer, 0.024);
+                    ctx.save();
+                    ctx.globalAlpha = focusTrail * (layer === 2 ? 0.09 : 0.15);
+                    ctx.drawImage(sprite.canvas, x + offset.x - sprite.cx, y + offset.y - sprite.cy);
+                    ctx.restore();
+                }
+            }
             ctx.drawImage(sprite.canvas, x - sprite.cx, y - sprite.cy);
             ctx.shadowBlur = 0;
             return true;
@@ -758,6 +784,57 @@
             ctx.fillText(powerup ? powerup.glyph : '', x, y);
         }
 
+        function drawPauseHudPanel(x, y, w, h, accentColor = currentThemeColor, selected = false, options = {}) {
+            const {
+                rail = true,
+                inner = true,
+                fillAlpha = selected ? 0.72 : 0.58,
+                borderAlpha = selected ? 0.76 : 0.42,
+                edgeWashAlpha = selected ? 0.012 : 0.008,
+                innerSheenAlpha = selected ? 0.006 : 0.004,
+                flatFill = false
+            } = options;
+            let panelFill = `rgba(2, 8, 14, ${fillAlpha})`;
+            if (!flatFill) {
+                panelFill = ctx.createLinearGradient(x, 0, x + w, 0);
+                panelFill.addColorStop(0, colorWithAlpha(accentColor, edgeWashAlpha));
+                panelFill.addColorStop(0.48, `rgba(2, 8, 14, ${fillAlpha})`);
+                panelFill.addColorStop(1, `rgba(2, 8, 14, ${Math.max(0.28, fillAlpha - 0.2)})`);
+            }
+
+            ctx.save();
+            ctx.fillStyle = panelFill;
+            ctx.fillRect(x | 0, y | 0, w | 0, h | 0);
+            ctx.fillStyle = colorWithAlpha('#ffffff', innerSheenAlpha);
+            ctx.fillRect((x + 4) | 0, (y + 4) | 0, Math.max(0, w - 8) | 0, Math.max(0, h - 8) | 0);
+
+            if (glowEnabled) {
+                ctx.shadowColor = accentColor;
+                ctx.shadowBlur = selected ? 13 : 6;
+            }
+            ctx.strokeStyle = colorWithAlpha(accentColor, borderAlpha);
+            ctx.lineWidth = selected ? 2 : 1;
+            ctx.strokeRect((x + 0.5) | 0, (y + 0.5) | 0, w | 0, h | 0);
+            ctx.shadowBlur = 0;
+
+            if (inner && w > 12 && h > 12) {
+                ctx.strokeStyle = colorWithAlpha(accentColor, selected ? 0.22 : 0.11);
+                ctx.lineWidth = 1;
+                ctx.strokeRect((x + 5.5) | 0, (y + 5.5) | 0, Math.max(0, w - 11) | 0, Math.max(0, h - 11) | 0);
+            }
+            if (rail && h > 14) {
+                ctx.fillStyle = colorWithAlpha(accentColor, selected ? 0.42 : 0.28);
+                ctx.fillRect((x + 1) | 0, (y + 6) | 0, 2, Math.max(0, h - 12) | 0);
+                if (glowEnabled) {
+                    ctx.shadowColor = accentColor;
+                    ctx.shadowBlur = selected ? 4 : 2;
+                    ctx.fillRect((x + 1) | 0, (y + 6) | 0, 2, Math.max(0, h - 12) | 0);
+                    ctx.shadowBlur = 0;
+                }
+            }
+            ctx.restore();
+        }
+
         function drawPausePowerupDetail(powerup, panelX, panelY, panelW) {
             if (!powerup) return;
             const panelH = 76;
@@ -765,26 +842,23 @@
             ctx.save();
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.66)';
-            ctx.fillRect(panelX, panelY, panelW, panelH);
-            ctx.strokeStyle = powerup.color;
-            ctx.lineWidth = 1.5;
-            if (glowEnabled) {
-                ctx.shadowColor = powerup.color;
-                ctx.shadowBlur = 10;
-            }
-            ctx.strokeRect(panelX, panelY, panelW, panelH);
-            ctx.shadowBlur = 0;
+            drawPauseHudPanel(panelX, panelY, panelW, panelH, powerup.color, true, {
+                fillAlpha: 0.78,
+                borderAlpha: 0.76,
+                rail: false,
+                edgeWashAlpha: 0.006,
+                innerSheenAlpha: 0.003
+            });
 
-            ctx.fillStyle = powerup.color;
+            ctx.fillStyle = mixColor(powerup.color, '#ffffff', 0.18);
             ctx.font = `bold 14px 'Electrolize', sans-serif`;
             ctx.fillText(powerup.name, panelX + 12, panelY + 9);
 
-            ctx.fillStyle = 'rgba(190, 230, 255, 0.78)';
+            ctx.fillStyle = colorWithAlpha(mixColor(powerup.color, '#ffffff', 0.46), 0.82);
             ctx.font = `bold 10px Courier New`;
             ctx.fillText(powerup.cat.toUpperCase(), panelX + 12, panelY + 29);
 
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = 'rgba(226, 240, 255, 0.92)';
             ctx.font = `12px 'Electrolize', sans-serif`;
             const descLines = wrapPauseText(powerup.desc, panelW - 24, 2);
             for (let i = 0; i < descLines.length; i++) {
@@ -822,16 +896,16 @@
             ctx.textBaseline = 'middle';
             ctx.lineJoin = 'round';
 
-            ctx.strokeStyle = '#000000';
-            ctx.shadowColor = '#000000';
-            ctx.globalAlpha = selected ? 0.98 : 0.58;
-            ctx.shadowBlur = selected ? 36 : 20;
-            ctx.lineWidth = selected ? 16 : 10;
+            ctx.strokeStyle = 'rgba(2, 8, 14, 0.88)';
+            ctx.shadowColor = 'rgba(2, 8, 14, 0.9)';
+            ctx.globalAlpha = selected ? 0.82 : 0.42;
+            ctx.shadowBlur = selected ? 24 : 10;
+            ctx.lineWidth = selected ? 10 : 6;
             ctx.strokeText(text, x | 0, y | 0);
 
-            ctx.globalAlpha = selected ? 0.92 : 0.38;
-            ctx.shadowBlur = selected ? 16 : 8;
-            ctx.lineWidth = selected ? 8 : 5;
+            ctx.globalAlpha = selected ? 0.72 : 0.28;
+            ctx.shadowBlur = selected ? 10 : 4;
+            ctx.lineWidth = selected ? 5 : 3;
             ctx.strokeText(text, x | 0, y | 0);
 
             ctx.globalAlpha = 1;
@@ -1118,6 +1192,139 @@
             ctx.shadowBlur = 0;
         }
 
+        function getFocusTrailIntensity() {
+            return typeof getFocusDriveRenderIntensity === 'function' ? getFocusDriveRenderIntensity() : 0;
+        }
+
+        function getFocusTrailOffset(obj, layer, amount = 0.034) {
+            const intensity = getFocusTrailIntensity();
+            const vx = obj && Number.isFinite(obj.vx) ? obj.vx : 0;
+            const vy = obj && Number.isFinite(obj.vy) ? obj.vy : 0;
+            const rawX = -vx * amount * layer * intensity;
+            const rawY = -vy * amount * layer * intensity;
+            const cap = 30 + layer * 18;
+            const mag = Math.hypot(rawX, rawY);
+            if (mag > cap && mag > 0) {
+                const scale = cap / mag;
+                return { x: rawX * scale, y: rawY * scale };
+            }
+            return { x: rawX, y: rawY };
+        }
+
+        function drawFocusBulletTrailGlyph(b, char, color, font, alphaScale = 1) {
+            const intensity = getFocusTrailIntensity();
+            if (intensity <= 0.035 || !b) return;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = font;
+            ctx.fillStyle = colorWithAlpha(color || '#ffffff', 0.82);
+            ctx.shadowBlur = 0;
+            for (let layer = 2; layer >= 1; layer--) {
+                const offset = getFocusTrailOffset(b, layer, 0.026);
+                ctx.globalAlpha = intensity * alphaScale * (layer === 2 ? 0.11 : 0.18);
+                ctx.fillText(
+                    char,
+                    truncateSpriteCoord((b.x || 0) + offset.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
+                    truncateSpriteCoord((b.y || 0) + offset.y, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET)
+                );
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+        }
+
+        function drawFocusEnemyTrail(e, flashColor = null) {
+            const intensity = getFocusTrailIntensity();
+            if (intensity <= 0.04 || !e || !e.sprite || e.sprite.length === 0) return;
+            const trailColor = flashColor || e.enemyShipGlowColor || e.enemyShipBodyColor || e.color || currentThemeColor;
+            for (let layer = 2; layer >= 1; layer--) {
+                const offset = getFocusTrailOffset(e, layer, 0.024);
+                ctx.save();
+                ctx.globalAlpha *= intensity * (layer === 2 ? 0.10 : 0.16);
+                ctx.translate(offset.x, offset.y);
+                ctx.shadowBlur = 0;
+                if (e.enemyShipSprite) {
+                    drawEnemyShipSprite(e, colorWithAlpha(trailColor, 0.85));
+                } else if (e.isFlyBy) {
+                    const flyByScale = e.flyByScale || 1.55;
+                    const localX = -(e.sprite[0].length * charW) / 2;
+                    const localY = -(e.sprite.length * charH) / 2;
+                    ctx.translate(snapSpriteCoord(e.x), snapSpriteCoord(e.y));
+                    ctx.scale(flyByScale, flyByScale);
+                    ctx.font = `bold 20px Courier New`;
+                    drawAsciiSprite(e.sprite, localX, localY, colorWithAlpha(trailColor, 0.78));
+                } else {
+                    const renderScale = e.renderScale || 1;
+                    const localX = -(e.sprite[0].length * charW) / 2;
+                    const localY = -(e.sprite.length * charH) / 2;
+                    ctx.translate(snapSpriteCoord(e.x), snapSpriteCoord(e.y));
+                    if (renderScale !== 1) ctx.scale(renderScale, renderScale);
+                    ctx.font = `bold 20px Courier New`;
+                    drawAsciiSprite(e.sprite, localX, localY, colorWithAlpha(trailColor, 0.78));
+                }
+                ctx.restore();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function drawFocusBossTrail(bossObj) {
+            const intensity = getFocusTrailIntensity();
+            if (intensity <= 0.04 || !bossObj || !bossObj.sprite || bossObj.sprite.length === 0) return;
+            const scale = bossObj.name === 'OVERHEATING FIREWALL'
+                ? FIREWALL_BOSS_RENDER_SCALE
+                : (bossObj.isBattleStarship ? (bossObj.renderScale || 0.55) : (bossObj.renderScale || 1));
+            const color = bossObj.flashTimer > 0 ? '#ffffff' : (bossObj.color || currentThemeColor);
+            for (let layer = 2; layer >= 1; layer--) {
+                const offset = getFocusTrailOffset(bossObj, layer, 0.018);
+                const bSX = -(bossObj.sprite[0].length * charW) / 2;
+                const bSY = -(bossObj.sprite.length * charH) / 2;
+                ctx.save();
+                ctx.globalAlpha *= intensity * (layer === 2 ? 0.08 : 0.13);
+                ctx.translate(snapSpriteCoord(bossObj.x + offset.x), snapSpriteCoord(bossObj.y + offset.y));
+                if (scale !== 1) ctx.scale(scale, scale);
+                ctx.font = `bold 20px Courier New`;
+                ctx.shadowBlur = 0;
+                drawAsciiSprite(bossObj.sprite, bSX, bSY, colorWithAlpha(color, 0.75));
+                ctx.restore();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function drawFocusTimeWarpOverlay(renderNow, foreground = false) {
+            const intensity = getFocusTrailIntensity();
+            if (intensity <= 0.025) return;
+            ctx.save();
+            ctx.globalCompositeOperation = foreground ? 'screen' : 'source-over';
+            const playfieldH = height - HUD_HEIGHT;
+            if (!foreground) {
+                ctx.globalAlpha = 0.05 * intensity;
+                ctx.fillStyle = '#68ff9a';
+                ctx.fillRect(0, 0, width, playfieldH);
+                ctx.globalAlpha = 0.09 * intensity;
+                ctx.strokeStyle = colorWithAlpha('#9effc1', 0.6);
+                ctx.lineWidth = 1;
+                for (let y = ((renderNow * 0.055) % 44) - 44; y < playfieldH; y += 44) {
+                    const wobbleX = Math.sin(renderNow * 0.004 + y * 0.018) * 7 * intensity;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(width * 0.34 + wobbleX, y + 2);
+                    ctx.lineTo(width * 0.68 - wobbleX, y - 2);
+                    ctx.lineTo(width, y);
+                    ctx.stroke();
+                }
+            } else {
+                ctx.globalAlpha = 0.06 * intensity;
+                ctx.fillStyle = '#caffda';
+                for (let x = ((renderNow * 0.028) % 96) - 96; x < width; x += 96) {
+                    const topDrift = Math.sin(renderNow * 0.003 + x * 0.04) * 18 * intensity;
+                    ctx.fillRect(x + topDrift, 0, 1, playfieldH);
+                }
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
         function drawPauseMenuShipCursor(target) {
             const cursor = updatePauseMenuShipCursor(target, currentFrameNow);
             if (!cursor) return;
@@ -1176,26 +1383,18 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.66)';
-            ctx.fillRect(panelX, panelY, panelW, panelH);
-            if (glowEnabled) {
-                ctx.shadowColor = focused ? currentThemeColor : '#ffffff';
-                ctx.shadowBlur = focused ? 11 : 5;
-            }
-            ctx.strokeStyle = focused ? colorWithAlpha(currentThemeColor, 0.72) : 'rgba(255,255,255,0.22)';
-            ctx.lineWidth = focused ? 2 : 1;
-            ctx.strokeRect(panelX, panelY, panelW, panelH);
-            ctx.shadowBlur = 0;
-            if (glowEnabled) {
-                ctx.shadowColor = focused ? currentThemeColor : '#ffffff';
-                ctx.shadowBlur = focused ? 12 : 8;
-            }
-            ctx.strokeStyle = focused ? colorWithAlpha(currentThemeColor, 0.18) : 'rgba(255,255,255,0.08)';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(panelX + 5, panelY + 5, panelW - 10, panelH - 10);
-            ctx.shadowBlur = 0;
+            drawPauseHudPanel(panelX, panelY, panelW, panelH, currentThemeColor, focused, {
+                fillAlpha: focused ? 0.78 : 0.72,
+                borderAlpha: focused ? 0.78 : 0.5,
+                rail: true,
+                edgeWashAlpha: focused ? 0.008 : 0.005,
+                innerSheenAlpha: focused ? 0.004 : 0.002,
+                flatFill: true
+            });
 
-            ctx.fillStyle = focused ? currentThemeColor : 'rgba(170, 220, 255, 0.7)';
+            ctx.fillStyle = focused
+                ? mixColor(currentThemeColor, '#ffffff', 0.55)
+                : colorWithAlpha(mixColor(currentThemeColor, '#ffffff', 0.32), 0.78);
             ctx.font = `bold 12px 'Electrolize', sans-serif`;
             drawPauseGlowText('POWERUPS', tableX + tableW / 2, tableY - 15, `bold 12px 'Electrolize', sans-serif`, ctx.fillStyle, focused);
 
@@ -1219,9 +1418,11 @@
                     };
                 }
 
-                ctx.fillStyle = powerup ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.08)';
+                ctx.fillStyle = powerup ? 'rgba(210,235,255,0.09)' : 'rgba(210,235,255,0.13)';
                 ctx.fillRect(x, y, cell, cell);
-                ctx.strokeStyle = isSelected ? powerup.color : 'rgba(255,255,255,0.20)';
+                ctx.strokeStyle = isSelected
+                    ? mixColor(powerup.color, '#ffffff', 0.18)
+                    : colorWithAlpha(currentThemeColor, powerup ? 0.28 : 0.18);
                 ctx.lineWidth = isSelected ? 2.5 : 1;
                 if (isSelected && glowEnabled) {
                     ctx.shadowColor = powerup.color;
@@ -1229,6 +1430,10 @@
                 }
                 ctx.strokeRect(x, y, cell, cell);
                 ctx.shadowBlur = 0;
+                if (powerup) {
+                    ctx.fillStyle = colorWithAlpha(powerup.color, isSelected ? 0.24 : 0.12);
+                    ctx.fillRect(x + 1, y + 1, 2, cell - 2);
+                }
 
                 if (powerup) {
                     ctx.fillStyle = powerup.color;
@@ -1266,7 +1471,13 @@
         }
 
         function drawPauseMenu() {
-            ctx.fillStyle = currentBgColor + 'dd';
+            const overlay = ctx.createLinearGradient(0, 0, 0, height);
+            overlay.addColorStop(0, colorWithAlpha(currentBgColor, 0.66));
+            overlay.addColorStop(0.5, 'rgba(5, 13, 28, 0.72)');
+            overlay.addColorStop(1, colorWithAlpha(currentBgColor, 0.78));
+            ctx.fillStyle = overlay;
+            ctx.fillRect(0, 0, width | 0, height | 0);
+            ctx.fillStyle = colorWithAlpha(currentThemeColor, 0.035);
             ctx.fillRect(0, 0, width | 0, height | 0);
             const midX = width / 2;
             let shipCursorTarget = null;
@@ -1289,7 +1500,9 @@
                 options.forEach((opt, i) => {
                     const isSel = pauseSelection === i;
                     const y = midY + i * pauseOptionGap;
-                    const color = isSel ? currentThemeColor : '#444488';
+                    const color = isSel
+                        ? mixColor(currentThemeColor, '#ffffff', 0.62)
+                        : colorWithAlpha(mixColor(currentThemeColor, '#dcecff', 0.34), 0.74);
                     if (isSel) shipCursorTarget = getPauseCursorTargetForText(opt, midX, y, `main-${i}`);
                     drawPauseGlowText(opt, midX, y, `bold 28px 'Electrolize', sans-serif`, color, isSel);
 
@@ -1332,7 +1545,9 @@
                 options.forEach((opt, i) => {
                     const isSel = settingsSelection === i;
                     const y = midY + i * 80;
-                    const color = isSel ? currentThemeColor : '#444488';
+                    const color = isSel
+                        ? mixColor(currentThemeColor, '#ffffff', 0.62)
+                        : colorWithAlpha(mixColor(currentThemeColor, '#dcecff', 0.34), 0.74);
                     if (isSel) shipCursorTarget = getPauseCursorTargetForText(opt, midX, y, `settings-${i}`);
                     drawPauseGlowText(opt, midX, y, `bold 28px 'Electrolize', sans-serif`, color, isSel);
                     ctx.shadowBlur = 0;
@@ -1355,17 +1570,23 @@
             ctx.scale(scale, scale);
             ctx.translate(-w / 2, -h / 2);
 
-            ctx.fillStyle = '#0a0a15';
-            ctx.fillRect(0, 0, w, h);
+            drawPauseHudPanel(0, 0, w, h, opt.color, isSelected, {
+                fillAlpha: isSelected ? 0.64 : 0.5,
+                borderAlpha: isSelected ? 0.78 : 0.42,
+                rail: false,
+                edgeWashAlpha: isSelected ? 0.008 : 0.004,
+                innerSheenAlpha: isSelected ? 0.004 : 0.002,
+                flatFill: true
+            });
 
-            ctx.fillStyle = isSelected ? `${opt.color}11` : 'rgba(255,255,255,0.02)';
+            ctx.fillStyle = isSelected ? colorWithAlpha(opt.color, 0.13) : 'rgba(210,235,255,0.035)';
             ctx.fillRect(8, 8, w - 16, h - 16);
 
             if (isSelected) {
                 ctx.shadowColor = opt.color;
                 ctx.shadowBlur = 10 + borderPulse * 10;
             }
-            ctx.strokeStyle = opt.color;
+            ctx.strokeStyle = mixColor(opt.color, '#ffffff', isSelected ? 0.16 : 0.02);
             ctx.lineWidth = isSelected ? 3 : 1;
             ctx.strokeRect(0, 0, w, h);
             if (isSelected) {
@@ -1377,7 +1598,7 @@
             ctx.globalAlpha = alpha;
             ctx.shadowBlur = 0;
 
-            ctx.fillStyle = opt.color;
+            ctx.fillStyle = mixColor(opt.color, '#ffffff', isSelected ? 0.16 : 0.04);
             ctx.font = `bold 16px 'Electrolize', sans-serif`;
              
             let words = opt.displayName.split(' '); 
@@ -1931,7 +2152,7 @@
             ctx.fillStyle = currentBgColor; 
             ctx.fillRect(0, 0, width | 0, height | 0);
             ctx.fillStyle = currentFieldBgColor;
-            ctx.fillRect(0, 0, width | 0, (height - HUD_HEIGHT) | 0);
+            ctx.fillRect(0, 0, width | 0, height | 0);
             const renderNow = currentFrameNow;
             const allowScreenShake = gameState !== 'PAUSED' && gameState !== 'LEVELUP';
             if (!allowScreenShake) {
@@ -1976,6 +2197,7 @@
             }
             ctx.globalAlpha = 1.0;
             ctx.shadowBlur = 0;
+            drawFocusTimeWarpOverlay(renderNow, false);
 
             if (gameState === 'START' || gameState === 'LAUNCHING' || gameState === 'SHIP_SELECT') {
                 let alpha = titleAlpha;
@@ -2025,7 +2247,7 @@
                     ctx.globalAlpha = alpha * 0.85;
                     ctx.fillStyle = currentThemeColor; 
                     ctx.font = `14px 'Electrolize', sans-serif`; 
-                    ctx.fillText('WASD to Maneuver | ARROWS to Fire | SPACE to Bomb', (width/2) | 0, (height*0.7) | 0);
+                    ctx.fillText('WASD Move | UP/LEFT/RIGHT Fire | DOWN Bomb | SPACE Focus | SHIFT Shrink', (width/2) | 0, (height*0.7) | 0);
                     ctx.globalAlpha = 1.0;
                 }
 
@@ -2100,6 +2322,24 @@
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'middle';
                             ctx.fillText('+', d.x | 0, d.y | 0);
+                        } else if (d.isFocus) {
+                            const boxSize = d.boxSize || 26;
+                            const pulse = 0.5 + Math.sin(renderNow * 0.008) * 0.5;
+                            ctx.fillStyle = d.boxColor || '#fff2a8';
+                            if (glowEnabled) {
+                                ctx.shadowColor = d.coreColor || '#ffd35a';
+                                ctx.shadowBlur = 10 + pulse * 8;
+                            }
+                            ctx.fillRect((d.x - boxSize / 2) | 0, (d.y - boxSize / 2) | 0, boxSize, boxSize);
+                            ctx.strokeStyle = d.strokeColor || '#ffd35a';
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect((d.x - boxSize / 2) | 0, (d.y - boxSize / 2) | 0, boxSize, boxSize);
+                            ctx.fillStyle = d.coreColor || '#ffd35a';
+                            ctx.font = `bold ${Math.max(17, Math.round(boxSize * 0.82))}px Courier New`;
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('F', d.x | 0, d.y | 0);
+                            ctx.shadowBlur = 0;
                         } else {
                             ctx.fillStyle = d.color; 
                             ctx.font = `bold 22px Courier New`; 
@@ -2148,6 +2388,7 @@
                         ctx.fillStyle = bulletColor;
                         if (b.isGlitchBullet && glowEnabled) { ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 25; }
                         const scale = Math.max(0.01, b.life);
+                        drawFocusBulletTrailGlyph(b, b.char, bulletColor, `bold ${Math.max(12, Math.round(120 * scale))}px Courier New`, 0.72);
                         ctx.save();
                         ctx.translate(
                             truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
@@ -2171,6 +2412,7 @@
                         ctx.fillStyle = '#00ff41';
                         ctx.font = `bold 14px Courier New`;
                         if (glowEnabled) { ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 20 + Math.random() * 10; }
+                        drawFocusBulletTrailGlyph(b, b.char, '#00ff41', `bold 14px Courier New`, 0.65);
                         ctx.save();
                         ctx.translate(
                             truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
@@ -2215,6 +2457,7 @@
                         drawEnemyBulletOrb(b, renderNow, bulletColor);
                         continue;
                     }
+                    drawFocusBulletTrailGlyph(b, b.char, bulletColor, ctx.font, b.isLargeFlame || b.isLargeWraith || b.isPhantomBullet ? 0.82 : 0.68);
                     ctx.fillText(
                         b.char,
                         truncateSpriteCoord(b.x, SUBPIXEL_RENDER_TARGETS.ENEMY_BULLET),
@@ -2230,6 +2473,7 @@
                     if (e.path && e.pathT < 0) continue;
                     if (e.lifeTime && e.lifeTime < 0) continue;
                     const flashColor = e.flashTimer > 0 ? '#ffffff' : null;
+                    drawFocusEnemyTrail(e, flashColor);
                     if (e.enemyShipSprite) {
                         if (e.isRisingStar) {
                             const alpha = Math.max(0.12, Math.min(1, e.risingAlpha || 1));
@@ -2300,6 +2544,7 @@
                 }
                 
                 if (boss) {
+                    drawFocusBossTrail(boss);
                     const bossRenderEntries = null;
                     if (boss.name === 'OVERHEATING FIREWALL') {
                         const fireLines = boss.sprite;
@@ -2879,6 +3124,7 @@
                         }
                         ctx.fillStyle = p.color;
                         ctx.font = `bold 22px Courier New`;
+                        ctx.rotate(getPlayerProjectileGlyphRotation(p));
                         ctx.scale(scale * 0.92, scale * 1.05);
                         ctx.fillText('|', 0, 0);
                         ctx.fillStyle = '#ffffff';
@@ -2887,6 +3133,9 @@
                         ctx.restore();
                         ctx.shadowBlur = 0;
                         continue;
+                    }
+                    if (!p.isBombShrapnel) {
+                        ctx.rotate(getPlayerProjectileGlyphRotation(p));
                     }
                     ctx.scale(scale, scale);
                     ctx.fillText(p.sprite, 0, 0); 
@@ -2938,6 +3187,7 @@
                     
                     ctx.shadowBlur = 0; // Reset shadow for rest of rendering
                 }
+                drawFocusTimeWarpOverlay(renderNow, true);
                 ctx.globalCompositeOperation = 'source-over';
             }
 

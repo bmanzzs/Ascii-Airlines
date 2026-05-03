@@ -951,3 +951,18 @@
                 strokeColor: '#d11f34'
             };
         }
+
+        function createFocusDrop(x, y, focusAmount = FOCUS_ELITE_DROP_AMOUNT, boxSize = 26) {
+            return {
+                x,
+                y,
+                vx: 0,
+                vy: 34,
+                isFocus: true,
+                focusAmount,
+                boxSize,
+                boxColor: '#fff2a8',
+                coreColor: '#ffd35a',
+                strokeColor: '#ffd35a'
+            };
+        }

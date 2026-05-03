@@ -86,11 +86,13 @@
 
         function getPlayerHitboxScale() {
             const shipHitbox = getPlayerShipConfigById(player.shipId).hitboxMult || 1;
-            return clampValue(
+            const baseScale = clampValue(
                 shipHitbox * (player.modifiers.hitbox || 1),
                 PLAYER_MODIFIER_GUARDRAILS.minHitbox,
                 PLAYER_MODIFIER_GUARDRAILS.maxHitbox
             );
+            const specterScale = typeof getPlayerSpecterHitboxScale === 'function' ? getPlayerSpecterHitboxScale() : 1;
+            return baseScale * specterScale;
         }
         const PLAYER_SHIP_MODELS = {
             center: {
@@ -442,6 +444,8 @@
         const PLAYER_FIRE_SKEW_ANGLE = 8 * Math.PI / 180;
         const PLAYER_RENDER_FACING = 'center';
         const PLAYER_BANK_MAX_ROTATION = 0.11;
+        const PLAYER_SPECTER_TINT_COLOR = '#d6fbff';
+        const PLAYER_SPECTER_GLOW_COLOR = '#7df7ff';
         const EXHAUST_PARTICLE_CHARS = ['^', '*', '.', 'v'];
         const SMOKE_PARTICLE_CHARS = ['░', '▒', '·'];
         const SMOKE_PARTICLE_COLORS = ['#555555', '#444444'];
@@ -462,7 +466,7 @@
         }
 
         function isPlayerFirePressed() {
-            return keys.arrowup || keys.arrowdown || keys.arrowleft || keys.arrowright;
+            return keys.arrowup || keys.arrowleft || keys.arrowright;
         }
 
         function getPlayerFireAngle() {
@@ -726,7 +730,7 @@
             return layout;
         }
 
-        function drawPlayerPart(part, renderOrigin = null) {
+        function drawPlayerPart(part, renderOrigin = null, tint = null) {
             const x = renderOrigin ? part.x - renderOrigin.x : part.x;
             const y = renderOrigin ? part.y - renderOrigin.y : part.y;
             ctx.save();
@@ -739,8 +743,11 @@
             const previousFillStyle = ctx.fillStyle;
             const previousShadowColor = ctx.shadowColor;
             if (part.color) {
-                ctx.fillStyle = part.color;
-                ctx.shadowColor = part.color;
+                const partColor = tint
+                    ? blendPlayerCueHex(part.color, tint.color, tint.amount)
+                    : part.color;
+                ctx.fillStyle = partColor;
+                ctx.shadowColor = partColor;
             }
             ctx.fillText(part.char, 0, 0);
             if (part.color) {
@@ -751,7 +758,16 @@
         }
 
         function parsePlayerCueHex(color) {
-            const hex = String(color || '').replace('#', '');
+            const source = String(color || '').trim();
+            const rgbMatch = source.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+            if (rgbMatch) {
+                return {
+                    r: clampValue(parseInt(rgbMatch[1], 10), 0, 255),
+                    g: clampValue(parseInt(rgbMatch[2], 10), 0, 255),
+                    b: clampValue(parseInt(rgbMatch[3], 10), 0, 255)
+                };
+            }
+            const hex = source.replace('#', '');
             if (hex.length !== 6) return { r: 255, g: 255, b: 255 };
             const r = parseInt(hex.slice(0, 2), 16);
             const g = parseInt(hex.slice(2, 4), 16);
@@ -790,12 +806,14 @@
             const total = Math.max(0.001, getPlayerBombCooldownTotal());
             const charge = clampValue(1 - Math.max(0, player.bombTimer) / total, 0, 1);
             const readyBreath = 0.5 + Math.sin(now * 0.0022) * 0.5;
-            const readyColor = blendPlayerCueHex('#ff8a1f', '#ffc04a', readyBreath);
+            const readyColor = blendPlayerCueHex('#f08d92', '#ffd0cc', readyBreath);
             const readyBlend = smoothPlayerCueStep(0.94, 1, charge);
-            const chargeColor = readyBlend > 0 ? blendPlayerCueHex('#ff3030', readyColor, readyBlend) : '#ff3030';
+            const chargeTone = Math.pow(charge, 0.72);
+            const baseChargeColor = blendPlayerCueHex('#32213f', '#f08d92', chargeTone);
+            const chargeColor = readyBlend > 0 ? blendPlayerCueHex(baseChargeColor, readyColor, readyBlend) : baseChargeColor;
             const color = charge >= 1 ? readyColor : chargeColor;
             const alpha = 0.5 + smoothPlayerCueStep(0, 1, charge) * 0.5;
-            const glowColor = charge >= 1 ? color : '#ff3030';
+            const glowColor = charge >= 1 ? color : blendPlayerCueHex('#4c2b55', '#ffaaa2', chargeTone);
             const glow = charge >= 1 ? 10 + readyBreath * 10 : 4 + charge * 8;
             return {
                 charge,
@@ -838,7 +856,7 @@
             ctx.globalAlpha = visual.alpha * (visual.ready ? 0.9 : 0.54 + visual.charge * 0.3);
             ctx.shadowBlur = glowEnabled ? Math.max(3, visual.glow * 0.42) : 0;
             ctx.font = `bold ${coreSize}px Courier New`;
-            ctx.fillStyle = visual.ready ? '#ffffff' : blendPlayerCueHex('#ff8888', '#ffffff', visual.charge);
+            ctx.fillStyle = visual.ready ? '#fff5f3' : blendPlayerCueHex('#85617f', '#ffd6d4', visual.charge);
             ctx.fillText(
                 '*',
                 snapSpriteCoord(renderCueX, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
@@ -889,24 +907,77 @@
         function drawPlayerShip(ship = player, facing = PLAYER_RENDER_FACING) {
             const layout = getPlayerRenderLayout(ship, PLAYER_RENDER_FACING);
             const bankRotation = getPlayerBankRotation(ship);
-            const renderOrigin = bankRotation ? { x: ship.x, y: ship.y } : null;
-            if (bankRotation) {
+            const specterIntensity = ship === player && typeof getSpecterRenderIntensity === 'function'
+                ? getSpecterRenderIntensity()
+                : 0;
+            const specterVisualScale = ship === player && typeof getPlayerSpecterVisualScale === 'function'
+                ? getPlayerSpecterVisualScale()
+                : 1;
+            const hasRenderTransform = !!(bankRotation || Math.abs(specterVisualScale - 1) > 0.001);
+            const renderOrigin = hasRenderTransform ? { x: ship.x, y: ship.y } : null;
+            const specterTintAmount = smoothPlayerCueStep(0.02, 1, specterIntensity) * 0.34;
+            const specterTint = specterTintAmount > 0
+                ? { color: PLAYER_SPECTER_TINT_COLOR, amount: specterTintAmount }
+                : null;
+            if (hasRenderTransform) {
                 ctx.save();
                 ctx.translate(
                     snapSpriteCoord(ship.x, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
                     snapSpriteCoord(ship.y, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
                 );
-                ctx.rotate(bankRotation);
+                if (bankRotation) ctx.rotate(bankRotation);
+                if (specterVisualScale !== 1) ctx.scale(specterVisualScale, specterVisualScale * (1 - 0.08 * specterIntensity));
+            }
+            if (specterIntensity > 0.02) {
+                const echoX = -(ship.vx || 0) * 0.016 * specterIntensity;
+                const echoY = -(ship.vy || 0) * 0.016 * specterIntensity;
+                ctx.save();
+                ctx.globalAlpha *= 0.18 * specterIntensity;
+                ctx.translate(echoX, echoY);
+                ctx.fillStyle = '#c9ffff';
+                ctx.shadowColor = '#8ff7ff';
+                ctx.shadowBlur = glowEnabled ? 18 * specterIntensity : 0;
+                for (let i = 0; i < layout.thrusters.length; i++) drawPlayerPart(layout.thrusters[i], renderOrigin, { color: '#c9ffff', amount: 0.8 });
+                for (let i = 0; i < layout.accents.length; i++) drawPlayerPart(layout.accents[i], renderOrigin, { color: '#c9ffff', amount: 0.8 });
+                drawPlayerPart(layout.body, renderOrigin, { color: '#c9ffff', amount: 0.8 });
+                ctx.restore();
+
+                ctx.save();
+                ctx.globalAlpha *= 0.11 * specterIntensity;
+                ctx.translate(echoX * 2.1 + Math.sin((currentFrameNow || 0) * 0.016) * 1.2, echoY * 2.1);
+                ctx.fillStyle = currentThemeColor;
+                ctx.shadowColor = currentThemeColor;
+                ctx.shadowBlur = glowEnabled ? 12 * specterIntensity : 0;
+                for (let i = 0; i < layout.thrusters.length; i++) drawPlayerPart(layout.thrusters[i], renderOrigin, { color: currentThemeColor, amount: 0.72 });
+                for (let i = 0; i < layout.accents.length; i++) drawPlayerPart(layout.accents[i], renderOrigin, { color: currentThemeColor, amount: 0.72 });
+                drawPlayerPart(layout.body, renderOrigin, { color: currentThemeColor, amount: 0.72 });
+                ctx.restore();
+
+                ctx.globalAlpha *= 1 - 0.18 * specterIntensity;
+                ctx.fillStyle = blendPlayerCueHex(ctx.fillStyle, PLAYER_SPECTER_TINT_COLOR, specterTintAmount);
+                ctx.shadowColor = blendPlayerCueHex(currentThemeColor, PLAYER_SPECTER_GLOW_COLOR, 0.72 * specterIntensity);
+                ctx.shadowBlur = glowEnabled ? Math.max(ctx.shadowBlur || 0, 10 + 18 * specterIntensity) : 0;
             }
             for (let i = 0; i < layout.thrusters.length; i++) {
-                drawPlayerPart(layout.thrusters[i], renderOrigin);
+                drawPlayerPart(layout.thrusters[i], renderOrigin, specterTint);
             }
             for (let i = 0; i < layout.accents.length; i++) {
-                drawPlayerPart(layout.accents[i], renderOrigin);
+                drawPlayerPart(layout.accents[i], renderOrigin, specterTint);
             }
-            drawPlayerPart(layout.body, renderOrigin);
+            drawPlayerPart(layout.body, renderOrigin, specterTint);
+            if (specterIntensity > 0.02) {
+                ctx.save();
+                ctx.globalAlpha *= 0.09 * specterIntensity;
+                ctx.fillStyle = PLAYER_SPECTER_TINT_COLOR;
+                ctx.shadowColor = PLAYER_SPECTER_GLOW_COLOR;
+                ctx.shadowBlur = glowEnabled ? 14 * specterIntensity : 0;
+                for (let i = 0; i < layout.thrusters.length; i++) drawPlayerPart(layout.thrusters[i], renderOrigin, { color: PLAYER_SPECTER_TINT_COLOR, amount: 1 });
+                for (let i = 0; i < layout.accents.length; i++) drawPlayerPart(layout.accents[i], renderOrigin, { color: PLAYER_SPECTER_TINT_COLOR, amount: 1 });
+                drawPlayerPart(layout.body, renderOrigin, { color: PLAYER_SPECTER_TINT_COLOR, amount: 1 });
+                ctx.restore();
+            }
             drawPlayerBombReadyCue(layout, ship, renderOrigin);
-            if (bankRotation) ctx.restore();
+            if (hasRenderTransform) ctx.restore();
             return layout;
         }
 
@@ -982,7 +1053,7 @@
             { name: "Mortar Shells", cat: "mode", glyph: "◓", color: "#ffff00", desc: "Slow, huge explosive splash", mults: { damage: 4.0, fireRate: 0.25, speed: 0.5, splashRadius: 3.0, splashPercent: 0.75, path: "parabolic" } },
             { name: "Piercing Lance", cat: "offense", glyph: "⇡", color: "#ff0000", desc: "Infinite pierce, large size", mults: { damage: 2.0, fireRate: 0.5, pierceCount: 999, size: 1.5 } },
             { name: "Burst Fire", cat: "hybrid", glyph: "|||", color: "#aa00ff", desc: "Fires three quick, slightly drifting rounds", mults: { damage: 0.58, fireRate: 0.70, burstFire: true, burstCount: 3, burstSpacing: 0.045, burstAngleMin: 0.017, burstAngleMax: 0.052 } },
-            { name: "Wave Cannon", cat: "control", glyph: "∿", color: "#00ffff", desc: "Wide sine-wave path projectiles", mults: { damage: 1.1, fireRate: 0.8, speed: 0.9, size: 1.1, path: "sine", sineAmplitude: 1.2 } },
+            { name: "Wave Cannon", cat: "control", glyph: "∿", color: "#00ffff", desc: "Wide sine-wave path projectiles", mults: { damage: 1.1, fireRate: 0.95, speed: 0.9, size: 1.1, path: "sine", sineAmplitude: 1.2 } },
             { name: "Chain Lightning", cat: "control", glyph: "/\\/", icon: "chainLightning", color: "#00ffff", desc: "50% chance to arc lightning to nearby enemies", mults: { damage: 0.8, chainCount: 3, chainChance: 0.5 } },
             { name: "Orbital Drones", cat: "hybrid", glyph: "⟳", color: "#aa00ff", desc: "Adds one auto-firing drone", mults: { drones: true } },
             { name: "Homing Swarm", cat: "control", glyph: "⌖", color: "#00ffff", desc: "Projectiles lightly track targets", mults: { homing: true, homingStrength: 0.5 } },
@@ -1438,6 +1509,8 @@
             levelUpTimer = 0;
             selectedOptionIndex = 0;
             keys[' '] = false;
+            keys.arrowdown = false;
+            keys.shift = false;
             offeredOptions = drawOptions(POWERUP_POOL, 3, player.level);
         }
 
@@ -1511,7 +1584,7 @@
                 if (player.godMode) {
                     player.hp = player.maxHp;
                     player.bombTimer = 0;
-                    pushConsoleNotification(`God mode ON: no bullet damage, ${GOD_MODE_DAMAGE_MULT}x damage, ${GOD_MODE_BOMB_COOLDOWN}s bombs.`, 'success');
+                    pushConsoleNotification(`God mode ON: no bullet damage, unlimited focus, ${GOD_MODE_DAMAGE_MULT}x damage, ${GOD_MODE_BOMB_COOLDOWN}s bombs.`, 'success');
                 } else {
                     pushConsoleNotification('God mode OFF.', 'warn');
                 }

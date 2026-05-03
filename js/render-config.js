@@ -3,7 +3,7 @@
         const LOGICAL_W = 750;
         const LOGICAL_H = 1000;
         const HUD_HEIGHT = 48;
-        const HUD_BAR_BLOCKS = 15;
+        const HUD_BAR_BLOCKS = 20;
         const CANVAS_BORDER = 2;
         let width = LOGICAL_W;
         let height = LOGICAL_H;

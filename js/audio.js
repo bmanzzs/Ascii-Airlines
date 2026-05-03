@@ -25,6 +25,38 @@
         let bgmIsPlaying = false;
         let bossMusicTimeout = null;
         let bgmRetryTimeout = null;
+        let currentMusicPlaybackRate = 1;
+        let bgmPlayToken = 0;
+        let bossPlayToken = 0;
+
+        function setSourcePlaybackRate(source, rate, rampSeconds = 0) {
+            if (!source || !source.playbackRate) return;
+            const now = audioCtx.currentTime;
+            const safeRate = Math.max(0.35, Math.min(1.15, rate || 1));
+            source.playbackRate.cancelScheduledValues(now);
+            if (rampSeconds > 0) {
+                source.playbackRate.setValueAtTime(source.playbackRate.value, now);
+                source.playbackRate.linearRampToValueAtTime(safeRate, now + rampSeconds);
+            } else {
+                source.playbackRate.setValueAtTime(safeRate, now);
+            }
+        }
+
+        function syncBgmOffsetForPlaybackRate() {
+            if (!bgmIsPlaying) return;
+            const now = audioCtx.currentTime;
+            bgmOffset += (now - bgmLastStartTime) * currentMusicPlaybackRate;
+            bgmLastStartTime = now;
+        }
+
+        function updateFocusMusicPlaybackRate(targetRate = 1, rampSeconds = 0.12) {
+            const nextRate = Math.max(0.35, Math.min(1.15, targetRate || 1));
+            if (Math.abs(nextRate - currentMusicPlaybackRate) < 0.002) return;
+            syncBgmOffsetForPlaybackRate();
+            currentMusicPlaybackRate = nextRate;
+            for (const source of bgmSources) setSourcePlaybackRate(source, nextRate, rampSeconds);
+            for (const source of bossSources) setSourcePlaybackRate(source, nextRate, rampSeconds);
+        }
 
         async function initAudio() {
             buf1 = await loadBuffer('./audio/ascii-airlines-bg-music.mp3');
@@ -46,8 +78,9 @@
 
         function stopBgm(fadeOutTime = 0) {
             if (bgmRetryTimeout) { clearTimeout(bgmRetryTimeout); bgmRetryTimeout = null; }
+            bgmPlayToken++;
             if (bgmIsPlaying) {
-                bgmOffset += audioCtx.currentTime - bgmLastStartTime;
+                bgmOffset += (audioCtx.currentTime - bgmLastStartTime) * currentMusicPlaybackRate;
                 bgmIsPlaying = false;
             }
             bgmGain.gain.cancelScheduledValues(audioCtx.currentTime);
@@ -80,8 +113,7 @@
                 bgmGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + fadeInTime);
             }
 
-            const source1 = audioCtx.createBufferSource(); source1.buffer = buf1; source1.connect(bgmGain);
-            const source2 = audioCtx.createBufferSource(); source2.buffer = buf2; source2.loop = true; source2.connect(bgmGain);
+            const token = ++bgmPlayToken;
 
             bgmLastStartTime = audioCtx.currentTime;
             bgmIsPlaying = true;
@@ -90,17 +122,33 @@
             const loopDur = buf2.duration;
 
             if (bgmOffset < totalIntro) {
+                const source1 = audioCtx.createBufferSource(); source1.buffer = buf1; source1.connect(bgmGain);
+                setSourcePlaybackRate(source1, currentMusicPlaybackRate);
+                source1.onended = () => {
+                    if (token !== bgmPlayToken || !bgmIsPlaying) return;
+                    const source2 = audioCtx.createBufferSource();
+                    source2.buffer = buf2;
+                    source2.loop = true;
+                    source2.connect(bgmGain);
+                    setSourcePlaybackRate(source2, currentMusicPlaybackRate);
+                    bgmSources = bgmSources.filter(src => src !== source1);
+                    bgmSources.push(source2);
+                    bgmLastStartTime = audioCtx.currentTime;
+                    try { source2.start(audioCtx.currentTime); } catch(e) {}
+                };
                 source1.start(audioCtx.currentTime, bgmOffset);
-                source2.start(audioCtx.currentTime + totalIntro - bgmOffset);
-                bgmSources.push(source1, source2);
+                bgmSources.push(source1);
             } else {
                 const loopOffset = (bgmOffset - totalIntro) % loopDur;
+                const source2 = audioCtx.createBufferSource(); source2.buffer = buf2; source2.loop = true; source2.connect(bgmGain);
+                setSourcePlaybackRate(source2, currentMusicPlaybackRate);
                 source2.start(audioCtx.currentTime, loopOffset);
                 bgmSources.push(source2);
             }
         }
 
         function stopBossMusic(fadeOutTime = 0) {
+            bossPlayToken++;
             bossGain.gain.cancelScheduledValues(audioCtx.currentTime);
             if (fadeOutTime > 0) {
                 bossGain.gain.setValueAtTime(bossGain.gain.value, audioCtx.currentTime);
@@ -124,13 +172,24 @@
             bossGain.gain.cancelScheduledValues(audioCtx.currentTime);
             bossGain.gain.setValueAtTime(1, audioCtx.currentTime);
 
+            const token = ++bossPlayToken;
             const source1 = audioCtx.createBufferSource(); source1.buffer = introBuf; source1.connect(bossGain);
-            const source2 = audioCtx.createBufferSource(); source2.buffer = loopBuf; source2.loop = true; source2.connect(bossGain);
+            setSourcePlaybackRate(source1, currentMusicPlaybackRate);
+            source1.onended = () => {
+                if (token !== bossPlayToken) return;
+                const source2 = audioCtx.createBufferSource();
+                source2.buffer = loopBuf;
+                source2.loop = true;
+                source2.connect(bossGain);
+                setSourcePlaybackRate(source2, currentMusicPlaybackRate);
+                bossSources = bossSources.filter(src => src !== source1);
+                bossSources.push(source2);
+                try { source2.start(audioCtx.currentTime); } catch(e) {}
+            };
             
             const now = audioCtx.currentTime;
             source1.start(now);
-            source2.start(now + introBuf.duration);
-            bossSources.push(source1, source2);
+            bossSources.push(source1);
         }
 
         function playBossMusicAtDrop(introBuf, loopBuf, introDuration, dropTime) {

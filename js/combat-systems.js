@@ -71,6 +71,9 @@
             } else if (enemy.flyByDropType === 'healthSmall') {
                 drops.push(createHealthDrop(enemy.x, enemy.y, 0.05, 22));
             }
+            if (enemy.isElite && !enemy.isBossMinion && typeof focusMeter === 'number' && focusMeter < FOCUS_METER_MAX - 0.02) {
+                drops.push(createFocusDrop(enemy.x, enemy.y, FOCUS_ELITE_DROP_AMOUNT));
+            }
             addShake(5); registerComboKill(enemy, 150); applyWakeForce(enemy.x, enemy.y, 160, 18);
 
             const killHeal = player && player.modifiers ? (player.modifiers.killHeal || 0) : 0;
@@ -1008,6 +1011,7 @@
             drops = []; debris = []; xpOrbs = []; thrusterParticles = [];
             deathTimer = 0; launchTimer = 0; playerExploded = false;
             shake = 0; wobble = 0;
+            if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
             levelUpState = 'INTRO'; offeredOptions = []; selectedOptionIndex = 0; levelUpTimer = 0;
             queuedConsoleLevels = 0;
             player.x = width / 2; player.y = Math.min(height * 0.8, getGameplayBottomLimit(150));

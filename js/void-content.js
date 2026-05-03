@@ -369,7 +369,7 @@
                 boss.lastFire = 0;
             }
 
-            const bossNow = currentFrameNow;
+            const bossNow = typeof hostileTimeMs === 'number' ? hostileTimeMs : currentFrameNow;
             if (boss.attackPattern === 0 && bossNow - boss.lastFire > 900) {
                 for (let i = 0; i < 4; i++) {
                     const baseAngle = boss.petalsAngle + i * (Math.PI / 2);
@@ -581,7 +581,7 @@
             const radiusX = 118 + stage * 18;
             const radiusY = 52 + stage * 8;
             const color = getEclipseStageColor(stage);
-            const angleOffset = (boss.eclipseSealCycle || 0) * 0.42 + ((currentFrameNow || 0) * 0.0006);
+            const angleOffset = (boss.eclipseSealCycle || 0) * 0.42 + ((typeof hostileTimeMs === 'number' ? hostileTimeMs : (currentFrameNow || 0)) * 0.0006);
             for (let i = 0; i < count; i++) {
                 const angle = angleOffset + i * (Math.PI * 2 / count);
                 enemies.push(createEclipseSeal({
@@ -758,7 +758,7 @@
 
         function fireEclipseStagePattern(dt) {
             if (!boss || boss.phase !== 'ACTIVE') return;
-            const now = currentFrameNow || 0;
+            const now = typeof hostileTimeMs === 'number' ? hostileTimeMs : (currentFrameNow || 0);
             const stage = boss.stage || 1;
             const color = getEclipseStageColor(stage);
             const accent = getEclipseStageAccent(stage);

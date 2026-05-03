@@ -47,7 +47,7 @@
         ];
 
         // Input Handling
-        const keys = { w: false, a: false, s: false, d: false, ' ': false, escape: false, arrowup: false, arrowdown: false, arrowleft: false, arrowright: false, b: false };
+        const keys = { w: false, a: false, s: false, d: false, ' ': false, escape: false, arrowup: false, arrowdown: false, arrowleft: false, arrowright: false, b: false, shift: false, alt: false };
         const mouse = { x: 0, y: 0, isDown: false, lastClick: 0 };
 
         function clearGameplayKeys() {
@@ -56,6 +56,7 @@
 
         function beginLaunchSequence() {
             clearGameplayKeys();
+            if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
             applySelectedShipToPlayer({ heal: true });
             restartLoadingSequence = false;
             gameState = 'LAUNCHING';
@@ -69,6 +70,10 @@
         }
         
         window.addEventListener('keydown', e => { 
+            if ((e.key === '`' || e.key === '~') && typeof isBossIntroActive === 'function' && isBossIntroActive()) {
+                e.preventDefault();
+                return;
+            }
             if (e.key === '`' || e.key === '~') {
                 consoleOpen = !consoleOpen; 
                 consoleInput = '';
@@ -145,11 +150,11 @@
             }
             if (keys.hasOwnProperty(k)) {
                 keys[k] = true;
-                if (k === ' ' && !e.repeat && bombProjectiles.length > 0) {
+                if (gameState === 'PLAYING' && k === 'arrowdown' && !e.repeat && bombProjectiles.length > 0) {
                     for (let bi = 0; bi < bombProjectiles.length; bi++) bombProjectiles[bi].forceDetonate = true;
                 }
                 // Prevent scrolling for game keys
-                if(k===' '||k==='arrowup'||k==='arrowdown'||k==='arrowleft'||k==='arrowright') {
+                if(k===' '||k==='arrowup'||k==='arrowdown'||k==='arrowleft'||k==='arrowright'||k==='shift'||k==='alt') {
                     e.preventDefault();
                 }
             }
@@ -318,7 +323,14 @@
                 }
             }
         });
-        window.addEventListener('keyup', e => { if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+        window.addEventListener('keyup', e => {
+            const k = e.key.toLowerCase();
+            if (keys.hasOwnProperty(k)) {
+                keys[k] = false;
+                if (k === 'shift' || k === 'alt') e.preventDefault();
+            }
+        });
+        window.addEventListener('blur', clearGameplayKeys);
         window.addEventListener('mousemove', e => {
             const rect = canvas.getBoundingClientRect();
             mouse.x = (e.clientX - rect.left) * (LOGICAL_W / rect.width);

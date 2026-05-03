@@ -95,6 +95,9 @@
             box-shadow: inset 0 0 15px color-mix(in srgb, var(--theme-color) 20%, transparent);
             pointer-events: none;
             overflow: hidden;
+            opacity: 0;
+            transform: translateY(calc(100% + 6px));
+            will-change: opacity, transform;
         }
         #hud > * {
             min-width: 0;
@@ -106,11 +109,11 @@
             align-items: center;
         }
         .hud-left {
-            flex: 0 0 auto;
+            flex: 1 1 0;
             gap: 0;
         }
         .hud-right {
-            flex: 1 1 auto;
+            flex: 0 0 auto;
             margin-left: 0;
             justify-content: flex-end;
             gap: calc(12px * var(--hud-ui-scale));
@@ -142,10 +145,11 @@
             font-feature-settings: "tnum" 1;
         }
         .hud-meters {
+            width: 100%;
             min-width: 0;
             display: grid;
-            grid-template-columns: repeat(3, max-content);
-            gap: calc(12px * var(--hud-ui-scale));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: calc(8px * var(--hud-ui-scale));
             align-items: end;
         }
         .hud-meter {
@@ -154,18 +158,22 @@
             flex-direction: column;
             gap: calc(1px * var(--hud-ui-scale));
             align-items: flex-start;
+            overflow: hidden;
         }
         .hud-meter + .hud-meter {
             border-left: 1px solid color-mix(in srgb, var(--theme-color) 26%, transparent);
-            padding-left: calc(10px * var(--hud-ui-scale));
+            padding-left: calc(8px * var(--hud-ui-scale));
         }
         .hud-meter-bar {
             font-family: 'Courier New', Courier, monospace;
-            font-size: calc(12px * var(--hud-ui-scale));
+            font-size: calc(8px * var(--hud-ui-scale));
             line-height: 1;
             white-space: nowrap;
             display: inline-flex;
             align-items: center;
+            width: 100%;
+            min-width: 0;
+            overflow: hidden;
             --fill-alpha: 0.4;
         }
         .hud-bar-block {
@@ -179,6 +187,13 @@
         .hud-meter-bar.is-full .hud-bar-block-filled {
             animation: hud-meter-full-shimmer 1.35s ease-in-out infinite;
             animation-delay: calc(var(--bar-idx, 0) * 64ms);
+        }
+        .hud-meter-bar.is-focus-active .hud-bar-block-filled {
+            animation: hud-meter-shimmer-soft 0.8s ease-in-out infinite;
+            animation-delay: calc(var(--bar-idx, 0) * 42ms);
+        }
+        .hud-meter-bar.is-focus-locked .hud-bar-block {
+            opacity: 0.46;
         }
         @keyframes hud-meter-shimmer {
             0%, 100% {

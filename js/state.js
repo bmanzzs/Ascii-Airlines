@@ -85,6 +85,22 @@
         const FIELD_WOBBLE_AMPLITUDE = 3.5;
         const FIELD_WOBBLE_SPEED = 0.00115;
         const FIELD_TWINKLE_SPEED = 0.0024;
+        const FOCUS_METER_MAX = 1;
+        const FOCUS_DRIVE_DRAIN_PER_SEC = 0.28;
+        const FOCUS_SPECTER_DRAIN_PER_SEC = 0.16;
+        const FOCUS_REGEN_PER_SEC = 0.055;
+        const FOCUS_REGEN_DELAY = 1.1;
+        const FOCUS_EMPTY_LOCKOUT = 0.9;
+        const FOCUS_ELITE_DROP_AMOUNT = 0.32;
+        const FOCUS_DRIVE_HOSTILE_TIME_SCALE = 0.30;
+        const FOCUS_DRIVE_MUSIC_RATE = 0.50;
+        const FOCUS_SPECTER_MUSIC_RATE = 1.045;
+        const FOCUS_DRIVE_FADE_IN = 0.16;
+        const FOCUS_DRIVE_FADE_OUT = 0.24;
+        const FOCUS_SPECTER_FADE_IN = 0.10;
+        const FOCUS_SPECTER_FADE_OUT = 0.18;
+        const FOCUS_SPECTER_VISUAL_SCALE = 0.62;
+        const FOCUS_SPECTER_HITBOX_SCALE = 0.48;
         let P_ACCEL = 3800;
         const P_FRICTION = 0.95;
         let P_MAX_SPEED = 720;
@@ -171,6 +187,14 @@
         let consoleReferenceLines = [];
         let queuedConsoleLevels = 0;
         let postResumeBombLockTimer = 0;
+        let focusMeter = FOCUS_METER_MAX;
+        let focusRegenDelay = 0;
+        let focusLockoutTimer = 0;
+        let focusMode = 'idle';
+        let focusDriveIntensity = 0;
+        let focusSpecterIntensity = 0;
+        let hostileTimeScale = 1;
+        let hostileTimeMs = performance.now();
         let restartLoadingSequence = false;
         const PAUSE_VOLUME_SCALE = 0.4;
         const LEVELUP_VOLUME_SCALE = 0.75;
@@ -286,6 +310,134 @@
             setMasterVolume(isMuted ? 0 : currentVolume * scale, rampSeconds);
         }
 
+        function smoothFocusStep(current, target, dt, seconds) {
+            const duration = Math.max(0.001, seconds || 0.001);
+            const blend = 1 - Math.exp(-Math.max(0, dt) / duration);
+            return current + (target - current) * blend;
+        }
+
+        function isBossIntroActive() {
+            return !!(typeof boss !== 'undefined' && boss && boss.phase === 'INTRO');
+        }
+
+        function areFocusAbilitiesSuppressed() {
+            return isBossIntroActive();
+        }
+
+        function canUseFocusAbilitiesNow() {
+            return gameState === 'PLAYING'
+                && !(bossCinematic && bossCinematic.paused)
+                && !areFocusAbilitiesSuppressed();
+        }
+
+        function resetFocusAbilities() {
+            focusMeter = FOCUS_METER_MAX;
+            focusRegenDelay = 0;
+            focusLockoutTimer = 0;
+            focusMode = 'idle';
+            focusDriveIntensity = 0;
+            focusSpecterIntensity = 0;
+            hostileTimeScale = 1;
+            hostileTimeMs = currentFrameNow || performance.now();
+            if (typeof updateFocusMusicPlaybackRate === 'function') updateFocusMusicPlaybackRate(1, 0.08);
+        }
+
+        function getFocusDriveRenderIntensity() {
+            if (areFocusAbilitiesSuppressed()) return 0;
+            return Math.max(0, Math.min(1, focusDriveIntensity || 0));
+        }
+
+        function getSpecterRenderIntensity() {
+            if (areFocusAbilitiesSuppressed()) return 0;
+            return Math.max(0, Math.min(1, focusSpecterIntensity || 0));
+        }
+
+        function getHostileTimeScale() {
+            if (areFocusAbilitiesSuppressed()) return 1;
+            return Math.max(FOCUS_DRIVE_HOSTILE_TIME_SCALE, Math.min(1, hostileTimeScale || 1));
+        }
+
+        function getHostileDt(dt) {
+            return dt * getHostileTimeScale();
+        }
+
+        function getPlayerSpecterVisualScale() {
+            return 1 - (1 - FOCUS_SPECTER_VISUAL_SCALE) * getSpecterRenderIntensity();
+        }
+
+        function getPlayerSpecterHitboxScale() {
+            return 1 - (1 - FOCUS_SPECTER_HITBOX_SCALE) * getSpecterRenderIntensity();
+        }
+
+        function updateFocusAbilities(dt, canUseAbilities = false) {
+            const safeDt = Math.max(0, Math.min(0.05, dt || 0));
+            const godModeFocus = !!(typeof player !== 'undefined' && player && player.godMode);
+            if (godModeFocus) {
+                focusMeter = FOCUS_METER_MAX;
+                focusRegenDelay = 0;
+                focusLockoutTimer = 0;
+            }
+            if (focusLockoutTimer > 0) focusLockoutTimer = Math.max(0, focusLockoutTimer - safeDt);
+
+            const inputKeys = typeof keys !== 'undefined' ? keys : null;
+            const driveHeld = !!(canUseAbilities && inputKeys && inputKeys[' ']);
+            const specterHeld = !!(canUseAbilities && inputKeys && inputKeys.shift && !driveHeld);
+            const canSpendFocus = canUseAbilities && focusLockoutTimer <= 0 && focusMeter > 0;
+            let wantDrive = canSpendFocus && driveHeld;
+            let wantSpecter = canSpendFocus && specterHeld;
+            const drain = wantDrive
+                ? FOCUS_DRIVE_DRAIN_PER_SEC
+                : (wantSpecter ? FOCUS_SPECTER_DRAIN_PER_SEC : 0);
+
+            if (drain > 0) {
+                if (godModeFocus) {
+                    focusMeter = FOCUS_METER_MAX;
+                    focusRegenDelay = 0;
+                } else {
+                    focusMeter = Math.max(0, focusMeter - drain * safeDt);
+                    focusRegenDelay = FOCUS_REGEN_DELAY;
+                    if (focusMeter <= 0) {
+                        focusLockoutTimer = FOCUS_EMPTY_LOCKOUT;
+                        wantDrive = false;
+                        wantSpecter = false;
+                    }
+                }
+            } else {
+                if (focusRegenDelay > 0) {
+                    focusRegenDelay = Math.max(0, focusRegenDelay - safeDt);
+                } else if (canUseAbilities) {
+                    focusMeter = Math.min(FOCUS_METER_MAX, focusMeter + FOCUS_REGEN_PER_SEC * safeDt);
+                }
+            }
+
+            const driveTarget = wantDrive ? 1 : 0;
+            const specterTarget = wantSpecter ? 1 : 0;
+            focusDriveIntensity = smoothFocusStep(
+                focusDriveIntensity,
+                driveTarget,
+                safeDt,
+                driveTarget > focusDriveIntensity ? FOCUS_DRIVE_FADE_IN : FOCUS_DRIVE_FADE_OUT
+            );
+            focusSpecterIntensity = smoothFocusStep(
+                focusSpecterIntensity,
+                specterTarget,
+                safeDt,
+                specterTarget > focusSpecterIntensity ? FOCUS_SPECTER_FADE_IN : FOCUS_SPECTER_FADE_OUT
+            );
+            focusMode = wantDrive ? 'drive' : (wantSpecter ? 'specter' : 'idle');
+            hostileTimeScale = 1 - getFocusDriveRenderIntensity() * (1 - FOCUS_DRIVE_HOSTILE_TIME_SCALE);
+            hostileTimeMs += safeDt * 1000 * getHostileTimeScale();
+
+            if (typeof updateFocusMusicPlaybackRate === 'function') {
+                const driveMusic = getFocusDriveRenderIntensity();
+                const specterMusic = getSpecterRenderIntensity() * (1 - driveMusic);
+                const musicRate = 1
+                    - driveMusic * (1 - FOCUS_DRIVE_MUSIC_RATE)
+                    + specterMusic * (FOCUS_SPECTER_MUSIC_RATE - 1);
+                updateFocusMusicPlaybackRate(musicRate, 0.12);
+            }
+        }
+
         function previewPauseVolumeAdjustment() {
             clearPauseVolumePreview();
             applyCurrentVolume();
@@ -299,7 +451,7 @@
         }
 
         function enterPauseMode() {
-            if (gameState !== 'PLAYING') return;
+            if (gameState !== 'PLAYING' || isBossIntroActive()) return;
             clearPauseVolumePreview();
             gameState = 'PAUSED';
             pauseState = 'MAIN';
@@ -320,6 +472,8 @@
             pausePowerupBarAnim.closeTime = performance.now();
             postResumeBombLockTimer = POST_RESUME_BOMB_LOCK_SECONDS;
             keys[' '] = false;
+            keys.arrowdown = false;
+            keys.shift = false;
             resetPauseMenuShipCursor();
             applyCurrentVolume();
         }

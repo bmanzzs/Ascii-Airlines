@@ -615,6 +615,11 @@
         // Main simulation update loop.
         function updatePhysics(dt) {
             if (window.innerHeight < 700 || window.innerWidth < 525) return;
+            if (typeof updateFocusAbilities === 'function') {
+                updateFocusAbilities(dt, typeof canUseFocusAbilitiesNow === 'function'
+                    ? canUseFocusAbilitiesNow()
+                    : gameState === 'PLAYING' && !(bossCinematic && bossCinematic.paused));
+            }
             if (gameState === 'LEVELUP') return;
 
             if (gameState === 'START') {
@@ -710,6 +715,10 @@
 
             if (gameState !== 'PLAYING') return;
 
+            const hostileDt = typeof getHostileDt === 'function' ? getHostileDt(dt) : dt;
+            const hostileScale = dt > 0 ? Math.max(0, Math.min(1, hostileDt / dt)) : 1;
+            const hostileNow = typeof hostileTimeMs === 'number' ? hostileTimeMs : currentFrameNow;
+
             updateFieldParticles(dt);
 
             if (postResumeBombLockTimer > 0) {
@@ -717,7 +726,7 @@
             }
 
             if (boss && boss.phase === 'STAGE_TRANSITION') {
-                if (updateGhostSignalStageTransition(dt)) return;
+                if (updateGhostSignalStageTransition(hostileDt)) return;
             }
 
             // Player Physics & Firing
@@ -858,7 +867,7 @@
             }
             
             if (player.bombTimer > 0) player.bombTimer -= dt;
-            if (postResumeBombLockTimer <= 0 && keys[' '] && player.bombTimer <= 0) fireBomb();
+            if (postResumeBombLockTimer <= 0 && keys.arrowdown && player.bombTimer <= 0) fireBomb();
             for (let i = bombProjectiles.length - 1; i >= 0; i--) {
                 const bomb = bombProjectiles[i];
                 if (bomb.justFired) {
@@ -999,13 +1008,13 @@
             for (let enemyIndex = 0; enemyIndex < enemies.length; enemyIndex++) {
                 const e = enemies[enemyIndex];
                 if (e.remasterFirePattern && e.onScreen && isEnemyDamageable(e)) {
-                    e.remasterFireTimer = (e.remasterFireTimer || 0) + dt;
+                    e.remasterFireTimer = (e.remasterFireTimer || 0) + hostileDt;
                     if (e.remasterFireTimer >= (e.remasterFireInterval || 2.6)) {
                         e.remasterFireTimer = 0;
                         fireRemasteredWavePattern(e);
                     }
                 }
-                if (e.y > 0 && isEnemyDamageable(e) && !e.isFlameGuardian && !e.isWraith && !e.isVoidSentinel && !e.disableRandomFire && Math.random() < NON_BOSS_ENEMY_RANDOM_FIRE_CHANCE) {
+                if (e.y > 0 && isEnemyDamageable(e) && !e.isFlameGuardian && !e.isWraith && !e.isVoidSentinel && !e.disableRandomFire && Math.random() < NON_BOSS_ENEMY_RANDOM_FIRE_CHANCE * hostileScale) {
                     const shot = getNonBossEnemyShotVector(e.x, e.y, 320);
                     const bulletColor = e.enemyBulletColor || e.remasterFireColor || e.enemyShipBodyColor || e.color || '#ff8fd8';
                     enemyBullets.push({ x: e.x, y: e.y, vx: shot.vx, vy: shot.vy, char: '\u25cb', color: bulletColor });
@@ -1031,7 +1040,7 @@
                 }
                 
                 if (b.isGlitchBullet) {
-                    b.morphTimer += dt;
+                    b.morphTimer += hostileDt;
                     if (b.morphTimer > 0.12) {
                         b.morphTimer = 0;
                         if (b.isCodeLine) {
@@ -1050,7 +1059,7 @@
                 }
                 
                 if (b.isZigZag) {
-                    b.zigTimer += dt;
+                    b.zigTimer += hostileDt;
                     const zigInterval = b.zigInterval || 0.35;
                     if (b.zigTimer > zigInterval) {
                         b.zigTimer -= zigInterval;
@@ -1067,12 +1076,12 @@
                 }
 
                 if (b.isSignalStormOrb) {
-                    b.age = (b.age || 0) + dt;
+                    b.age = (b.age || 0) + hostileDt;
                     const currentSpeed = b.speed || Math.max(1, Math.hypot(b.vx || 0, b.vy || 0));
-                    const nextSpeed = Math.min(b.maxSpeed || 455, currentSpeed + (b.accel || 140) * dt);
+                    const nextSpeed = Math.min(b.maxSpeed || 455, currentSpeed + (b.accel || 140) * hostileDt);
                     const currentAngle = Math.atan2(b.vy || 0, b.vx || 1);
                     const targetAngle = Math.atan2(player.y - b.y, player.x - b.x);
-                    const maxTurn = (b.homingTurn || 1.0) * dt;
+                    const maxTurn = (b.homingTurn || 1.0) * hostileDt;
                     const delta = Math.max(-maxTurn, Math.min(maxTurn, getAngleDelta(targetAngle, currentAngle)));
                     const nextAngle = currentAngle + delta;
                     b.speed = nextSpeed;
@@ -1081,7 +1090,7 @@
                 }
 
                 if (b.isLargeFlame || b.isLargeWraith) {
-                    emitElementalBulletTrail(b, dt, !!b.isLargeWraith);
+                    emitElementalBulletTrail(b, hostileDt, !!b.isLargeWraith);
                 }
 
                 if (b.isOrbitShot) {
@@ -1090,9 +1099,9 @@
                         b.anchorY = boss.y;
                     }
                     if (b.holdTime > 0) {
-                        b.holdTime -= dt;
-                        b.orbitAngle += (b.orbitAngularSpeed || 2.5) * dt;
-                        b.orbitRadius += (b.orbitRadiusSpeed || 28) * dt;
+                        b.holdTime -= hostileDt;
+                        b.orbitAngle += (b.orbitAngularSpeed || 2.5) * hostileDt;
+                        b.orbitRadius += (b.orbitRadiusSpeed || 28) * hostileDt;
                         b.x = b.anchorX + Math.cos(b.orbitAngle) * b.orbitRadius;
                         b.y = b.anchorY + Math.sin(b.orbitAngle) * b.orbitRadius;
                         if (b.holdTime <= 0) {
@@ -1103,29 +1112,29 @@
                             b.isOrbitShot = false;
                         }
                     } else {
-                        b.x += b.vx * dt;
-                        b.y += b.vy * dt;
+                        b.x += b.vx * hostileDt;
+                        b.y += b.vy * hostileDt;
                     }
                 } else {
                     if (b.turnRate) {
                         const speed = b.speed || Math.max(1, Math.hypot(b.vx, b.vy));
-                        const angle = Math.atan2(b.vy, b.vx) + b.turnRate * dt;
+                        const angle = Math.atan2(b.vy, b.vx) + b.turnRate * hostileDt;
                         b.speed = speed;
                         b.vx = Math.cos(angle) * speed;
                         b.vy = Math.sin(angle) * speed;
                     }
                     if (b.isLatticeShot) {
-                        b.waveTime = (b.waveTime || 0) + dt;
-                        b.y += b.vy * dt;
+                        b.waveTime = (b.waveTime || 0) + hostileDt;
+                        b.y += b.vy * hostileDt;
                         b.x = (b.baseX || b.x) + Math.sin(b.waveTime * (b.waveFreq || 3.5) + (b.wavePhase || 0)) * (b.waveAmp || 0);
                     } else {
-                        b.x += b.vx * dt;
-                        b.y += b.vy * dt;
+                        b.x += b.vx * hostileDt;
+                        b.y += b.vy * hostileDt;
                     }
                 }
                 
                 if (b.decay) {
-                    b.life -= b.decay * dt;
+                    b.life -= b.decay * hostileDt;
                     if (b.life <= 0) { enemyBullets.splice(i, 1); continue; }
                 }
 
@@ -1159,7 +1168,7 @@
 
             // Boss Update Loop
             if (boss) {
-                if (boss.flashTimer > 0) boss.flashTimer -= dt;
+                if (boss.flashTimer > 0) boss.flashTimer -= hostileDt;
 
                 if (boss.isGlitch) {
                     if (boss.phase === 'INTRO') {
@@ -1168,7 +1177,7 @@
                         const glitchIntroStartY = typeof boss.introStartY === 'number' ? boss.introStartY : -200;
                         const glitchIntroTargetX = typeof boss.introTargetX === 'number' ? boss.introTargetX : width / 2;
                         const glitchIntroTargetY = typeof boss.introTargetY === 'number' ? boss.introTargetY : height * 0.2;
-                        const nextTimer = Math.min(glitchIntroDuration, boss.timer + dt);
+                        const nextTimer = Math.min(glitchIntroDuration, boss.timer + hostileDt);
                         const introProgress = Math.max(0, Math.min(1, nextTimer / glitchIntroDuration));
                         const glitchPhase = nextTimer;
                         const swayScale = 1 - introProgress * 0.2;
@@ -1179,7 +1188,7 @@
                         boss.y = glitchIntroStartY + (glitchIntroTargetY - glitchIntroStartY) * introProgress + swayY;
                         boss.sprite = Math.random() > 0.72 ? GLITCH_SPRITE_1B : GLITCH_SPRITE_1;
 
-                        if (Math.random() < 0.08 * (dt * 60)) {
+                        if (Math.random() < 0.08 * (hostileDt * 60)) {
                             for (let k = 0; k < 5; k++) {
                                 debris.push({
                                     x: boss.x + (Math.random() - 0.5) * 30,
@@ -1202,7 +1211,7 @@
                             boss.timer = 0;
                         }
                     } else {
-                        boss.colorCycleTimer += dt;
+                        boss.colorCycleTimer += hostileDt;
                         if (boss.isDeadGlitching) {
                             const c1 = boss.stage === 1 ? '#ff00ff' : '#ffffff';
                             const c2 = boss.stage === 1 ? '#00ffff' : '#ff0000';
@@ -1227,11 +1236,11 @@
                             boss.baseSpeed = 150;
                         }
 
-                        if (boss.transitionTextTimer > 0) boss.transitionTextTimer -= dt;
-                        if (boss.transitionFlash > 0) boss.transitionFlash -= dt;
+                        if (boss.transitionTextTimer > 0) boss.transitionTextTimer -= hostileDt;
+                        if (boss.transitionFlash > 0) boss.transitionFlash -= hostileDt;
 
                         if (boss.transitionFlash <= 0 && !boss.isCharging) {
-                            boss.dirChangeTimer -= dt;
+                            boss.dirChangeTimer -= hostileDt;
                             if (boss.dirChangeTimer <= 0) {
                                 boss.dirChangeTimer = boss.stage === 1 ? 2.0 + Math.random() * 2.0 : 1.0 + Math.random() * 1.5;
                                 const angle = Math.random() * Math.PI * 2;
@@ -1241,8 +1250,8 @@
                             }
 
                             if (Math.random() > 0.20) {
-                                boss.x += boss.glitchVx * dt;
-                                boss.y += boss.glitchVy * dt;
+                                boss.x += boss.glitchVx * hostileDt;
+                                boss.y += boss.glitchVy * hostileDt;
                             }
 
                             const pad = 60;
@@ -1255,7 +1264,7 @@
                                 ? (Math.random() > 0.7 ? GLITCH_SPRITE_1B : GLITCH_SPRITE_1)
                                 : (Math.random() > 0.7 ? GLITCH_SPRITE_2B : GLITCH_SPRITE_2);
 
-                            if (Math.random() < (boss.stage === 1 ? 0.04 : 0.08) * (dt * 60)) {
+                            if (Math.random() < (boss.stage === 1 ? 0.04 : 0.08) * (hostileDt * 60)) {
                                 const megaGlitch = Math.random() > 0.85;
                                 const tDist = megaGlitch ? 150 + Math.random() * 150 : 30 + Math.random() * 50;
                                 const tAngle = Math.random() * Math.PI * 2;
@@ -1279,7 +1288,7 @@
                                 boss.y = Math.max(pad, Math.min(height - 150, boss.y + Math.sin(tAngle) * tDist));
                             }
 
-                            boss.chargeTimer += dt;
+                            boss.chargeTimer += hostileDt;
                             const chargeCycle = boss.stage === 1 ? 4.0 : 2.5;
                             if (boss.chargeTimer >= chargeCycle) {
                                 boss.isCharging = true;
@@ -1289,7 +1298,7 @@
                                     boss.doubleChargePhase = 1;
                                 }
                             } else {
-                                boss.scatterTimer -= dt;
+                                boss.scatterTimer -= hostileDt;
                                 if (boss.scatterTimer <= 0) {
                                     boss.scatterTimer = boss.stage === 1 ? 0.65 + Math.random() * 1.0 : 0.4 + Math.random() * 0.8;
                                     const count = boss.stage === 1 ? 3 : 5;
@@ -1308,9 +1317,9 @@
                                     }
                                 }
 
-                                boss.codeVolleyTimer -= dt;
+                                boss.codeVolleyTimer -= hostileDt;
                                 if (boss.isCodeVolley) {
-                                    boss.codeVolleyDelay -= dt;
+                                    boss.codeVolleyDelay -= hostileDt;
                                     if (boss.codeVolleyDelay <= 0 && boss.codeVolleyShots < 5) {
                                         boss.codeVolleyShots++;
                                         boss.codeVolleyDelay = 0.4;
@@ -1347,7 +1356,7 @@
                                 }
                             }
                         } else if (boss.isCharging) {
-                            boss.chargeDuration += dt;
+                            boss.chargeDuration += hostileDt;
                             boss.glowIntensity = Math.min(1.0, boss.chargeDuration / 1.0);
                             shake = Math.max(shake, 8 * boss.glowIntensity);
                             if (boss.chargeDuration >= 1.0) {
@@ -1417,9 +1426,9 @@
                         }
                     }
                 } else if (boss.isBlackVoid) {
-                    if (updateBlackVoidBoss(dt)) return;
+                    if (updateBlackVoidBoss(hostileDt)) return;
                 } else if (boss.isEclipseWarden) {
-                    if (updateEclipseWardenBoss(dt)) return;
+                    if (updateEclipseWardenBoss(hostileDt)) return;
                 } else if (boss.isBattleStarship) {
                     if (boss.phase === 'INTRO') {
                         const introDuration = 5.2;
@@ -1429,7 +1438,7 @@
                         const eased = 1 - Math.pow(1 - introProgress, 2.4);
                         boss.y = introStartY + (introTargetY - introStartY) * eased;
                         boss.x = width / 2 + Math.sin(boss.timer * 1.4) * (10 * (1 - introProgress));
-                        boss.timer += dt;
+                        boss.timer += hostileDt;
                         if (boss.timer >= introDuration) {
                             boss.y = introTargetY;
                             boss.x = width / 2;
@@ -1442,8 +1451,8 @@
                             boss.attackPattern = 0;
                         }
                     } else {
-                        boss.timer += dt;
-                        boss.driftTimer = (boss.driftTimer || 0) + dt;
+                        boss.timer += hostileDt;
+                        boss.driftTimer = (boss.driftTimer || 0) + hostileDt;
                         boss.x = boss.startX + Math.sin(boss.driftTimer * 0.55) * 110;
                         boss.y = boss.startY + Math.sin(boss.driftTimer * 0.85 + 0.4) * 14;
                         applyWakeForce(boss.x, boss.y, 240, 7);
@@ -1465,7 +1474,7 @@
 
                         if (maybeTriggerBossDeathCinematic(boss)) return;
 
-                        const bossNow = currentFrameNow;
+                        const bossNow = hostileNow;
 
                         if (boss.attackPattern === 0) {
                             // Broadside Battery — alternating port volleys
@@ -1593,7 +1602,7 @@
                                 // Shields raised + heavy barrage from front
                                 boss.isShielded = true;
                                 boss.isVulnerable = false;
-                                boss.engineGlow = Math.min(1, boss.engineGlow + dt * 1.4);
+                                boss.engineGlow = Math.min(1, boss.engineGlow + hostileDt * 1.4);
                                 if (bossNow - boss.lastFire > 320) {
                                     const aimAngle = Math.atan2(player.y - boss.y, player.x - boss.x);
                                     for (let i = -3; i <= 3; i++) {
@@ -1612,12 +1621,12 @@
                                 // Vent exposed — boss vulnerable, no firing
                                 boss.isShielded = false;
                                 boss.isVulnerable = true;
-                                boss.engineGlow = Math.max(0, boss.engineGlow - dt * 0.6);
+                                boss.engineGlow = Math.max(0, boss.engineGlow - hostileDt * 0.6);
                             } else {
                                 // Recovery — shields restoring
                                 boss.isShielded = true;
                                 boss.isVulnerable = false;
-                                boss.engineGlow = Math.min(1, boss.engineGlow + dt * 1.2);
+                                boss.engineGlow = Math.min(1, boss.engineGlow + hostileDt * 1.2);
                             }
                         }
                     }
@@ -1627,10 +1636,10 @@
                             const phantomIntroDuration = 4;
                             const phantomIntroStartY = typeof boss.introStartY === 'number' ? boss.introStartY : -200;
                             const phantomIntroTargetY = phantomIntroStartY + 65 * phantomIntroDuration + height * NULL_PHANTOM_REST_OFFSET_Y;
-                            const introProgress = Math.max(0, Math.min(1, (boss.timer + dt) / phantomIntroDuration));
+                            const introProgress = Math.max(0, Math.min(1, (boss.timer + hostileDt) / phantomIntroDuration));
                             boss.y = phantomIntroStartY + (phantomIntroTargetY - phantomIntroStartY) * introProgress;
                         } else if (boss.name !== 'OVERHEATING FIREWALL') {
-                            boss.y += 65 * dt;
+                            boss.y += 65 * hostileDt;
                         } else {
                             const firewallIntroDuration = 6.9;
                             const firewallIntroTargetY = 80 + (boss.sprite.length * charH * FIREWALL_BOSS_RENDER_SCALE) / 2;
@@ -1639,7 +1648,7 @@
                             boss.y = firewallIntroStartY + (firewallIntroTargetY - firewallIntroStartY) * introProgress;
                         }
 
-                        boss.timer += dt;
+                        boss.timer += hostileDt;
                         const introDuration = boss.name === 'GHOST SIGNAL' ? 7.5 : (boss.name === 'OVERHEATING FIREWALL' ? 6.9 : 4);
                         if (boss.name === 'GHOST SIGNAL' && boss.timer >= 5.0 && !boss.addsSpawned) {
                             boss.addsSpawned = true;
@@ -1671,25 +1680,25 @@
                             boss.startY = boss.y;
                         }
                     } else {
-                        boss.timer += dt;
+                        boss.timer += hostileDt;
 
                         if (boss.name === 'NULL PHANTOM') {
-                            boss.driftTimer = (boss.driftTimer || 0) + dt;
+                            boss.driftTimer = (boss.driftTimer || 0) + hostileDt;
                             let w = 0.15;
                             if (Math.sin(boss.driftTimer * 0.5) > 0.7) w = 0.3;
-                            boss.driftAngle = (boss.driftAngle || 0) + w * dt;
+                            boss.driftAngle = (boss.driftAngle || 0) + w * hostileDt;
                             boss.x = boss.startX + Math.sin(boss.driftAngle) * (width * 0.35);
                             boss.y = boss.startY + Math.sin(boss.driftAngle * 2.1) * 15;
                             applyWakeForce(boss.x, boss.y, 250, 10);
 
-                            boss.burstTimer = (boss.burstTimer || 0) + dt;
+                            boss.burstTimer = (boss.burstTimer || 0) + hostileDt;
                             if (boss.burstTimer >= 2.5) {
                                 boss.burstTimer = 0;
                                 boss.burstCount = 3;
                                 boss.burstDelay = 0;
                             }
                             if (boss.burstCount > 0) {
-                                boss.burstDelay -= dt;
+                                boss.burstDelay -= hostileDt;
                                 if (boss.burstDelay <= 0) {
                                     boss.burstDelay = 0.15;
                                     boss.burstCount--;
@@ -1700,7 +1709,7 @@
                                 }
                             }
                         } else if (boss.name === 'GHOST SIGNAL') {
-                            boss.driftTimer = (boss.driftTimer || 0) + dt;
+                            boss.driftTimer = (boss.driftTimer || 0) + hostileDt;
                             if ((boss.stage || 1) === 1 && boss.hp <= boss.maxHp * 0.5 && beginGhostSignalStageTwoTransition()) {
                                 return;
                             }
@@ -1711,14 +1720,14 @@
                             boss.y = boss.startY + Math.sin(boss.driftTimer * (stageTwo ? 0.95 : 1.15)) * driftY;
                             applyWakeForce(boss.x, boss.y, stageTwo ? 240 : 180, stageTwo ? 7 : 5);
                         } else if (boss.name === 'OVERHEATING FIREWALL') {
-                            boss.driftTimer = (boss.driftTimer || 0) + dt;
+                            boss.driftTimer = (boss.driftTimer || 0) + hostileDt;
                             if ((boss.stage || 1) === 1 && boss.hp <= boss.maxHp * 0.5) {
                                 beginFirewallStageTwo();
                             }
                             const firewallStageTwo = (boss.stage || 1) >= 2;
                             boss.x = width / 2 + Math.sin(boss.driftTimer * (firewallStageTwo ? 0.72 : 0.5)) * (firewallStageTwo ? 78 : 50);
 
-                            boss.smokeTimer = (boss.smokeTimer || 0) + dt;
+                            boss.smokeTimer = (boss.smokeTimer || 0) + hostileDt;
                             const firewallSmokeCap = firewallStageTwo ? FIREWALL_TRAIL_HARD_CAP : Math.min(ELEMENTAL_TRAIL_HARD_CAP, 185);
                             const smokeInterval = thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP ? 0.16 : (firewallStageTwo ? 0.092 : 0.096);
                             if (boss.smokeTimer >= smokeInterval && thrusterParticles.length < firewallSmokeCap) {
@@ -1779,9 +1788,9 @@
                                 decay: huge ? 0.6 : 0
                             });
 
-                        const bossNow = currentFrameNow;
+                        const bossNow = hostileNow;
                         if ((boss.stage || 1) >= 2) {
-                            boss.firestormAngle = (boss.firestormAngle || 0) + 0.16;
+                            boss.firestormAngle = (boss.firestormAngle || 0) + 0.16 * hostileScale;
                             if (boss.attackPattern === 0 && bossNow - boss.lastFire > 180) {
                                 for (let i = 0; i < 2; i++) {
                                     const a = boss.firestormAngle + i * Math.PI + Math.sin(boss.firestormAngle * 0.7) * 0.25;
@@ -1840,9 +1849,9 @@
                             boss.lastFire = bossNow;
                         }
                     } else {
-                        const bossNow = currentFrameNow;
+                        const bossNow = hostileNow;
                         if (boss.name === 'GHOST SIGNAL' && (boss.stage || 1) >= 2) {
-                            updateGhostSignalStageTwoAttacks(bossNow, dt);
+                            updateGhostSignalStageTwoAttacks(bossNow, hostileDt);
                         } else if (boss.attackPattern === 0 && bossNow - boss.lastFire > 1000) {
                             for (let i = 0; i < 18; i++) {
                                 const a = (i / 18) * Math.PI * 2;
@@ -1850,7 +1859,7 @@
                             }
                             boss.lastFire = bossNow;
                         } else if (boss.attackPattern === 1 && bossNow - boss.lastFire > 60) {
-                            boss.spiralAngle += 0.3;
+                            boss.spiralAngle += 0.3 * hostileScale;
                             fire(Math.cos(boss.spiralAngle) * 500, Math.sin(boss.spiralAngle) * 500);
                             boss.lastFire = bossNow;
                         } else if (boss.attackPattern === 2 && bossNow - boss.lastFire > 750) {
@@ -1928,6 +1937,8 @@
                 }
                 p.life -= dt;
                 p.age = (p.age || 0) + dt;
+                p.prevX = p.x;
+                p.prevY = p.y;
                 if (((p.stats && p.stats.prismSplitDelay) || 0) <= p.age) spawnPrismSplitProjectiles(p);
                 
                 if (p.orbitTime > 0) {
@@ -2243,16 +2254,16 @@
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const e = enemies[i];
                 if (!e.onScreen && e.y > 0) e.onScreen = true;
-                if (e.flashTimer > 0) e.flashTimer -= dt;
+                if (e.flashTimer > 0) e.flashTimer -= hostileDt;
 
                 if (e.isVoidSentinel) {
                     if (e.arrivalDelay > 0) {
-                        e.arrivalDelay -= dt;
+                        e.arrivalDelay -= hostileDt;
                         continue;
                     }
 
-                    e.hoverTimer = (e.hoverTimer || 0) + dt;
-                    const settleBlend = Math.min(1, dt * (e.approachSpeed || 2.2));
+                    e.hoverTimer = (e.hoverTimer || 0) + hostileDt;
+                    const settleBlend = Math.min(1, hostileDt * (e.approachSpeed || 2.2));
                     const targetX = e.hoverX;
                     const targetY = e.hoverY;
                     e.x += (targetX - e.x) * settleBlend;
@@ -2276,7 +2287,7 @@
                         });
                     }
 
-                    e.fireTimer += dt;
+                    e.fireTimer += hostileDt;
                     const fireInterval = (e.voidAttackMode === 'anchor'
                         ? 2.2
                         : (e.voidAttackMode === 'cross' ? 1.55 : (e.voidAttackMode === 'cinder' ? 2.0 : 1.85))) * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT;
@@ -2288,8 +2299,8 @@
                 }
                 
                 if (e.isWraith) {
-                    e.hoverTimer = (e.hoverTimer || 0) + dt;
-                    e.fireTimer += dt;
+                    e.hoverTimer = (e.hoverTimer || 0) + hostileDt;
+                    e.fireTimer += hostileDt;
 
                     if (Math.random() > 0.6) {
                         const frost = getWraithFrostEmitter(e);
@@ -2317,7 +2328,7 @@
                     }
 
                     if (!e.path) {
-                        if (Math.abs(e.x - e.hoverX) > 5) e.x += e.vx * dt;
+                        if (Math.abs(e.x - e.hoverX) > 5) e.x += e.vx * hostileDt;
                         else e.vx = 0;
                         if (Math.abs(e.x - e.hoverX) <= 14) {
                             e.x = e.hoverX + Math.sin(e.hoverTimer * 1.7) * 9;
@@ -2328,9 +2339,9 @@
                 }
 
                 if (e.isPrismConduit) {
-                    e.prismTimer = (e.prismTimer || 0) + dt;
-                    e.prismAttackTimer = (e.prismAttackTimer || 0) + dt;
-                    e.hoverTimer = (e.hoverTimer || 0) + dt;
+                    e.prismTimer = (e.prismTimer || 0) + hostileDt;
+                    e.prismAttackTimer = (e.prismAttackTimer || 0) + hostileDt;
+                    e.hoverTimer = (e.hoverTimer || 0) + hostileDt;
 
                     const prismColors = ['#ff66ff', '#66ffff', '#ffff66', '#66ff99'];
                     const colorPhase = e.prismTimer * 1.6;
@@ -2341,7 +2352,7 @@
 
                     const targetX = (e.hoverX || width * 0.5) + Math.sin(e.hoverTimer * 0.85) * (e.hoverAmpX || 120);
                     const targetY = (e.hoverY || height * 0.18) + Math.cos(e.hoverTimer * 1.3) * (e.hoverAmpY || 22);
-                    const blend = Math.min(1, dt * 2.0);
+                    const blend = Math.min(1, hostileDt * 2.0);
                     e.x += (targetX - e.x) * blend;
                     e.y += (targetY - e.y) * blend;
                     applyWakeForce(e.x, e.y, 140, 4);
@@ -2354,7 +2365,7 @@
                         e.pulseFired = false;
                     }
 
-                    e.fireTimer = (e.fireTimer || 0) + dt;
+                    e.fireTimer = (e.fireTimer || 0) + hostileDt;
 
                     if (e.onScreen) {
                         if (e.prismAttackPattern === 0) {
@@ -2388,7 +2399,7 @@
                             }
                         } else if (e.prismAttackPattern === 2) {
                             // Resonance Pulse — telegraph then full ring snap
-                            e.prismChargeTimer = (e.prismChargeTimer || 0) + dt;
+                            e.prismChargeTimer = (e.prismChargeTimer || 0) + hostileDt;
                             if (e.prismChargeTimer < 1.7) {
                                 if (e.fireTimer > 0.06 && debris.length < 320) {
                                     e.fireTimer = 0;
@@ -2422,9 +2433,9 @@
 
                 if (e.isFlameGuardian) {
                     e.color = frameCount % 40 < 20 ? '#e38914' : '#e01926';
-                    e.hoverTimer = (e.hoverTimer || 0) + dt;
+                    e.hoverTimer = (e.hoverTimer || 0) + hostileDt;
                     
-                    e.flameTrailTimer = (e.flameTrailTimer || 0) + dt;
+                    e.flameTrailTimer = (e.flameTrailTimer || 0) + hostileDt;
                     const guardianTrailInterval = thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP ? 0.17 : 0.105;
                     if (e.flameTrailTimer >= guardianTrailInterval && thrusterParticles.length < FIREWALL_TRAIL_HARD_CAP) {
                         e.flameTrailTimer %= guardianTrailInterval;
@@ -2436,7 +2447,7 @@
                         });
                     }
 
-                    e.fireTimer += dt;
+                    e.fireTimer += hostileDt;
                     if (e.onScreen && e.fireTimer > (e.flameFireInterval || 2.5) * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT) {
                         e.fireTimer = 0;
                         const flameShotSpeed = e.flameShotSpeed || 250;
@@ -2469,12 +2480,12 @@
                         if (e.isBossMinion) {
                             const targetX = (e.hoverX || width * 0.5) + Math.sin(e.hoverTimer * 1.1) * (e.hoverAmpX || 120);
                             const targetY = (e.hoverY || height * 0.16) + Math.cos(e.hoverTimer * 1.7) * (e.hoverAmpY || 14);
-                            const blend = Math.min(1, dt * 2.1);
+                            const blend = Math.min(1, hostileDt * 2.1);
                             e.x += (targetX - e.x) * blend;
                             e.y += (targetY - e.y) * blend;
-                            e.vx = (targetX - e.x) * blend / Math.max(0.001, dt);
-                            e.vy = (targetY - e.y) * blend / Math.max(0.001, dt);
-                        } else if (Math.abs(e.x - e.hoverX) > 5) e.x += e.vx * dt;
+                            e.vx = (targetX - e.x) * blend / Math.max(0.001, hostileDt);
+                            e.vy = (targetY - e.y) * blend / Math.max(0.001, hostileDt);
+                        } else if (Math.abs(e.x - e.hoverX) > 5) e.x += e.vx * hostileDt;
                         else e.vx = 0;
                         continue;
                     }
@@ -2482,7 +2493,7 @@
                 
                 if (e.path) {
                     let spd = e.speedMult;
-                    const segTime = 10 / e.path.length; e.pathT += (dt / segTime) * spd;
+                    const segTime = 10 / e.path.length; e.pathT += (hostileDt / segTime) * spd;
                     if (e.pathT >= 1) {
                         e.pathIndex = (e.pathIndex + 1) % e.path.length;
                         e.pathT -= 1;
@@ -2500,10 +2511,10 @@
                         const p1 = e.path[e.pathIndex], p2 = e.path[(e.pathIndex + 1) % e.path.length];
                         const oldX = e.x, oldY = e.y;
                         e.x = (p1.x + (p2.x - p1.x) * e.pathT) * width; e.y = (p1.y + (p2.y - p1.y) * e.pathT) * height;
-                        e.vx = (e.x - oldX) / dt; e.vy = (e.y - oldY) / dt;
+                        e.vx = (e.x - oldX) / Math.max(0.001, hostileDt); e.vy = (e.y - oldY) / Math.max(0.001, hostileDt);
                     }
                 } else if (e.pathType) {
-                    e.lifeTime += dt;
+                    e.lifeTime += hostileDt;
                     if (e.lifeTime > 0) {
                         let nx = e.x, ny = e.y;
                         const t = e.lifeTime;
@@ -2514,8 +2525,8 @@
                             const oldY = e.y;
                             nx = invProgress * invProgress * e.startX + 2 * invProgress * progress * e.controlX + progress * progress * e.endX;
                             ny = invProgress * invProgress * e.startY + 2 * invProgress * progress * e.controlY + progress * progress * e.endY;
-                            e.vx = (nx - oldX) / Math.max(0.001, dt);
-                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            e.vx = (nx - oldX) / Math.max(0.001, hostileDt);
+                            e.vy = (ny - oldY) / Math.max(0.001, hostileDt);
 
                             while (e.flyByShotsFired < (e.flyByShotThresholds || []).length && progress >= e.flyByShotThresholds[e.flyByShotsFired]) {
                                 const shot = getNonBossEnemyShotVector(nx, ny, 260, {
@@ -2553,8 +2564,8 @@
                                 nx = pathX;
                                 ny = pathY;
                             }
-                            e.vx = (nx - oldX) / Math.max(0.001, dt);
-                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            e.vx = (nx - oldX) / Math.max(0.001, hostileDt);
+                            e.vy = (ny - oldY) / Math.max(0.001, hostileDt);
                         } else if (e.pathType === 'spiral') {
                             const r = Math.max(0, 450 - t * 45 * e.speedMult);
                             const theta = t * 2 + e.indexOffset;
@@ -2575,8 +2586,8 @@
                                 + 2 * invProgress * progress * (e.arcControlY || height * 0.15)
                                 + progress * progress * (e.arcEndY || height * 0.28)
                                 + Math.sin(progress * Math.PI * 2.2 + phase) * (e.arcWaveAmpY || height * 0.03) * waveEase;
-                            e.vx = (nx - oldX) / Math.max(0.001, dt);
-                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            e.vx = (nx - oldX) / Math.max(0.001, hostileDt);
+                            e.vy = (ny - oldY) / Math.max(0.001, hostileDt);
                         } else if (e.pathType === 'orbitalDrift') {
                             const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
                             const oldX = e.x;
@@ -2586,8 +2597,8 @@
                             const orbitAngle = (e.orbitAngle || 0) + t * (e.orbitSpeed || 2.2) * e.speedMult;
                             nx = centerX + Math.cos(orbitAngle) * (e.orbitRadiusX || 54);
                             ny = centerY + Math.sin(orbitAngle) * (e.orbitRadiusY || 34);
-                            e.vx = (nx - oldX) / Math.max(0.001, dt);
-                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            e.vx = (nx - oldX) / Math.max(0.001, hostileDt);
+                            e.vy = (ny - oldY) / Math.max(0.001, hostileDt);
                         } else if (e.pathType === 'laneSweep') {
                             const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
                             const oldX = e.x;
@@ -2595,13 +2606,13 @@
                             const sweep = 0.5 - Math.cos(progress * Math.PI) * 0.5;
                             nx = e.startX + (e.endX - e.startX) * sweep;
                             ny = e.startY + (e.endY - e.startY) * progress + Math.sin(progress * Math.PI * 2 + (e.lanePhase || 0)) * (e.laneAmplitude || 0);
-                            e.vx = (nx - oldX) / Math.max(0.001, dt);
-                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            e.vx = (nx - oldX) / Math.max(0.001, hostileDt);
+                            e.vy = (ny - oldY) / Math.max(0.001, hostileDt);
                         } else if (e.pathType === 'horizontalDrop') {
                             if (t < (e.horizontalHold || 2.5)) {
-                                nx += (e.startX < width/2 ? 1 : -1) * (e.horizontalLateralSpeed || 180) * dt * e.speedMult;
+                                nx += (e.startX < width/2 ? 1 : -1) * (e.horizontalLateralSpeed || 180) * hostileDt * e.speedMult;
                             } else {
-                                ny += (e.horizontalDropSpeed || 250) * dt * e.speedMult;
+                                ny += (e.horizontalDropSpeed || 250) * hostileDt * e.speedMult;
                             }
                         } else if (e.pathType === 'risingStar') {
                             const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
@@ -2620,8 +2631,8 @@
                             e.invulnerable = riseProgress < 1;
                             e.risingVulnerable = !e.invulnerable;
                             e.enemyShipVisualScale = (e.risingBaseVisualScale || 1.08) * (0.76 + riseEase * 0.24);
-                            e.vx = (nx - oldX) / Math.max(0.001, dt);
-                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            e.vx = (nx - oldX) / Math.max(0.001, hostileDt);
+                            e.vy = (ny - oldY) / Math.max(0.001, hostileDt);
                         } else if (e.pathType === 'constellationSweep') {
                             const progress = Math.max(0, Math.min(1, (t * e.speedMult) / Math.max(0.01, e.routeDuration)));
                             const oldX = e.x;
@@ -2637,8 +2648,8 @@
                                 + 2 * invProgress * progress * (e.constellationControlY || height * 0.16)
                                 + progress * progress * (e.constellationEndY || height * 0.34)
                                 + Math.cos(progress * Math.PI * 3.1 + phase) * height * 0.026 * loopEase;
-                            e.vx = (nx - oldX) / Math.max(0.001, dt);
-                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            e.vx = (nx - oldX) / Math.max(0.001, hostileDt);
+                            e.vy = (ny - oldY) / Math.max(0.001, hostileDt);
                             if (e.constellationTrail && e.onScreen && Math.random() < 0.06) {
                                 debris.push({
                                     x: nx + (Math.random() - 0.5) * 12,
@@ -2662,8 +2673,8 @@
                             const verticalRipple = Math.sin(progress * Math.PI * 5.2 + phase) * 14 * Math.sin(progress * Math.PI);
                             nx = width / 2 + (e.braidOffset || 0) * Math.cos(progress * Math.PI * 0.7) + braidSwing + signalKink;
                             ny = -70 + progress * height * 0.60 + verticalRipple;
-                            e.vx = (nx - oldX) / Math.max(0.001, dt);
-                            e.vy = (ny - oldY) / Math.max(0.001, dt);
+                            e.vx = (nx - oldX) / Math.max(0.001, hostileDt);
+                            e.vy = (ny - oldY) / Math.max(0.001, hostileDt);
                             if (e.braidTrail && e.onScreen && Math.random() < 0.09) {
                                 debris.push({
                                     x: nx + (Math.random() - 0.5) * 10,
@@ -2678,7 +2689,7 @@
                             }
                         } else if (e.pathType === 'erraticScatter') {
                             if (t < 1) {
-                                ny += 150 * dt;
+                                ny += 150 * hostileDt;
                             } else if (t < 1.1) {
                                 if (!e.scatterSet) {
                                     const scatterSpeed = e.scatterSpeed || 650;
@@ -2687,8 +2698,8 @@
                                     e.scatterSet = true;
                                 }
                             } else {
-                                nx += e.scatterVx * dt;
-                                ny += e.scatterVy * dt;
+                                nx += e.scatterVx * hostileDt;
+                                ny += e.scatterVy * hostileDt;
                                 if (nx < 20 || nx > width - 20) e.scatterVx *= -1;
                                 if (ny < 20 || ny > height/2) e.scatterVy *= -1;
                             }
@@ -2708,11 +2719,11 @@
                         e.x = nx; e.y = ny;
                     }
                 } else {
-                    e.y += e.vy * dt; 
+                    e.y += e.vy * hostileDt;
                 }
 
                 if (e.orbiterFireInterval && e.onScreen) {
-                    e.fireTimer += dt;
+                    e.fireTimer += hostileDt;
                     if (e.fireTimer >= e.orbiterFireInterval * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT) {
                         e.fireTimer = 0;
                         const shot = getNonBossEnemyShotVector(e.x, e.y, e.orbiterFireSpeed || 215, {
@@ -2830,6 +2841,21 @@
                                     char: Math.random() > 0.5 ? '+' : '□',
                                     color: Math.random() > 0.35 ? '#ffffff' : '#d11f34',
                                     life: 0.8
+                                });
+                            }
+                        } else if (d.isFocus) {
+                            focusMeter = Math.min(FOCUS_METER_MAX, focusMeter + (d.focusAmount || FOCUS_ELITE_DROP_AMOUNT));
+                            if (focusMeter > 0) focusLockoutTimer = 0;
+                            focusRegenDelay = FOCUS_REGEN_DELAY;
+                            for (let k = 0; k < 16; k++) {
+                                const a = Math.random() * Math.PI * 2;
+                                const spd = 45 + Math.random() * 135;
+                                debris.push({
+                                    x: d.x, y: d.y,
+                                    vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+                                    char: Math.random() > 0.5 ? '*' : '+',
+                                    color: Math.random() > 0.35 ? '#fff2a8' : '#ffd35a',
+                                    life: 0.82
                                 });
                             }
                         }

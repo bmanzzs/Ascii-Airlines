@@ -2,6 +2,7 @@
         function gameLoop(now) {
             currentFrameNow = now;
             if (bossCinematic && bossCinematic.paused) {
+                const pausedDt = Math.min((now - lastTime) / 1000, 0.05);
                 lastTime = now;
                 lastRafTime = now;
                 frameCount++;
@@ -11,6 +12,7 @@
                     fpsLastTime = now;
                     fpsElement.innerText = `FPS: ${currentFps}`;
                 }
+                if (typeof updateFocusAbilities === 'function') updateFocusAbilities(pausedDt, false);
                 updateBossCinematic(now);
                 draw(0);
                 updateHud();

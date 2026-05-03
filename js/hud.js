@@ -11,6 +11,18 @@
             return `rgb(${r}, ${g}, ${bl})`;
         }
 
+        function mixHexColor(colorA, colorB, t) {
+            const clamped = Math.max(0, Math.min(1, t));
+            const a = colorA.replace('#', '');
+            const b = colorB.replace('#', '');
+            const ar = parseInt(a.slice(0, 2), 16), ag = parseInt(a.slice(2, 4), 16), ab = parseInt(a.slice(4, 6), 16);
+            const br = parseInt(b.slice(0, 2), 16), bg = parseInt(b.slice(2, 4), 16), bb = parseInt(b.slice(4, 6), 16);
+            const r = Math.round(ar + (br - ar) * clamped).toString(16).padStart(2, '0');
+            const g = Math.round(ag + (bg - ag) * clamped).toString(16).padStart(2, '0');
+            const bl = Math.round(ab + (bb - ab) * clamped).toString(16).padStart(2, '0');
+            return `#${r}${g}${bl}`;
+        }
+
         function colorWithAlpha(color, alpha) {
             const clamped = Math.max(0, Math.min(1, alpha));
             if (color.startsWith('#')) {
@@ -54,7 +66,7 @@
         }
 
         function ensureHudStructure() {
-            if (document.querySelector('#hud-wave-panel #hud-score-value') && document.getElementById('hud-combo-value')) return;
+            if (document.querySelector('#hud-wave-panel #hud-score-value') && document.getElementById('hud-combo-value') && document.getElementById('hud-focus-bar')) return;
             hud.innerHTML = `
                 <div class="hud-left">
                     <div class="hud-meters">
@@ -69,6 +81,10 @@
                         <div class="hud-meter">
                             <span class="hud-meter-label">BOMB</span>
                             <span id="hud-bomb-bar" class="hud-meter-bar"></span>
+                        </div>
+                        <div class="hud-meter">
+                            <span class="hud-meter-label">FOCUS</span>
+                            <span id="hud-focus-bar" class="hud-meter-bar"></span>
                         </div>
                     </div>
                 </div>
@@ -95,6 +111,7 @@
             hudRefs.hpBar = document.getElementById('hud-hp-bar');
             hudRefs.xpBar = document.getElementById('hud-xp-bar');
             hudRefs.bombBar = document.getElementById('hud-bomb-bar');
+            hudRefs.focusBar = document.getElementById('hud-focus-bar');
             hudRefs.weaponGrid = document.getElementById('hud-weapon-grid');
             hudRefs.levelText = document.getElementById('hud-level-text');
             hudRefs.comboChip = document.getElementById('hud-combo-chip');
@@ -307,6 +324,7 @@
         let lastHudHpSignature = '';
         let lastHudXpSignature = '';
         let lastHudBombSignature = '';
+        let lastHudFocusSignature = '';
         let lastHudStaticSignature = '';
         let lastHudStatsSignature = '';
         let lastHudStatValues = null;
@@ -317,6 +335,7 @@
             hpBar: null,
             xpBar: null,
             bombBar: null,
+            focusBar: null,
             weaponGrid: null,
             levelText: null,
             comboChip: null,
@@ -505,15 +524,30 @@
         }
 
         function updateHud() {
-            if (window.innerHeight < 700 || window.innerWidth < 525) { hud.style.display = 'none'; syncStatsPanel(true); return; }
-            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GAMEOVER') { hud.style.opacity = 0; syncStatsPanel(true); return; }
+            if (window.innerHeight < 700 || window.innerWidth < 525) {
+                hud.style.display = 'none';
+                hud.style.opacity = 0;
+                hud.style.transform = 'translateY(calc(100% + 6px))';
+                syncStatsPanel(true);
+                return;
+            }
+            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GAMEOVER') {
+                hud.style.display = 'none';
+                hud.style.opacity = 0;
+                hud.style.transform = 'translateY(calc(100% + 6px))';
+                syncStatsPanel(true);
+                return;
+            }
             
             hud.style.display = 'flex';
             if (gameState === 'LAUNCHING') {
                 let t = Math.min(launchTimer / 1.5, 1.0);
-                hud.style.opacity = 1 - Math.pow(1 - t, 3);
+                const eased = 1 - Math.pow(1 - t, 3);
+                hud.style.opacity = eased;
+                hud.style.transform = `translateY(${Math.round((1 - eased) * (HUD_HEIGHT + 8))}px)`;
             } else {
                 hud.style.opacity = 1;
+                hud.style.transform = 'translateY(0)';
             }
 
             ensureHudStructure();
@@ -575,6 +609,15 @@
             const bombRatio = Math.max(0, Math.min(1, 1 - (Math.max(0, player.bombTimer) / bombCooldownTotal)));
             const bombBlocks = Math.ceil(bombRatio * HUD_BAR_BLOCKS);
             const bombReady = bombRatio >= 0.999;
+
+            const focusRatio = typeof focusMeter === 'number'
+                ? Math.max(0, Math.min(1, focusMeter / FOCUS_METER_MAX))
+                : 1;
+            const focusBlocks = Math.ceil(focusRatio * HUD_BAR_BLOCKS);
+            const driveVisual = typeof getFocusDriveRenderIntensity === 'function' ? getFocusDriveRenderIntensity() : 0;
+            const specterVisual = typeof getSpecterRenderIntensity === 'function' ? getSpecterRenderIntensity() : 0;
+            const focusActive = driveVisual > 0.08 || specterVisual > 0.08;
+            const focusLocked = typeof focusLockoutTimer === 'number' && focusLockoutTimer > 0;
             
             const waveNumber = Math.max(1, WaveManager.currentWave);
             const waveText = boss ? 'BOSS' : waveNumber;
@@ -626,12 +669,34 @@
                 glowEnabled ? 1 : 0
             ].join('~');
             if (bombSignature !== lastHudBombSignature) {
-                syncMeterBar(hudRefs.bombBar, bombBlocks, HUD_BAR_BLOCKS, '#ff3030', '#ff9f1a', '#3f2520', {
+                const bombTone = Math.pow(bombRatio, 0.72);
+                const bombStart = mixHexColor('#32213f', '#f08d92', bombTone);
+                const bombEnd = mixHexColor('#4c2b55', '#ffaaa2', bombTone);
+                syncMeterBar(hudRefs.bombBar, bombBlocks, HUD_BAR_BLOCKS, bombStart, bombEnd, '#211827', {
                     effectClass: bombReady ? 'is-bomb is-bomb-ready is-full' : 'is-bomb',
                     glowAlpha: bombReady ? 0.88 : bombRatio * 0.8,
                     glowBlur: bombReady ? 9 : 8
                 });
                 lastHudBombSignature = bombSignature;
+            }
+
+            const focusSignature = [
+                focusBlocks,
+                Math.round(focusRatio * 100),
+                focusActive ? 1 : 0,
+                focusLocked ? 1 : 0,
+                focusMode,
+                glowEnabled ? 1 : 0
+            ].join('~');
+            if (focusSignature !== lastHudFocusSignature) {
+                const focusStart = focusLocked ? '#5e5a46' : '#ffe680';
+                const focusEnd = focusLocked ? '#302d24' : '#ffc94a';
+                syncMeterBar(hudRefs.focusBar, focusBlocks, HUD_BAR_BLOCKS, focusStart, focusEnd, '#2b2618', {
+                    effectClass: `is-focus${focusActive ? ' is-focus-active' : ''}${focusLocked ? ' is-focus-locked' : ''}${focusRatio >= 0.999 ? ' is-full' : ''}`,
+                    glowAlpha: focusLocked ? 0.18 : (focusActive ? 0.88 : focusRatio * 0.56),
+                    glowBlur: focusActive ? 10 : 7
+                });
+                lastHudFocusSignature = focusSignature;
             }
 
             const staticSignature = [
