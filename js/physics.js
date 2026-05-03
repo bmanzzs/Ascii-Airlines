@@ -68,6 +68,144 @@
             radialExplosion(p.x, p.y, stats.splashRadius * 22, p.damage * stats.splashDamagePercent, stats.splashVisualDebris ?? 20);
         }
 
+        function buildGlitchCodeLine(length = 8) {
+            const codeChars = GLITCH_CHARS.join('') + '01{}[];:=></%!&|~';
+            let codeLine = '';
+            for (let k = 0; k < length; k++) {
+                codeLine += codeChars[Math.floor(Math.random() * codeChars.length)];
+            }
+            return codeLine;
+        }
+
+        function pushDistortedGlitchShard(x, y, angle, speed, options = {}) {
+            enemyBullets.push({
+                x,
+                y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                char: options.char || '\uFF8A',
+                color: options.color || '#00ff41',
+                life: options.life,
+                decay: options.decay,
+                isHuge: !!options.isHuge,
+                isGlitchBullet: true,
+                isCodeLine: !!options.isCodeLine,
+                morphTimer: 0,
+                turnRate: options.turnRate || 0,
+                speed,
+                hitboxScale: options.hitboxScale || 1
+            });
+        }
+
+        function fireGlitchMatrixRainAttack(bossObj) {
+            const laneCount = 5;
+            const playerSafeLane = Math.max(0, Math.min(laneCount - 1, Math.floor((player.x / Math.max(1, width)) * laneCount)));
+            const lanes = [];
+            for (let lane = 0; lane < laneCount; lane++) {
+                if (lane !== playerSafeLane || Math.random() < 0.28) lanes.push(lane);
+            }
+            if (lanes.length > 4) lanes.splice(Math.floor(Math.random() * lanes.length), 1);
+
+            for (let i = 0; i < lanes.length; i++) {
+                const lane = lanes[i];
+                const laneX = width * ((lane + 0.5) / laneCount) + (Math.random() - 0.5) * 36;
+                const speed = 235 + Math.random() * 55;
+                pushDistortedGlitchShard(laneX, -36 - i * 18, Math.PI / 2 + (Math.random() - 0.5) * 0.06, speed, {
+                    char: buildGlitchCodeLine(7 + Math.floor(Math.random() * 5)),
+                    color: i % 2 === 0 ? '#00ff41' : '#baffc8',
+                    isCodeLine: true,
+                    hitboxScale: 0.75
+                });
+            }
+
+            const sweepCount = 6;
+            for (let i = 0; i < sweepCount; i++) {
+                const angle = -Math.PI / 2 + (i - (sweepCount - 1) / 2) * 0.17;
+                pushDistortedGlitchShard(bossObj.x, bossObj.y + 12, angle, 250, {
+                    char: i % 2 ? '0' : '1',
+                    color: '#8dffb1',
+                    hitboxScale: 0.72
+                });
+            }
+
+            if (debris.length < 620) {
+                for (let i = 0; i < 12; i++) {
+                    debris.push({
+                        x: width * Math.random(),
+                        y: -20 - Math.random() * 60,
+                        vx: (Math.random() - 0.5) * 25,
+                        vy: 80 + Math.random() * 90,
+                        char: Math.random() > 0.5 ? '1' : '0',
+                        color: '#00ff41',
+                        life: 0.35 + Math.random() * 0.25
+                    });
+                }
+            }
+        }
+
+        function fireGlitchTearAttack(bossObj) {
+            const tearY = Math.max(80, Math.min(height * 0.55, player.y - 95 + (Math.random() - 0.5) * 90));
+            const lanes = [-34, width + 34];
+            for (let sideIndex = 0; sideIndex < lanes.length; sideIndex++) {
+                const fromLeft = sideIndex === 0;
+                for (let i = 0; i < 5; i++) {
+                    const y = tearY + (i - 2) * 24 + (Math.random() - 0.5) * 8;
+                    const angle = fromLeft ? 0 : Math.PI;
+                    pushDistortedGlitchShard(lanes[sideIndex], y, angle + (Math.random() - 0.5) * 0.035, 310 + i * 18, {
+                        char: GLITCH_CHARS[(i * 3 + sideIndex) % GLITCH_CHARS.length],
+                        color: i % 2 === 0 ? '#ff3355' : '#ffffff',
+                        turnRate: (fromLeft ? 1 : -1) * (i - 2) * 0.11,
+                        hitboxScale: 0.78
+                    });
+                }
+            }
+
+            const forkShots = 8;
+            const aim = Math.atan2(player.y - bossObj.y, player.x - bossObj.x);
+            for (let i = 0; i < forkShots; i++) {
+                const side = i % 2 === 0 ? -1 : 1;
+                const spread = 0.18 + Math.floor(i / 2) * 0.09;
+                pushDistortedGlitchShard(bossObj.x, bossObj.y, aim + side * spread, 265 + i * 7, {
+                    char: i % 2 ? '\uFF8B' : '\uFF8A',
+                    color: i % 3 === 0 ? '#ffffff' : '#ff3355',
+                    turnRate: side * -0.18,
+                    hitboxScale: 0.76
+                });
+            }
+
+            if (debris.length < 620) {
+                for (let i = 0; i < 18; i++) {
+                    debris.push({
+                        x: width * Math.random(),
+                        y: tearY + (Math.random() - 0.5) * 34,
+                        vx: (Math.random() - 0.5) * 120,
+                        vy: (Math.random() - 0.5) * 30,
+                        char: GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)],
+                        color: i % 3 === 0 ? '#ffffff' : '#ff3355',
+                        life: 0.24 + Math.random() * 0.18
+                    });
+                }
+            }
+        }
+
+        function updateDistortedGlitchSpecialAttacks(bossObj, dt) {
+            if (!bossObj || bossObj.phase !== 'ACTIVE' || bossObj.isDeadGlitching) return;
+            if (bossObj.stage === 1) {
+                bossObj.matrixRainTimer = (bossObj.matrixRainTimer ?? 3.2) - dt;
+                if (bossObj.matrixRainTimer <= 0) {
+                    fireGlitchMatrixRainAttack(bossObj);
+                    bossObj.matrixRainTimer = 6.8 + Math.random() * 1.6;
+                }
+            } else {
+                bossObj.glitchTearTimer = (bossObj.glitchTearTimer ?? 2.7) - dt;
+                if (bossObj.glitchTearTimer <= 0) {
+                    fireGlitchTearAttack(bossObj);
+                    addShake(7);
+                    bossObj.glitchTearTimer = 5.4 + Math.random() * 1.4;
+                }
+            }
+        }
+
         function spawnPrismSplitProjectiles(p) {
             const stats = p.stats || {};
             if (!stats.prismSplit || p.hasPrismSplit || (p.orbitTime || 0) > 0) return;
@@ -1225,11 +1363,13 @@
                         if (maybeTriggerBossDeathCinematic(boss)) return;
 
                         if (boss.stage === 1 && boss.hp <= boss.maxHp / 2) {
-                            boss.stage = 2;
-                            boss.transitionFlash = 0.3;
-                            boss.transitionTextTimer = 2.0;
-                            boss.x = width / 2;
-                            boss.y = height / 3;
+                        boss.stage = 2;
+                        boss.transitionFlash = 0.3;
+                        boss.transitionTextTimer = 2.0;
+                        boss.glitchTearTimer = 2.3;
+                        boss.matrixRainTimer = 999;
+                        boss.x = width / 2;
+                        boss.y = height / 3;
                             boss.sprite = GLITCH_SPRITE_2;
                             boss.chargeTimer = 0;
                             boss.isCharging = false;
@@ -1354,6 +1494,7 @@
                                     boss.codeVolleyShots = 0;
                                     boss.codeVolleyDelay = 0;
                                 }
+                                updateDistortedGlitchSpecialAttacks(boss, hostileDt);
                             }
                         } else if (boss.isCharging) {
                             boss.chargeDuration += hostileDt;

@@ -267,6 +267,19 @@
                 };
             }
 
+            const earlyWaveInfo = typeof WaveManager !== 'undefined' && typeof WaveManager.getEarlyProceduralWaveInfo === 'function'
+                ? WaveManager.getEarlyProceduralWaveInfo(waveNumber)
+                : null;
+            if (earlyWaveInfo) {
+                return {
+                    id: `early-${earlyWaveInfo.id}`,
+                    label: earlyWaveInfo.hudLabel || earlyWaveInfo.name,
+                    desc: earlyWaveInfo.hudDesc || '',
+                    color: earlyWaveInfo.color || currentThemeColor,
+                    standard: false
+                };
+            }
+
             const drift = typeof WaveManager !== 'undefined' && typeof WaveManager.getSignalDriftForWave === 'function'
                 ? WaveManager.getSignalDriftForWave(waveNumber)
                 : null;

@@ -1004,6 +1004,7 @@
             WaveManager.pendingFormationUnits = 0;
             WaveManager.activeFormationId = 0;
             WaveManager.formationId = 0;
+            WaveManager.randomizeEarlyProceduralWaves();
             WaveManager.randomizeFlyByAssignments();
             WaveManager.randomizeSignalDrifts();
             waveSignalNotice = null;

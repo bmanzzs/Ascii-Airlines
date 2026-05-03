@@ -10,14 +10,6 @@
         let showStatsPanel = true;
         let renderStyleMode = 2;
         let glowEnabled = true;
-        let crtFilterEnabled = false;
-        let subpixelRenderEnabled = false;
-        const SUBPIXEL_RENDER_TARGETS = Object.freeze({
-            PLAYER_SHIP: 'playerShip',
-            ENEMY_BULLET: 'enemyBullet',
-            PLAYER_PROJECTILE: 'playerProjectile',
-            FIELD_PARTICLE: 'fieldParticle'
-        });
         
         function applyTheme() {
             const root = document.documentElement;
@@ -202,7 +194,7 @@
         const PAUSE_VOLUME_RETURN_FADE_SECONDS = 0.35;
         const POST_RESUME_BOMB_LOCK_SECONDS = 0.5;
         let pauseVolumePreviewTimeout = null;
-        const SETTINGS_MENU_OPTION_COUNT = 8;
+        const SETTINGS_MENU_OPTION_COUNT = 6;
 
         const COMBO_SCORE_MULT_PER_KILL = 0.01;
         const COMBO_FOCUS_STEP = 10;
@@ -487,23 +479,16 @@
             statsPanel.style.display = showStatsPanel ? 'block' : 'none';
         }
 
-        function shouldUseSubpixelRender(category) {
-            return !!(subpixelRenderEnabled && category);
-        }
-
-        function snapSpriteCoord(value, subpixelCategory = null) {
-            if (shouldUseSubpixelRender(subpixelCategory)) return value;
+        function snapSpriteCoord(value) {
             if (renderStyleMode === 0) return value;
             return Math.round(value);
         }
 
-        function truncateSpriteCoord(value, subpixelCategory = null) {
-            if (shouldUseSubpixelRender(subpixelCategory)) return value;
+        function truncateSpriteCoord(value) {
             return value | 0;
         }
 
-        function quantizeGlyphCoord(value, subpixelCategory = null) {
-            if (shouldUseSubpixelRender(subpixelCategory)) return value;
+        function quantizeGlyphCoord(value) {
             if (renderStyleMode === 2) return Math.round(value);
             return value;
         }

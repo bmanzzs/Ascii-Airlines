@@ -39,6 +39,178 @@
             }
         ];
         let waveSignalNotice = null;
+        const EARLY_PROCEDURAL_WAVE_COUNT = 4;
+        const EARLY_PROCEDURAL_THEMES = {
+            swarm: {
+                id: 'swarm',
+                name: 'SWARM',
+                hudLabel: 'TEST SWARM',
+                hudDesc: 'LIGHT PACK',
+                color: '#8ff7ff',
+                minWave: 1
+            },
+            patrol: {
+                id: 'patrol',
+                name: 'PATROL',
+                hudLabel: 'TEST PATROL',
+                hudDesc: 'STANDARD ROUTE',
+                color: '#9bffcf',
+                minWave: 1
+            },
+            flankers: {
+                id: 'flankers',
+                name: 'FLANKERS',
+                hudLabel: 'TEST FLANKERS',
+                hudDesc: 'SIDE ENTRY',
+                color: '#77ffe7',
+                minWave: 2
+            },
+            bruisers: {
+                id: 'bruisers',
+                name: 'BRUISERS',
+                hudLabel: 'TEST BRUISERS',
+                hudDesc: 'TOUGHER FEW',
+                color: '#ffb36b',
+                minWave: 2
+            },
+            crossfire: {
+                id: 'crossfire',
+                name: 'CROSSFIRE',
+                hudLabel: 'TEST CROSSFIRE',
+                hudDesc: 'LIGHT FIRING',
+                color: '#fff07a',
+                minWave: 3
+            },
+            drift: {
+                id: 'drift',
+                name: 'DRIFT',
+                hudLabel: 'TEST DRIFT',
+                hudDesc: 'ODD ROUTE',
+                color: '#b9a6ff',
+                minWave: 1
+            }
+        };
+        const EARLY_PROCEDURAL_THEME_IDS = ['swarm', 'patrol', 'flankers', 'bruisers', 'crossfire', 'drift'];
+
+        function attachEarlyProceduralTheme(waveDef, waveNumber, theme) {
+            return {
+                ...waveDef,
+                isEarlyProcedural: true,
+                proceduralWaveNumber: waveNumber,
+                proceduralThemeId: theme.id,
+                proceduralThemeName: theme.name,
+                proceduralHudLabel: theme.hudLabel,
+                proceduralHudDesc: theme.hudDesc,
+                proceduralColor: theme.color
+            };
+        }
+
+        function buildEarlyProceduralWaveDef(waveNumber, themeId) {
+            const theme = EARLY_PROCEDURAL_THEMES[themeId] || EARLY_PROCEDURAL_THEMES.patrol;
+            const tier = Math.max(0, Math.min(3, waveNumber - 1));
+            const simpleTypes = ['zig1', 'wave2', 'wave3'];
+
+            if (theme.id === 'swarm') {
+                return attachEarlyProceduralTheme({
+                    count: [10, 12, 14, 15][tier],
+                    color: '#8ff7ff',
+                    type: simpleTypes[(waveNumber + pickRandomIntInclusive(0, 1)) % simpleTypes.length],
+                    speed: [0.56, 0.59, 0.62, 0.64][tier],
+                    stagger: [0.80, 0.72, 0.66, 0.62][tier],
+                    weakOnly: true
+                }, waveNumber, theme);
+            }
+
+            if (theme.id === 'flankers') {
+                return attachEarlyProceduralTheme({
+                    count: [8, 9, 11, 12][tier],
+                    color: '#77ffe7',
+                    type: 'wave4',
+                    speed: [0.54, 0.56, 0.60, 0.63][tier],
+                    stagger: [0.86, 0.82, 0.74, 0.68][tier],
+                    alternateSideSpawn: true
+                }, waveNumber, theme);
+            }
+
+            if (theme.id === 'bruisers') {
+                return attachEarlyProceduralTheme({
+                    count: [6, 6, 7, 8][tier],
+                    color: '#ffb36b',
+                    type: simpleTypes[(waveNumber + pickRandomIntInclusive(0, 2)) % simpleTypes.length],
+                    speed: [0.50, 0.53, 0.56, 0.58][tier],
+                    stagger: [0.96, 0.90, 0.84, 0.78][tier],
+                    enemyHpMult: [1.12, 1.18, 1.28, 1.38][tier],
+                    elite: waveNumber >= 3
+                }, waveNumber, theme);
+            }
+
+            if (theme.id === 'crossfire') {
+                return attachEarlyProceduralTheme({
+                    count: [7, 8, 9, 10][tier],
+                    color: '#fff07a',
+                    type: waveNumber >= 4 ? 'wave4' : 'wave2',
+                    speed: [0.52, 0.54, 0.56, 0.58][tier],
+                    stagger: [0.92, 0.88, 0.84, 0.78][tier],
+                    firePattern: waveNumber >= 4 ? 'downFan' : 'aimedPulse',
+                    fireEveryNth: waveNumber >= 4 ? 4 : 5,
+                    fireInterval: waveNumber >= 4 ? 3.05 : 3.35,
+                    fireOffset: 0.28
+                }, waveNumber, theme);
+            }
+
+            if (theme.id === 'drift') {
+                if (waveNumber <= 1) {
+                    return attachEarlyProceduralTheme({
+                        count: 8,
+                        color: '#b9a6ff',
+                        type: 'wave3',
+                        speed: 0.52,
+                        stagger: 0.86,
+                        weakOnly: true
+                    }, waveNumber, theme);
+                }
+                return attachEarlyProceduralTheme({
+                    count: [7, 8, 9, 10][tier],
+                    color: '#b9a6ff',
+                    type: 'weave',
+                    speed: [0.36, 0.38, 0.42, 0.45][tier],
+                    hpMult: [0.9, 0.95, 1.0, 1.05][tier],
+                    weaveLaneCount: waveNumber >= 4 ? 3 : 2,
+                    weaveGroupDelay: [0.92, 0.86, 0.82, 0.78][tier],
+                    weaveIntraDelay: 0.16,
+                    weaveLaneSpread: waveNumber >= 4 ? 0.46 : 0.38,
+                    weaveAmplitudeRatio: [0.065, 0.075, 0.085, 0.095][tier],
+                    weaveFrequency: [1.65, 1.85, 2.05, 2.20][tier],
+                    weaveVerticalSpeed: [98, 104, 110, 116][tier],
+                    sideEntrySlots: waveNumber >= 3 ? [1, 5] : [],
+                    routeDuration: [8.2, 8.0, 7.8, 7.6][tier],
+                    stagger: [0.74, 0.68, 0.64, 0.60][tier]
+                }, waveNumber, theme);
+            }
+
+            return attachEarlyProceduralTheme({
+                count: [8, 10, 11, 12][tier],
+                color: '#9bffcf',
+                type: simpleTypes[(waveNumber + pickRandomIntInclusive(0, 2)) % simpleTypes.length],
+                speed: [0.58, 0.61, 0.64, 0.66][tier],
+                stagger: [0.78, 0.72, 0.66, 0.60][tier],
+                elite: waveNumber >= 4
+            }, waveNumber, theme);
+        }
+
+        function pickEarlyProceduralTheme(waveNumber, lastThemeId, themeUseCounts) {
+            let options = EARLY_PROCEDURAL_THEME_IDS
+                .map(id => EARLY_PROCEDURAL_THEMES[id])
+                .filter(theme => waveNumber >= theme.minWave)
+                .filter(theme => theme.id !== lastThemeId)
+                .filter(theme => (themeUseCounts[theme.id] || 0) < 2);
+            if (options.length === 0) {
+                options = EARLY_PROCEDURAL_THEME_IDS
+                    .map(id => EARLY_PROCEDURAL_THEMES[id])
+                    .filter(theme => waveNumber >= theme.minWave && theme.id !== lastThemeId);
+            }
+            return options[Math.floor(Math.random() * options.length)] || EARLY_PROCEDURAL_THEMES.patrol;
+        }
 
         function pickRandomIntInclusive(min, max) {
             return min + Math.floor(Math.random() * (max - min + 1));
@@ -97,7 +269,7 @@
         }
 
         function pickSignalDriftForWave(waveDef, waveNumber, lastDriftId) {
-            if (!waveDef || waveDef.isBoss) return null;
+            if (!waveDef || waveDef.isBoss || waveDef.isEarlyProcedural) return null;
             const lateBonus = Math.min(0.25, Math.max(0, waveNumber - 8) * 0.012);
             const chance = Math.min(0.78, 0.42 + lateBonus);
             if (Math.random() > chance) return null;
@@ -817,6 +989,7 @@
             flyByAssignments: {},
             scoutFlyByAssignments: {},
             signalDrifts: {},
+            earlyProceduralWaves: {},
             formationId: 0,
             activeFormationId: 0,
             pendingFormationUnits: 0,
@@ -857,6 +1030,33 @@
                 { count: 20, customType: 'braidCrucible' }, // Wave 34
                 { isBoss: true, name: 'ECLIPSE WARDEN', sprite: ECLIPSE_WARDEN_SPRITE, hp: 2600 } // Wave 35
             ],
+            randomizeEarlyProceduralWaves() {
+                this.earlyProceduralWaves = {};
+                const themeUseCounts = {};
+                let lastThemeId = null;
+                for (let waveNumber = 1; waveNumber <= EARLY_PROCEDURAL_WAVE_COUNT; waveNumber++) {
+                    const theme = pickEarlyProceduralTheme(waveNumber, lastThemeId, themeUseCounts);
+                    this.earlyProceduralWaves[waveNumber] = buildEarlyProceduralWaveDef(waveNumber, theme.id);
+                    themeUseCounts[theme.id] = (themeUseCounts[theme.id] || 0) + 1;
+                    lastThemeId = theme.id;
+                }
+            },
+            getWaveDefinitionForWave(waveNumber) {
+                return this.earlyProceduralWaves[waveNumber] || this.waves[waveNumber - 1];
+            },
+            getEarlyProceduralWaveInfo(waveNumber) {
+                const waveDef = this.earlyProceduralWaves[waveNumber];
+                if (!waveDef || !waveDef.isEarlyProcedural) return null;
+                return {
+                    id: waveDef.proceduralThemeId,
+                    name: waveDef.proceduralThemeName,
+                    hudLabel: waveDef.proceduralHudLabel,
+                    hudDesc: waveDef.proceduralHudDesc,
+                    color: waveDef.proceduralColor,
+                    count: waveDef.count,
+                    type: waveDef.type
+                };
+            },
             randomizeFlyByAssignments() {
                 this.flyByAssignments = {};
                 this.scoutFlyByAssignments = {};
@@ -878,7 +1078,7 @@
                 let lastDriftId = null;
                 for (let i = 0; i < this.waves.length; i++) {
                     const waveNumber = i + 1;
-                    const drift = pickSignalDriftForWave(this.waves[i], waveNumber, lastDriftId);
+                    const drift = pickSignalDriftForWave(this.getWaveDefinitionForWave(waveNumber), waveNumber, lastDriftId);
                     if (drift) {
                         this.signalDrifts[waveNumber] = drift;
                         lastDriftId = drift.id;
@@ -927,10 +1127,13 @@
                 }
             },
             spawn() {
-                const w = this.waves[this.currentWave];
                 const waveNumber = this.currentWave + 1;
+                const w = this.getWaveDefinitionForWave(waveNumber);
                 const signalDrift = this.getSignalDriftForWave(waveNumber);
                 pushWaveSignalNotice(waveNumber, signalDrift);
+                if (w && w.isEarlyProcedural && typeof console !== 'undefined') {
+                    console.info(`[Wave Test] Wave ${waveNumber}: ${w.proceduralThemeName} (${w.type}, ${w.count} enemies)`);
+                }
                 if (w.isBoss) {
                     this.pendingFormationUnits = 0;
                     boss = { 
@@ -968,6 +1171,8 @@
                         boss.scrambleTimer = 0; boss.barLieTimer = 0; boss.barLieWidth = 0;
                         boss.isDoubleCharge = false; boss.doubleChargePhase = 0;
                         boss.codeVolleyTimer = 5.0 + Math.random() * 3.0; boss.codeVolleyShots = 0; boss.codeVolleyDelay = 0; boss.isCodeVolley = false;
+                        boss.matrixRainTimer = 3.2;
+                        boss.glitchTearTimer = 999;
                         boss.introStartX = boss.x; boss.introStartY = boss.y;
                         boss.introTargetX = width / 2; boss.introTargetY = height * 0.2;
                     }
@@ -1080,7 +1285,7 @@
                             const isElite = (w.elite && i === Math.floor(w.count / 2)) || 
                                             (w.doubleElite && (i === Math.floor(w.count / 3) || i === Math.floor(w.count * 2 / 3))) ||
                                             (w.type === 'snake' && i % 10 === 0 && !isTail);
-                            const isArmored = (!isElite && i % 2 === 1 && !isTail);
+                            const isArmored = (!w.weakOnly && !isElite && i % 2 === 1 && !isTail);
                             
                             let sprite = ["  ▄▄█▄▄  ", " ▀▀███▀▀ ", "   ▀█▀   "];
                             let hp = 10, color = w.color;
@@ -1095,6 +1300,10 @@
                             } else if (isArmored) {
                                 sprite = [" ▄▄▄█▄▄▄ ", " ▀▀███▀▀ ", "   ▀█▀   "];
                                 hp = 20; color = '#00ff44'; enemyShipKind = 'armored';
+                            }
+
+                            if (w.enemyHpMult && !isTail) {
+                                hp = Math.max(1, Math.ceil(hp * w.enemyHpMult));
                             }
 
                             let currentPath = path;
@@ -1129,7 +1338,7 @@
                         for (let i = 0; i < w.count; i++) {
                             const isElite = (w.elite && i === Math.floor(w.count / 2)) || 
                                             (w.doubleElite && (i === Math.floor(w.count / 3) || i === Math.floor(w.count * 2 / 3)));
-                            const isArmored = !isElite && i % 2 === 1;
+                            const isArmored = !w.weakOnly && !isElite && i % 2 === 1;
                             let sprite = ["  ▄▄█▄▄  ", " ▀▀███▀▀ ", "   ▀█▀   "];
                             let hp = (w.hpMult || 1) * 10;
                             let color = w.color || '#ff00ff';
@@ -1346,6 +1555,7 @@
             }
         };
 
+        WaveManager.randomizeEarlyProceduralWaves();
         WaveManager.randomizeFlyByAssignments();
         WaveManager.randomizeSignalDrifts();
 

@@ -682,16 +682,6 @@
             pointer-events: none;
             left: -9999px;
         }
-        #crt-overlay {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.06) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.014), rgba(0, 255, 0, 0.006), rgba(0, 0, 255, 0.014));
-            background-size: 100% 4px, 6px 100%;
-            opacity: 0.32;
-            pointer-events: none;
-            display: none;
-            z-index: 10;
-        }
     </style>
 </head>
 <body>
@@ -708,9 +698,6 @@
     <!-- OVERHEATING FIREWALL SOURCE REMOVED 
      <pre id=p><svg onload=a=[setInterval('h="";for(a[I++*I%17+578]=i=89;i++<630;h+=i%30?"*"[a[i]=~~((a[i]+a[i+1]+a[i+29]+a[i+30])/4)]||8:"\\n")p.innerHTML=h',I=30)]></svg></pre>-->
      <!-- OVERHEATING FIREWALL SOURCE REMOVED -->
-
-    <div id="crt-overlay"></div>
-
     <!-- Game content modules. Load order matters: assets, void mechanics, wave manager, engine. -->
     <script src="js/sprites.js"></script>
     <script src="js/void-content.js"></script>

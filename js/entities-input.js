@@ -143,11 +143,6 @@
             }
             
             const k = e.key.toLowerCase();
-            if (k === 'f9') {
-                subpixelRenderEnabled = !subpixelRenderEnabled;
-                e.preventDefault();
-                return;
-            }
             if (keys.hasOwnProperty(k)) {
                 keys[k] = true;
                 if (gameState === 'PLAYING' && k === 'arrowdown' && !e.repeat && bombProjectiles.length > 0) {
@@ -299,11 +294,6 @@
                         } else if (settingsSelection === 4 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
                             glowEnabled = !glowEnabled;
                             applyTheme();
-                        } else if (settingsSelection === 5 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
-                            crtFilterEnabled = !crtFilterEnabled;
-                            document.getElementById('crt-overlay').style.display = crtFilterEnabled ? 'block' : 'none';
-                        } else if (settingsSelection === 6 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
-                            subpixelRenderEnabled = !subpixelRenderEnabled;
                         } else if (settingsSelection === lastSettingsIndex && (k === 'enter' || k === ' ')) {
                             pauseState = 'MAIN';
                             settingsSelection = 0;

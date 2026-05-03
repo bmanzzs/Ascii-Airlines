@@ -735,8 +735,8 @@
             const y = renderOrigin ? part.y - renderOrigin.y : part.y;
             ctx.save();
             ctx.translate(
-                snapSpriteCoord(x, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
-                snapSpriteCoord(y, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
+                snapSpriteCoord(x),
+                snapSpriteCoord(y)
             );
             if (part.rotation) ctx.rotate(part.rotation);
             ctx.font = `bold ${part.fontSize}px Courier New`;
@@ -849,8 +849,8 @@
             }
             ctx.fillText(
                 '◉',
-                snapSpriteCoord(renderCueX, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
-                snapSpriteCoord(renderCueY, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
+                snapSpriteCoord(renderCueX),
+                snapSpriteCoord(renderCueY)
             );
 
             ctx.globalAlpha = visual.alpha * (visual.ready ? 0.9 : 0.54 + visual.charge * 0.3);
@@ -859,8 +859,8 @@
             ctx.fillStyle = visual.ready ? '#fff5f3' : blendPlayerCueHex('#85617f', '#ffd6d4', visual.charge);
             ctx.fillText(
                 '*',
-                snapSpriteCoord(renderCueX, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
-                snapSpriteCoord(renderCueY, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
+                snapSpriteCoord(renderCueX),
+                snapSpriteCoord(renderCueY)
             );
             ctx.restore();
         }
@@ -922,8 +922,8 @@
             if (hasRenderTransform) {
                 ctx.save();
                 ctx.translate(
-                    snapSpriteCoord(ship.x, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP),
-                    snapSpriteCoord(ship.y, SUBPIXEL_RENDER_TARGETS.PLAYER_SHIP)
+                    snapSpriteCoord(ship.x),
+                    snapSpriteCoord(ship.y)
                 );
                 if (bankRotation) ctx.rotate(bankRotation);
                 if (specterVisualScale !== 1) ctx.scale(specterVisualScale, specterVisualScale * (1 - 0.08 * specterIntensity));
