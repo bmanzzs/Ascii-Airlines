@@ -459,7 +459,7 @@
             return false;
         }
 
-        function drawBlackVoidBoss(renderNow, bossRenderEntries) {
+        function drawBlackVoidBossLegacy(renderNow, bossRenderEntries) {
             const renderBossX = snapSpriteCoord(boss.x);
             const renderBossY = snapSpriteCoord(boss.y);
             const bSX = renderBossX - (boss.sprite[0].length * charW) / 2;
@@ -520,6 +520,211 @@
                 drawBossHealthBar(boss, {
                     color: '#7d71ff',
                     labelColor: '#e2e6ff'
+                });
+            }
+        }
+
+        const BLACK_VOID_ACCRETION_POINT_COUNT = 176;
+        const BLACK_VOID_ACCRETION_POINTS = [];
+        const BLACK_VOID_ACCRETION_SCRATCH = [];
+        const BLACK_VOID_ACCRETION_GLYPHS = ['.', '.', '*', '+', 'o', 'x'];
+
+        function blackVoidNoise(seed, n) {
+            const v = Math.sin((seed + 1) * 127.1 + n * 311.7) * 43758.5453123;
+            return v - Math.floor(v);
+        }
+
+        function getBlackVoidAccretionPoints() {
+            if (BLACK_VOID_ACCRETION_POINTS.length) return BLACK_VOID_ACCRETION_POINTS;
+            for (let i = 0; i < BLACK_VOID_ACCRETION_POINT_COUNT; i++) {
+                const t = Math.pow((i + 1) / BLACK_VOID_ACCRETION_POINT_COUNT, 0.68);
+                const lane = i % 5;
+                BLACK_VOID_ACCRETION_POINTS.push({
+                    t,
+                    lane,
+                    baseAngle: i * 2.399963229728653 + lane * 0.41,
+                    radiusMul: 0.86 + blackVoidNoise(19, i) * 0.36,
+                    heat: blackVoidNoise(41, i),
+                    drift: blackVoidNoise(73, i) - 0.5,
+                    glyph: BLACK_VOID_ACCRETION_GLYPHS[Math.floor(blackVoidNoise(97, i) * BLACK_VOID_ACCRETION_GLYPHS.length) % BLACK_VOID_ACCRETION_GLYPHS.length]
+                });
+            }
+            return BLACK_VOID_ACCRETION_POINTS;
+        }
+
+        function getBlackVoidAccretionColor(point, beaming, bodyFlash) {
+            if (bodyFlash) return '#ffffff';
+            if (beaming > 0.88 || point.heat > 0.94) return '#fff3c4';
+            if (beaming > 0.68) return '#ffc86a';
+            if (point.heat > 0.74) return '#ff9a37';
+            if (point.t > 0.72) return '#8f4324';
+            return '#d36b2d';
+        }
+
+        function drawBlackVoidAccretionBand(cx, cy, axis, rx, ry, color, alpha, lineWidth, blur = 0) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(axis);
+            ctx.globalAlpha = alpha;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lineWidth;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = glowEnabled ? blur : 0;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        function drawBlackVoidAccretionGlyphs(points, drawFront, cx, cy, radius, axis, tilt, spin, pulse, bodyFlash, bossRenderEntries) {
+            const cosAxis = Math.cos(axis);
+            const sinAxis = Math.sin(axis);
+            let lastFont = '';
+            let lastFill = '';
+            for (let i = 0; i < points.length; i++) {
+                const p = points[i];
+                const isFront = p.depth >= 0.5;
+                if (drawFront !== isFront) continue;
+                const perspective = 0.78 + p.depth * 0.28;
+                const localX = p.localX * perspective;
+                const localY = p.localY * perspective + (isFront ? radius * 0.035 : -radius * 0.05);
+                const x = cx + localX * cosAxis - localY * sinAxis;
+                const y = cy + localX * sinAxis + localY * cosAxis;
+                const fontSize = Math.max(7, Math.round((9 + (1 - p.t) * 8 + p.depth * 4) * pulse));
+                const nextFont = `bold ${fontSize}px Courier New`;
+                if (nextFont !== lastFont) {
+                    ctx.font = nextFont;
+                    lastFont = nextFont;
+                }
+                const alpha = Math.min(1, (0.18 + p.depth * 0.42 + p.beaming * 0.28 + (1 - p.t) * 0.12) * pulse);
+                ctx.globalAlpha = drawFront ? alpha : alpha * 0.58;
+                const nextFill = getBlackVoidAccretionColor(p, p.beaming, bodyFlash);
+                if (nextFill !== lastFill) {
+                    ctx.fillStyle = nextFill;
+                    lastFill = nextFill;
+                }
+                ctx.fillText(p.glyph, x, y);
+                recordBossRenderGlyph(bossRenderEntries, p.glyph, x | 0, y | 0, nextFill);
+            }
+        }
+
+        function drawBlackVoidBoss(renderNow, bossRenderEntries) {
+            const renderBossX = snapSpriteCoord(boss.x);
+            const renderBossY = snapSpriteCoord(boss.y);
+            const bodyFlash = boss.flashTimer > 0;
+            const introT = boss.phase === 'INTRO'
+                ? Math.max(0.36, Math.min(1, (boss.timer || 0) / BLACK_VOID_INTRO_DURATION))
+                : 1;
+            const active = boss.phase === 'ACTIVE';
+            const eventT = active && boss.eventHorizonActive
+                ? Math.sin(Math.min(1, (boss.eventHorizonElapsed || 0) / Math.max(0.001, boss.eventHorizonDuration || 1)) * Math.PI)
+                : 0;
+            const pulse = (bodyFlash ? 1.14 : 0.94 + Math.sin(renderNow * 0.0026 + (boss.driftTimer || 0) * 1.5) * 0.045) + eventT * 0.08;
+            const radius = (active ? 92 : 82) * introT + eventT * 10;
+            const shadowRadius = radius * 0.42;
+            const axis = -0.24 + Math.sin(renderNow * 0.00015 + (boss.driftTimer || 0) * 0.7) * 0.055;
+            const tilt = 0.34 + Math.sin(renderNow * 0.00011) * 0.025;
+            const spin = renderNow * 0.00021 + (boss.driftTimer || 0) * 0.22;
+            const cx = renderBossX;
+            const cy = renderBossY;
+
+            const points = getBlackVoidAccretionPoints();
+            const scratch = BLACK_VOID_ACCRETION_SCRATCH;
+            scratch.length = points.length;
+            for (let i = 0; i < points.length; i++) {
+                const p = points[i];
+                const angle = p.baseAngle + spin * (0.74 + p.lane * 0.08) + p.drift * 0.18;
+                const sinAngle = Math.sin(angle);
+                const cosAngle = Math.cos(angle);
+                const depth = 0.5 + sinAngle * 0.5;
+                const ringRadius = radius * (0.45 + p.t * 0.72) * p.radiusMul;
+                const laneOffset = (p.lane - 2) * radius * 0.018;
+                p.localX = cosAngle * ringRadius;
+                p.localY = sinAngle * ringRadius * tilt + laneOffset + (depth - 0.5) * radius * 0.08;
+                p.depth = depth;
+                p.beaming = Math.max(0, Math.cos(angle - 0.18)) * 0.72 + Math.max(0, sinAngle) * 0.18;
+                scratch[i] = p;
+            }
+            scratch.sort((a, b) => a.depth - b.depth);
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.globalCompositeOperation = 'screen';
+            const halo = ctx.createRadialGradient(cx, cy, shadowRadius * 0.2, cx, cy, radius * 1.72);
+            halo.addColorStop(0, bodyFlash ? 'rgba(255,255,255,0.22)' : 'rgba(255,196,104,0.16)');
+            halo.addColorStop(0.38, 'rgba(255,118,44,0.105)');
+            halo.addColorStop(0.72, 'rgba(66,110,160,0.045)');
+            halo.addColorStop(1, 'rgba(3,5,12,0)');
+            ctx.globalAlpha = Math.min(1, 0.86 * introT);
+            ctx.fillStyle = halo;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius * 1.72, 0, Math.PI * 2);
+            ctx.fill();
+
+            drawBlackVoidAccretionBand(cx, cy, axis, radius * 1.17, radius * 0.34, '#ff8f35', 0.12 * introT * pulse, 5, 10);
+            drawBlackVoidAccretionBand(cx, cy, axis, radius * 0.93, radius * 0.27, '#fff1b2', 0.14 * introT * pulse, 2, 8);
+            drawBlackVoidAccretionBand(cx, cy - radius * 0.06, axis, radius * 0.72, radius * 0.18, '#d97931', 0.085 * introT, 2, 0);
+
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.shadowColor = bodyFlash ? '#ffffff' : '#ff8a38';
+            ctx.shadowBlur = glowEnabled ? (bodyFlash ? 18 : 10) : 0;
+            drawBlackVoidAccretionGlyphs(scratch, false, cx, cy, radius, axis, tilt, spin, pulse * introT, bodyFlash, bossRenderEntries);
+
+            ctx.shadowBlur = 0;
+            const shadow = ctx.createRadialGradient(cx - shadowRadius * 0.16, cy - shadowRadius * 0.12, shadowRadius * 0.12, cx, cy, shadowRadius * 1.12);
+            shadow.addColorStop(0, '#000000');
+            shadow.addColorStop(0.64, '#000006');
+            shadow.addColorStop(0.84, '#05040a');
+            shadow.addColorStop(1, 'rgba(20,11,9,0)');
+            ctx.globalAlpha = 0.98 * introT;
+            ctx.fillStyle = shadow;
+            ctx.beginPath();
+            ctx.arc(cx, cy, shadowRadius * 1.08, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.globalCompositeOperation = 'screen';
+            drawBlackVoidAccretionBand(cx, cy, axis, shadowRadius * 1.18, shadowRadius * 0.86, bodyFlash ? '#ffffff' : '#ffd48a', (bodyFlash ? 0.48 : 0.34) * introT, bodyFlash ? 4 : 2.5, 12);
+            drawBlackVoidAccretionBand(cx, cy + radius * 0.02, axis, radius * 1.04, radius * 0.31, '#ffb45a', 0.21 * introT * pulse, 3, 12);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.shadowColor = bodyFlash ? '#ffffff' : '#ffc06a';
+            ctx.shadowBlur = glowEnabled ? (bodyFlash ? 24 : 13) : 0;
+            drawBlackVoidAccretionGlyphs(scratch, true, cx, cy, radius, axis, tilt, spin, pulse * introT, bodyFlash, bossRenderEntries);
+
+            ctx.globalAlpha = 0.96 * introT;
+            ctx.font = `bold ${Math.round(shadowRadius * 0.34)}px Courier New`;
+            ctx.fillStyle = '#000000';
+            ctx.shadowBlur = 0;
+            ctx.fillText('@', cx, cy + 1);
+            recordBossRenderGlyph(bossRenderEntries, '@', cx | 0, cy | 0, '#000000', 1.1);
+
+            if (active && boss.eventHorizonActive) {
+                const horizonRadius = getBlackVoidHorizonRadius(boss);
+                ctx.globalCompositeOperation = 'screen';
+                ctx.font = `bold ${Math.round(18 + eventT * 10)}px Courier New`;
+                ctx.shadowColor = '#ffdca4';
+                ctx.shadowBlur = glowEnabled ? 18 + eventT * 10 : 0;
+                for (let i = 0; i < 18; i++) {
+                    const angle = renderNow * 0.0022 + i * (Math.PI * 2 / 18);
+                    const hx = cx + Math.cos(angle) * horizonRadius;
+                    const hy = cy + Math.sin(angle) * horizonRadius * 0.45;
+                    const hot = Math.cos(angle - 0.18) > 0.35;
+                    ctx.globalAlpha = (hot ? 0.72 : 0.34) * (0.68 + eventT * 0.32);
+                    ctx.fillStyle = hot ? '#fff4c8' : '#ff8f35';
+                    const glyph = hot ? '*' : (i % 2 === 0 ? '+' : '.');
+                    ctx.fillText(glyph, hx, hy);
+                    recordBossRenderGlyph(bossRenderEntries, glyph, hx | 0, hy | 0, ctx.fillStyle);
+                }
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = 'source-over';
+
+            if (active) {
+                drawBossHealthBar(boss, {
+                    color: '#ff9a3c',
+                    labelColor: '#fff0c8'
                 });
             }
         }

@@ -257,6 +257,15 @@
         }
 
         function getHudWaveModifierInfo(waveNumber) {
+            if (typeof isSurvivorModeActive === 'function' && isSurvivorModeActive()) {
+                return {
+                    id: 'survivor',
+                    label: 'PRISM WAKE',
+                    desc: 'HORDE SURVIVAL',
+                    color: '#ffe66d',
+                    standard: false
+                };
+            }
             if (boss) {
                 return {
                     id: 'boss',
@@ -651,8 +660,13 @@
             const focusLocked = typeof focusLockoutTimer === 'number' && focusLockoutTimer > 0;
             
             const waveNumber = Math.max(1, WaveManager.currentWave);
-            const waveText = boss ? 'BOSS' : waveNumber;
-            const waveMainText = boss ? 'BOSS' : `WAVE ${waveNumber}`;
+            const survivorHud = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+            const survivorSeconds = survivorHud && typeof survivorState !== 'undefined'
+                ? Math.floor(survivorState.elapsed || 0)
+                : 0;
+            const survivorTimeText = `${Math.floor(survivorSeconds / 60).toString().padStart(2, '0')}:${(survivorSeconds % 60).toString().padStart(2, '0')}`;
+            const waveText = survivorHud ? survivorTimeText : (boss ? 'BOSS' : waveNumber);
+            const waveMainText = survivorHud ? `SURVIVE ${survivorTimeText}` : (boss ? 'BOSS' : `WAVE ${waveNumber}`);
             const waveInfo = getHudWaveModifierInfo(waveNumber);
             const noticeFresh = !!(
                 waveSignalNotice &&

@@ -10,6 +10,7 @@
         let showStatsPanel = true;
         let renderStyleMode = 2;
         let glowEnabled = true;
+        let survivorEightWayAimEnabled = true;
         
         function applyTheme() {
             const root = document.documentElement;
@@ -47,6 +48,8 @@
         let savedStatsVisibility = sessionStorage.getItem('ascii_show_stats');
         if (savedStatsVisibility !== null) showStatsPanel = savedStatsVisibility === 'true';
         applyStatsVisibility();
+        let savedSurvivorAimMode = sessionStorage.getItem('ascii_survivor_eight_way_aim');
+        if (savedSurvivorAimMode !== null) survivorEightWayAimEnabled = savedSurvivorAimMode === 'true';
 
         // FPS Counter & Benchmark State
         let frameCount = 0;
@@ -193,8 +196,9 @@
         let hostileTimeScale = 1;
         let hostileTimeMs = performance.now();
         let restartLoadingSequence = false;
-        let selectedGalaxyIndex = 0;
+        let selectedGalaxyIndex = getDefaultGalaxySelectIndex();
         let currentGalaxyIndex = 0;
+        let activeGameMode = 'campaign';
         let galaxySelectNotice = '';
         let galaxySelectNoticeTimer = 0;
         const RETURN_LOADING_DURATION = 0.9;
@@ -244,7 +248,7 @@
         const PAUSE_VOLUME_RETURN_FADE_SECONDS = 0.35;
         const POST_RESUME_BOMB_LOCK_SECONDS = 0.5;
         let pauseVolumePreviewTimeout = null;
-        const SETTINGS_MENU_OPTION_COUNT = 6;
+        const SETTINGS_MENU_OPTION_COUNT = 7;
 
         const COMBO_SCORE_MULT_PER_KILL = 0.01;
         const COMBO_FOCUS_STEP = 10;
@@ -270,18 +274,41 @@
             }
             return {
                 id: 'galaxy-1',
-                name: 'NEON RIFT',
-                title: 'NEON RIFT',
+                name: 'BINARY QUASAR',
+                title: 'BINARY QUASAR',
                 available: true,
                 desc: 'Current campaign sector.',
-                colors: ['#6aa8ff', '#ff5e8a', '#dcecff']
+                colors: ['#dcecff', '#8fa7c9', '#ffffff']
             };
+        }
+
+        function getDefaultGalaxySelectIndex() {
+            if (typeof GALAXY_DEFINITIONS === 'undefined') return 0;
+            const index = GALAXY_DEFINITIONS.findIndex(galaxy => galaxy && galaxy.id === 'prism-wake');
+            return index >= 0 ? index : 0;
+        }
+
+        function getActiveGameMode() {
+            return activeGameMode || 'campaign';
+        }
+
+        function setActiveGameMode(mode = 'campaign') {
+            activeGameMode = mode === 'survivor' ? 'survivor' : 'campaign';
+        }
+
+        function isSurvivorGalaxy(index = currentGalaxyIndex) {
+            const galaxy = getGalaxyDefinition(index);
+            return !!(galaxy && galaxy.mode === 'survivor');
+        }
+
+        function isSurvivorModeActive() {
+            return activeGameMode === 'survivor';
         }
 
         function createEmptyRunStats() {
             return {
                 galaxyIndex: 0,
-                galaxyName: 'NEON RIFT',
+                galaxyName: 'BINARY QUASAR',
                 startedAt: 0,
                 endedAt: 0,
                 enemiesKilled: 0,
@@ -571,6 +598,8 @@
 
         function enterGalaxySelectScreen() {
             clearGameplayKeys();
+            if (typeof endSurvivorRun === 'function') endSurvivorRun({ silent: true });
+            setActiveGameMode('campaign');
             resetRunCompleteTransition();
             selectedGalaxyIndex = Math.max(0, Math.min((typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1) - 1, selectedGalaxyIndex));
             gameState = 'GALAXY_SELECT';
@@ -644,6 +673,17 @@
             clearGameplayKeys();
             titleAlpha = 0;
             selectShip(shipSelectIndex, true);
+            const galaxy = getGalaxyDefinition(currentGalaxyIndex);
+            if (galaxy && galaxy.mode === 'survivor') {
+                if (typeof beginSurvivorRun === 'function') {
+                    beginSurvivorRun();
+                } else if (typeof beginLaunchSequence === 'function') {
+                    beginLaunchSequence();
+                } else {
+                    gameState = 'PLAYING';
+                }
+                return;
+            }
             if (typeof beginLaunchSequence === 'function') {
                 beginLaunchSequence();
             } else {

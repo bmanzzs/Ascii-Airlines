@@ -1948,6 +1948,7 @@
                     'SHOW STATS: < ' + (showStatsPanel ? 'ON' : 'OFF') + ' >',
                     'FPS CAP 60: < ' + (userFpsCap ? 'ON' : 'OFF') + ' >',
                     'GLOW EFFECT: < ' + (glowEnabled ? 'ON' : 'OFF') + ' >',
+                    'SURVIVOR AIM: < ' + (survivorEightWayAimEnabled ? '8-WAY' : 'ROTATE') + ' >',
                     'GO BACK'
                 ];
                 const midY = Math.round(height / 2 - ((options.length - 1) * 80) / 2 - 24);
@@ -2559,12 +2560,13 @@
         });
 
         const GALAXY_SELECT_LAYOUT = [
-            { x: 0.17, y: 0.30, scale: 1.08, axis: -0.46, tilt: 0.46, spinDir: 1, spinSpeed: 0.96, cursorAngle: -2.18 },
+            { x: 0.34, y: 0.46, scale: 1.08, axis: -0.46, tilt: 0.46, spinDir: 1, spinSpeed: 0.96, cursorAngle: -2.18 },
             { x: 0.53, y: 0.24, scale: 0.92, axis: 0.52, tilt: 0.36, spinDir: -1, spinSpeed: 1.14, cursorAngle: 0.58 },
             { x: 0.80, y: 0.36, scale: 1.18, axis: -0.18, tilt: 0.57, spinDir: 1, spinSpeed: 0.82, cursorAngle: 0.48 },
-            { x: 0.28, y: 0.64, scale: 0.84, axis: 0.82, tilt: 0.50, spinDir: -1, spinSpeed: 1.02, cursorAngle: 2.38 },
-            { x: 0.62, y: 0.58, scale: 1.25, axis: -0.72, tilt: 0.40, spinDir: 1, spinSpeed: 0.78, cursorAngle: 1.64 },
-            { x: 0.86, y: 0.69, scale: 0.96, axis: 0.30, tilt: 0.60, spinDir: -1, spinSpeed: 1.22, cursorAngle: 0.96 }
+            { x: 0.39, y: 0.70, scale: 0.97, axis: 0.82, tilt: 0.50, spinDir: -1, spinSpeed: 1.02, cursorAngle: 2.38 },
+            { x: 0.86, y: 0.69, scale: 1.25, axis: -0.72, tilt: 0.40, spinDir: 1, spinSpeed: 0.78, cursorAngle: 1.64 },
+            { x: 0.62, y: 0.52, scale: 0.96, axis: 0.30, tilt: 0.60, spinDir: -1, spinSpeed: 1.22, cursorAngle: 0.96 },
+            { x: 0.17, y: 0.30, scale: 0.96, axis: 1.04, tilt: 0.72, spinDir: 1, spinSpeed: 1.42, cursorAngle: -1.42, prism: true }
         ];
         const GALAXY_SELECT_CURSOR_REST_SEED = Math.random() * 10000;
         const GALAXY_WARP_STREAK_COUNT = 42;
@@ -2599,11 +2601,31 @@
                     t,
                     drift: galaxyNoise(seed, i) - 0.5,
                     radiusMul: (0.12 + t * 0.86) * (0.86 + galaxyNoise(seed + 3, i) * 0.22),
+                    glyphIndex: Math.floor(galaxyNoise(seed + 18, i) * 1024),
                     glyph: t < 0.18 ? 'o' : (galaxyNoise(seed + 8, i) > 0.86 ? '+' : (galaxyNoise(seed + 11, i) > 0.64 ? '*' : (galaxyNoise(seed + 14, i) > 0.42 ? "'" : '.')))
                 });
             }
             GALAXY_SPRITE_POINT_CACHE.set(key, points);
             return points;
+        }
+
+        function getGalaxyGlyph(galaxy, point, fallbackGlyph = '.') {
+            const glyphs = galaxy && Array.isArray(galaxy.glyphs) && galaxy.glyphs.length ? galaxy.glyphs : null;
+            if (!glyphs) return point && point.glyph ? point.glyph : fallbackGlyph;
+            const index = Math.abs((point && Number.isFinite(point.glyphIndex) ? point.glyphIndex : 0)) % glyphs.length;
+            return glyphs[index] || fallbackGlyph;
+        }
+
+        function getGalaxyCoreGlyph(galaxy, fallbackGlyph = '@') {
+            if (galaxy && galaxy.coreGlyph) return galaxy.coreGlyph;
+            const glyphs = galaxy && Array.isArray(galaxy.glyphs) && galaxy.glyphs.length ? galaxy.glyphs : null;
+            return glyphs ? glyphs[0] : fallbackGlyph;
+        }
+
+        function getGalaxyCoreVoidGlyph(galaxy, fallbackGlyph = '.') {
+            if (galaxy && galaxy.coreVoidGlyph) return galaxy.coreVoidGlyph;
+            const glyphs = galaxy && Array.isArray(galaxy.glyphs) && galaxy.glyphs.length > 1 ? galaxy.glyphs : null;
+            return glyphs ? glyphs[1] : fallbackGlyph;
         }
 
         function mixGalaxyColor(colors, t) {
@@ -2635,7 +2657,7 @@
             const profile = getGalaxyVisualProfile(index);
             const marginX = Math.max(86, width * 0.08);
             const minY = Math.max(116, height * 0.16);
-            const maxY = Math.min(height * 0.75, height - 190);
+            const maxY = Math.min(height * 0.80, height - 118);
             return {
                 x: Math.max(marginX, Math.min(width - marginX, width * profile.x)),
                 y: Math.max(minY, Math.min(maxY, height * profile.y))
@@ -2646,10 +2668,47 @@
             return GALAXY_SELECT_LAYOUT[index % GALAXY_SELECT_LAYOUT.length] || GALAXY_SELECT_LAYOUT[0];
         }
 
+        function getGalaxySelectDirectionalIndex(currentIndex, dirX, dirY) {
+            const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [];
+            const count = galaxies.length || GALAXY_SELECT_LAYOUT.length;
+            if (count <= 1) return 0;
+            const current = Math.max(0, Math.min(count - 1, currentIndex || 0));
+            const from = getGalaxySelectSlot(current);
+            const dirLen = Math.max(0.001, Math.hypot(dirX, dirY));
+            const nx = dirX / dirLen;
+            const ny = dirY / dirLen;
+            let bestIndex = current;
+            let bestScore = Infinity;
+
+            for (let i = 0; i < count; i++) {
+                if (i === current) continue;
+                const slot = getGalaxySelectSlot(i);
+                const dx = slot.x - from.x;
+                const dy = slot.y - from.y;
+                const dist = Math.max(0.001, Math.hypot(dx, dy));
+                const forward = dx * nx + dy * ny;
+                if (forward <= 6) continue;
+                const alignment = forward / dist;
+                if (alignment < 0.28) continue;
+                const perpendicular = Math.abs(dx * ny - dy * nx);
+                const score = perpendicular * 1.35 + forward * 0.16 - alignment * 34;
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestIndex = i;
+                }
+            }
+
+            if (bestIndex !== current) return bestIndex;
+
+            return current;
+        }
+
         function getGalaxySelectRenderRadius(index, selected = false) {
             const profile = getGalaxyVisualProfile(index);
+            const galaxy = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS[index] : null;
             const baseRadius = Math.max(46, Math.min(82, Math.min(width, height) * 0.073));
-            return baseRadius * profile.scale * (selected ? 1.12 : 0.94);
+            const survivorScale = galaxy && galaxy.mode === 'survivor' ? 0.94 : 1;
+            return baseRadius * profile.scale * survivorScale * (selected ? 1.14 : 0.94);
         }
 
         function drawGalaxySelectAsteroidBelt(now) {
@@ -2764,7 +2823,94 @@
             drawGalaxySelectComets(now);
         }
 
+        function drawPrismWakeGalaxySprite(galaxy, x, y, radius, selected, now, index) {
+            const colors = galaxy.colors || ['#61f7ff', '#ffe66d', '#ff5edb', '#7cff9b', '#ffffff'];
+            const profile = getGalaxyVisualProfile(index);
+            const axis = profile.axis + Math.sin(now * 0.00011 + index) * 0.06;
+            const tilt = profile.tilt || 0.72;
+            const spin = now * 0.00016 * (selected ? 1.8 : 1.0) * (profile.spinDir || 1) * (profile.spinSpeed || 1);
+            const shimmer = 0.5 + Math.sin(now * 0.0047) * 0.5;
+            const ringCount = selected ? 6 : 5;
+            const pointsPerRing = selected ? 22 : 17;
+            const brightness = selected ? 1 : 0.74;
+
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.globalCompositeOperation = 'lighter';
+
+            const aura = ctx.createRadialGradient(0, 0, radius * 0.06, 0, 0, radius * 1.32);
+            aura.addColorStop(0, colorWithAlpha('#ffffff', selected ? 0.18 : 0.10));
+            aura.addColorStop(0.32, colorWithAlpha('#ff5edb', selected ? 0.12 : 0.06));
+            aura.addColorStop(0.62, colorWithAlpha('#61f7ff', selected ? 0.08 : 0.035));
+            aura.addColorStop(1, colorWithAlpha('#ffffff', 0));
+            ctx.fillStyle = aura;
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * 1.34, 0, Math.PI * 2);
+            ctx.fill();
+
+            const glyphs = galaxy && Array.isArray(galaxy.glyphs) && galaxy.glyphs.length
+                ? galaxy.glyphs
+                : ['▲', '▶', '▼', '◀', '▴', '▸', '▾', '◂'];
+            const cosAxis = Math.cos(axis);
+            const sinAxis = Math.sin(axis);
+            let lastFont = '';
+            for (let ring = ringCount - 1; ring >= 0; ring--) {
+                const ringT = ring / Math.max(1, ringCount - 1);
+                const ringRadius = radius * (0.18 + ringT * 0.86);
+                const pulse = 1 + Math.sin(now * 0.0022 + ring * 1.71) * 0.055;
+                const localTilt = tilt * (0.5 + ringT * 0.48);
+                const pointCount = Math.max(10, pointsPerRing - Math.floor(ring * 1.5));
+                for (let i = 0; i < pointCount; i++) {
+                    const noise = galaxyNoise((galaxy.seed || 211) + ring * 41, i);
+                    const angle = (i / pointCount) * Math.PI * 2 + spin * (1 + ringT * 0.8) + noise * 0.2;
+                    const lace = Math.sin(angle * 3 + now * 0.0017 + ring) * radius * 0.04;
+                    const localX = Math.cos(angle) * (ringRadius * pulse + lace);
+                    const localY = Math.sin(angle) * (ringRadius * pulse) * localTilt;
+                    const px = localX * cosAxis - localY * sinAxis;
+                    const py = localX * sinAxis + localY * cosAxis;
+                    const depth = 0.5 + Math.sin(angle) * 0.5;
+                    const fontSize = Math.max(7, Math.round((7 + (1 - ringT) * 13 + depth * 4) * (selected ? 1.06 : 0.94)));
+                    const nextFont = `bold ${fontSize}px Courier New`;
+                    if (nextFont !== lastFont) {
+                        ctx.font = nextFont;
+                        lastFont = nextFont;
+                    }
+                    const color = colors[(ring + i) % Math.max(1, colors.length - 1)];
+                    const sparkle = noise > 0.86 ? shimmer * 0.24 : 0;
+                    ctx.globalAlpha = Math.min(1, (0.12 + depth * 0.34 + (1 - ringT) * 0.24 + sparkle) * brightness);
+                    ctx.fillStyle = noise > 0.94 ? '#ffffff' : color;
+                    if (glowEnabled && (selected || noise > 0.92)) {
+                        ctx.shadowColor = ctx.fillStyle;
+                        ctx.shadowBlur = selected ? 7 + shimmer * 9 : 4;
+                    } else {
+                        ctx.shadowBlur = 0;
+                    }
+                    ctx.fillText(glyphs[(i + ring) % glyphs.length], px, py);
+                }
+            }
+
+            ctx.globalAlpha = selected ? 1 : 0.8;
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = glowEnabled ? (selected ? 22 : 12) : 0;
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `bold ${selected ? 34 : 29}px Courier New`;
+            ctx.fillText(getGalaxyCoreGlyph(galaxy, '▲'), 0, 0);
+            ctx.font = `bold ${selected ? 17 : 14}px Courier New`;
+            ctx.fillStyle = colors[1] || '#ffe66d';
+            ctx.fillText(getGalaxyCoreVoidGlyph(galaxy, '▼'), 0, 0);
+            ctx.restore();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
         function drawGalaxyGlyphSprite(galaxy, x, y, radius, selected, now, index) {
+            if (galaxy && (galaxy.mode === 'survivor' || galaxy.visualStyle === 'prismWake')) {
+                drawPrismWakeGalaxySprite(galaxy, x, y, radius, selected, now, index);
+                return;
+            }
             const colors = galaxy.colors || ['#6aa8ff', '#ff5e8a', '#ffffff'];
             const arms = Math.max(2, galaxy.arms || 2);
             const seed = galaxy.seed || index * 17;
@@ -2830,7 +2976,7 @@
                     ctx.fillStyle = nextFill;
                     lastFill = nextFill;
                 }
-                ctx.fillText(p.glyph, p.x * perspective, p.y * perspective);
+                ctx.fillText(getGalaxyGlyph(galaxy, p, p.glyph), p.x * perspective, p.y * perspective);
             }
 
             ctx.globalAlpha = galaxy.available ? (selected ? 0.96 : 0.68) : 0.24;
@@ -2841,11 +2987,11 @@
             ctx.save();
             ctx.rotate(axis * 0.45);
             ctx.scale(1, 0.82 + tilt * 0.25);
-            ctx.fillText('@', 0, 0);
+            ctx.fillText(getGalaxyCoreGlyph(galaxy, '@'), 0, 0);
             ctx.font = `bold ${selected ? 16 : 13}px Courier New`;
             ctx.fillStyle = '#071026';
             ctx.shadowBlur = 0;
-            ctx.fillText('.', 0, 0);
+            ctx.fillText(getGalaxyCoreVoidGlyph(galaxy, '.'), 0, 0);
             ctx.restore();
             ctx.restore();
             ctx.globalAlpha = 1;
@@ -3010,7 +3156,8 @@
                 const selected = i === selectedIndex;
                 const radius = getGalaxySelectRenderRadius(i, selected);
 
-                const labelY = slot.y + radius + 42;
+                const survivorRoute = galaxy && galaxy.mode === 'survivor';
+                const labelY = survivorRoute ? slot.y - radius - 30 : slot.y + radius + 42;
                 ctx.font = `bold ${selected ? 18 : 14}px 'Electrolize', sans-serif`;
                 ctx.fillStyle = selected
                     ? (galaxy.available ? '#ffffff' : 'rgba(210,220,235,0.58)')
@@ -3021,7 +3168,7 @@
                 ctx.shadowBlur = 0;
                 ctx.font = `bold 11px 'Electrolize', sans-serif`;
                 ctx.fillStyle = galaxy.available ? colorWithAlpha(galaxy.colors[1] || currentThemeColor, selected ? 0.9 : 0.56) : 'rgba(170,178,190,0.46)';
-                ctx.fillText(galaxy.available ? 'AVAILABLE' : 'LOCKED', slot.x, labelY + 20);
+                ctx.fillText(galaxy.available ? (survivorRoute ? 'SURVIVAL MODE' : 'AVAILABLE') : 'LOCKED', slot.x, labelY + 20);
 
                 if (!galaxy.available) {
                     ctx.save();
@@ -3554,7 +3701,7 @@
             const leftX = width * 0.09;
             const topY = height * 0.20;
             const statRows = [
-                ['GALAXY', summary.galaxyName || 'NEON RIFT'],
+                ['GALAXY', summary.galaxyName || 'BINARY QUASAR'],
                 ['SHIP', summary.selectedShip || getSelectedShipConfig().name],
                 ['LEVEL', String(summary.level || player.level || 1)],
                 ['TIME', formatRunDuration(summary.timeSurvived || 0)],
@@ -3774,19 +3921,21 @@
             let lastFieldFont = '';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
+            const survivorModeVisual = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+            const fieldStep = survivorModeVisual ? 2 : 1;
             const fieldWrapH = height + CELL_SIZE * 2;
             const fieldOverscanY = bossCameraActive
                 ? Math.ceil((1 / Math.max(0.5, bossCameraScale) - 1) * (height - HUD_HEIGHT) * 0.58) + CELL_SIZE * 2
                 : CELL_SIZE;
             const fieldMinY = -fieldOverscanY;
             const fieldMaxY = height + fieldOverscanY;
-            for (let i = 0; i < numParticles; i++) {
+            for (let i = 0; i < numParticles; i += fieldStep) {
                 if (fpY[i] < fieldMinY || fpY[i] > fieldMaxY) continue;
                 const char = PARTICLE_CHARS[fpChar[i]];
                 const depth = fpDepth ? fpDepth[i] || 1 : 1;
                 const highlight = fpHighlight[i] || 0;
                 const twinkle = 0.82 + Math.max(0, Math.sin(renderNow * FIELD_TWINKLE_SPEED + (fpTwinkle ? fpTwinkle[i] : 0))) * 0.18;
-                const baseAlpha = (fpAlpha[i] || 0.24) * twinkle * (char === '\u2591' ? 0.72 : 1);
+                const baseAlpha = (fpAlpha[i] || 0.24) * twinkle * (char === '\u2591' ? 0.72 : 1) * (survivorModeVisual ? 0.56 : 1);
                 const alpha = Math.min(0.82, baseAlpha + highlight * 0.58);
                 const particleX = truncateSpriteCoord(fpX[i]);
                 const particleY = truncateSpriteCoord(fpY[i]);
@@ -3906,6 +4055,8 @@
                 
                 ctx.fillStyle = '#ffaa00'; ctx.font = `18px 'Electrolize', sans-serif`; 
                 ctx.fillText(currentHint, (width/2) | 0, (height/2 + 80) | 0);
+            } else if (survivorModeVisual && typeof drawSurvivorMode === 'function') {
+                drawSurvivorMode(renderNow, dt);
             } else {
                 for (const t of thrusterParticles) { 
                     ctx.fillStyle = t.isSmoke ? t.color : (t.isGuardianFlame ? getGuardianFlameColor(t.life) : (t.isWraithFlame ? getWraithFlameColor(t.life) : getExhaustColor(t.life))); 

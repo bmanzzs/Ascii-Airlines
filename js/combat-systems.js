@@ -439,7 +439,13 @@
                 }
             }
             if (boss && boss.phase === 'ACTIVE') {
-                if (boss.name === 'OVERHEATING FIREWALL') {
+                if (boss.isSurvivorBoss) {
+                    if (doesCircleHitTargetMask(x, y, radius, boss)) {
+                        boss.hp -= damage;
+                        boss.flashTimer = 0.15;
+                        if (boss.hp <= 0 && typeof killSurvivorBoss === 'function') killSurvivorBoss(boss);
+                    }
+                } else if (boss.name === 'OVERHEATING FIREWALL') {
                     if (boss.isVulnerable && Math.hypot(boss.x - x, (boss.y + FIREWALL_BOSS_CORE_OFFSET_Y) - y) < radius + 40) {
                         boss.hp -= damage;
                         boss.flashTimer = 0.15;
@@ -607,8 +613,12 @@
 
             const speed = 1400 * s.speedMult;
             const layout = getPlayerRenderLayout(player, getPlayerFacing(player));
-            const frontOrigin = getPlayerWeaponOrigin(layout, false);
-            const rearOrigin = getPlayerWeaponOrigin(layout, true);
+            let frontOrigin = getPlayerWeaponOrigin(layout, false);
+            let rearOrigin = getPlayerWeaponOrigin(layout, true);
+            if (typeof isSurvivorModeActive === 'function' && isSurvivorModeActive() && typeof getSurvivorWeaponOrigin === 'function') {
+                frontOrigin = getSurvivorWeaponOrigin(false);
+                rearOrigin = getSurvivorWeaponOrigin(true);
+            }
 
             function spawnBullet(x, y, vx, vy, isRear, options = {}) {
                 let pdmg = isRear ? baseDmg * 1.25 : baseDmg;
@@ -718,11 +728,16 @@
         }
 
         function fireBomb() {
-            const origin = getPlayerBombIndicatorOrigin();
+            const survivorMode = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+            const origin = survivorMode && typeof getSurvivorWeaponOrigin === 'function'
+                ? getSurvivorWeaponOrigin(false)
+                : getPlayerBombIndicatorOrigin();
             const indicatorVisual = getPlayerBombIndicatorVisual();
             player.bombTimer = getPlayerBombCooldownTotal();
             recordRunBombUsed();
-            const angle = getPlayerFireAngle();
+            const angle = survivorMode && typeof getSurvivorPlayerAimAngle === 'function'
+                ? getSurvivorPlayerAimAngle()
+                : getPlayerFireAngle();
             const vx = Math.cos(angle) * BOMB_GRENADE_SPEED;
             const vy = Math.sin(angle) * BOMB_GRENADE_SPEED;
             bombProjectiles.push({
@@ -998,6 +1013,8 @@
         }
 
         function prepareRunStateForLaunch() {
+            if (typeof setActiveGameMode === 'function') setActiveGameMode('campaign');
+            if (typeof resetSurvivorRuntimeStateForCampaign === 'function') resetSurvivorRuntimeStateForCampaign();
             teardownBossCinematic();
             if (typeof resetRunCompleteTransition === 'function') resetRunCompleteTransition();
             resetRunStats();

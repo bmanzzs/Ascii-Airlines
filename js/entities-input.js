@@ -153,7 +153,10 @@
             }
             if (keys.hasOwnProperty(k)) {
                 keys[k] = true;
-                if (gameState === 'PLAYING' && k === 'arrowdown' && !e.repeat && bombProjectiles.length > 0) {
+                const survivorMode = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+                const survivorEightWayAim = typeof survivorEightWayAimEnabled === 'undefined' || survivorEightWayAimEnabled;
+                const shouldDetonate = survivorMode ? (k === 'b' || (!survivorEightWayAim && k === 'arrowdown')) : k === 'arrowdown';
+                if (gameState === 'PLAYING' && shouldDetonate && !e.repeat && bombProjectiles.length > 0) {
                     for (let bi = 0; bi < bombProjectiles.length; bi++) bombProjectiles[bi].forceDetonate = true;
                 }
                 // Prevent scrolling for game keys
@@ -224,23 +227,30 @@
             }
             if (gameState === 'GALAXY_SELECT') {
                 const galaxyCount = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1;
+                const moveGalaxySelection = (dirX, dirY, fallbackDelta) => {
+                    if (typeof getGalaxySelectDirectionalIndex === 'function') {
+                        selectedGalaxyIndex = getGalaxySelectDirectionalIndex(selectedGalaxyIndex, dirX, dirY);
+                    } else {
+                        selectedGalaxyIndex = (selectedGalaxyIndex + galaxyCount + fallbackDelta) % galaxyCount;
+                    }
+                };
                 if (k === 'arrowleft' || k === 'a') {
-                    selectedGalaxyIndex = (selectedGalaxyIndex + galaxyCount - 1) % galaxyCount;
+                    moveGalaxySelection(-1, 0, -1);
                     e.preventDefault();
                     return;
                 }
                 if (k === 'arrowright' || k === 'd') {
-                    selectedGalaxyIndex = (selectedGalaxyIndex + 1) % galaxyCount;
+                    moveGalaxySelection(1, 0, 1);
                     e.preventDefault();
                     return;
                 }
                 if (k === 'arrowup' || k === 'w') {
-                    selectedGalaxyIndex = (selectedGalaxyIndex + galaxyCount - 3) % galaxyCount;
+                    moveGalaxySelection(0, -1, -3);
                     e.preventDefault();
                     return;
                 }
                 if (k === 'arrowdown' || k === 's') {
-                    selectedGalaxyIndex = (selectedGalaxyIndex + 3) % galaxyCount;
+                    moveGalaxySelection(0, 1, 3);
                     e.preventDefault();
                     return;
                 }
@@ -393,6 +403,9 @@
                         } else if (settingsSelection === 4 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
                             glowEnabled = !glowEnabled;
                             applyTheme();
+                        } else if (settingsSelection === 5 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
+                            survivorEightWayAimEnabled = !survivorEightWayAimEnabled;
+                            sessionStorage.setItem('ascii_survivor_eight_way_aim', survivorEightWayAimEnabled.toString());
                         } else if (settingsSelection === lastSettingsIndex && (k === 'enter' || k === ' ')) {
                             pauseState = 'MAIN';
                             settingsSelection = 0;
