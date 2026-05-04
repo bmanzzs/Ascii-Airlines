@@ -58,7 +58,18 @@
             maxXpHeal: 0.03,
             maxDamageMultBonus: 2.0,
             maxKillHeal: 0.10,
-            maxXpGain: 2.5
+            maxXpGain: 2.5,
+            maxFocusMaxBonus: 1.5,
+            maxFocusRegenBonus: 2.25,
+            minFocusRegenDelayMult: 0.35,
+            minFocusLockoutMult: 0.35,
+            maxFocusDropBonus: 1.25,
+            minFocusDriveDrainMult: 0.45,
+            maxFocusDriveSlowBonus: 0.12,
+            maxFocusDriveTransitionBonus: 1.5,
+            minFocusSpecterDrainMult: 0.45,
+            maxFocusSpecterShrinkBonus: 0.16,
+            maxFocusSpecterTransitionBonus: 1.5
         };
         const PLAYER_FIRE_INTERVAL_MIN_MS = 52;
         const PLAYER_FIRE_INTERVAL_MAX_MS = 1700;
@@ -367,23 +378,17 @@
             return startScale + (endScale - startScale) * eased;
         }
 
-        const player = {
-            x: width / 2, y: height * 0.8,
-            vx: 0, vy: 0,
-            shipId: getSelectedShipConfig().id,
-            hp: getSelectedShipConfig().maxHp, maxHp: getSelectedShipConfig().maxHp,
-            xp: 0, xpNeeded: 10, level: 1,
-            stats: { L: 1, M: 0, B: 0 },
-            modifiers: { 
-                moveSpeed: 0, 
-                maxHp: 0, 
-                laserDamage: 0, 
-                hitbox: 1, 
-                fireRate: 0, 
-                hpRegen: 0, 
-                invincibility: 0, 
-                adrenaline: 0, 
-                magnet: 0, 
+        function createBasePlayerModifiers() {
+            return {
+                moveSpeed: 0,
+                maxHp: 0,
+                laserDamage: 0,
+                hitbox: 1,
+                fireRate: 0,
+                hpRegen: 0,
+                invincibility: 0,
+                adrenaline: 0,
+                magnet: 0,
                 bombCooldown: 1,
                 bombDamage: 0,
                 bombRadius: 0,
@@ -391,8 +396,29 @@
                 xpHeal: 0,
                 damageMult: 0,
                 killHeal: 0,
-                xpGain: 0
-            },
+                xpGain: 0,
+                focusMax: 0,
+                focusRegen: 0,
+                focusRegenDelay: 1,
+                focusLockout: 1,
+                focusDrop: 0,
+                focusDriveDrain: 1,
+                focusDriveSlow: 0,
+                focusDriveTransition: 0,
+                focusSpecterDrain: 1,
+                focusSpecterShrink: 0,
+                focusSpecterTransition: 0
+            };
+        }
+
+        const player = {
+            x: width / 2, y: height * 0.8,
+            vx: 0, vy: 0,
+            shipId: getSelectedShipConfig().id,
+            hp: getSelectedShipConfig().maxHp, maxHp: getSelectedShipConfig().maxHp,
+            xp: 0, xpNeeded: 10, level: 1,
+            stats: { L: 1, M: 0, B: 0 },
+            modifiers: createBasePlayerModifiers(),
             weaponStats: createBaseWeaponStats(),
             weapons: [],
             drones: [],
@@ -1032,7 +1058,7 @@
             { id: 'overdrive', name: 'OVERDRIVE CELL', cat: 'Offense', desc: 'Increases weapon fire rate', baseVal: 0.075, type: 'additive' },
             { id: 'repair', name: 'REPAIR DRONES', cat: 'Defense', desc: 'Grants passive health regen', baseVal: 0.5, type: 'additive' },
             { id: 'shield', name: 'SHIELD MATRIX', cat: 'Defense', desc: 'Extends invincibility after hit', baseVal: 0.1, type: 'additive' },
-            { id: 'adrenaline', name: 'ADRENALINE', cat: 'Risk', desc: 'Increases damage when below 50% HP', baseVal: 0.1, type: 'additive' },
+            { id: 'adrenaline', name: 'ADRENALINE', cat: 'Risk', desc: 'Low-HP damage starts high and scales with level', baseVal: 0.25, levelScale: 0.015, type: 'additive' },
             { id: 'scrap', name: 'SCRAP COLLECTOR', cat: 'Utility', desc: 'Increases XP orb magnet range', baseVal: 0.125, type: 'additive' },
             { id: 'coolant', name: 'COOLANT FLUSH', cat: 'Offense', desc: 'Reduces bomb ability cooldown', baseVal: 0.925, type: 'multiplicative' },
             { id: 'payload', name: 'PAYLOAD TUNING', cat: 'Offense', desc: 'Increases bomb explosion damage', baseVal: 0.18, type: 'additive' },
@@ -1041,7 +1067,17 @@
             { id: 'bioscrap', name: 'BIO-SCRAP FILTER', cat: 'Defense', desc: 'XP orbs restore a tiny amount of HP', baseVal: 0.0025, type: 'additive' },
             { id: 'bioleech', name: 'BIOLEECH NODE', cat: 'Defense', desc: 'Killing enemies restores a sliver of health', baseVal: 0.012, type: 'additive' },
             { id: 'glass', name: 'GLASS CHASSIS', cat: 'Risk', desc: 'Boosts all damage but reduces max health', baseVal: 0.15, type: 'additive' },
-            { id: 'overflow', name: 'DATA OVERFLOW', cat: 'Utility', desc: 'XP orbs grant more experience', baseVal: 0.25, type: 'additive' }
+            { id: 'overflow', name: 'DATA OVERFLOW', cat: 'Utility', desc: 'XP orbs grant more experience', baseVal: 0.25, type: 'additive' },
+            { id: 'focus_cell', name: 'FOCUS CELL', cat: 'Focus', desc: 'Increases maximum Focus capacity', baseVal: 0.25, type: 'additive' },
+            { id: 'recharge_loop', name: 'RECHARGE LOOP', cat: 'Focus', desc: 'Focus regenerates faster after release', baseVal: 0.35, type: 'additive' },
+            { id: 'quick_reset', name: 'QUICK RESET', cat: 'Focus', desc: 'Focus regen delay and empty lockout are shorter', baseVal: 0.86, type: 'multiplicative' },
+            { id: 'focus_salvage', name: 'FOCUS SALVAGE', cat: 'Focus', desc: 'Elite Focus refills restore more meter', baseVal: 0.22, type: 'additive' },
+            { id: 'chrono_brake', name: 'CHRONO BRAKE', cat: 'Drive', desc: 'Focus Drive slows hostile time harder', baseVal: 0.04, type: 'additive' },
+            { id: 'time_dilator', name: 'TIME DILATOR', cat: 'Drive', desc: 'Focus Drive drains Focus slower', baseVal: 0.86, type: 'multiplicative' },
+            { id: 'trail_buffer', name: 'TRAIL BUFFER', cat: 'Drive', desc: 'Focus Drive visual and time-warp transitions are quicker', baseVal: 0.16, type: 'additive' },
+            { id: 'specter_capacitor', name: 'SPECTER CAPACITOR', cat: 'Specter', desc: 'Specter Shrink drains Focus slower', baseVal: 0.84, type: 'multiplicative' },
+            { id: 'ghost_geometry', name: 'GHOST GEOMETRY', cat: 'Specter', desc: 'Specter Shrink compresses ship and hitbox further', baseVal: 0.07, type: 'additive' },
+            { id: 'phase_veil', name: 'PHASE VEIL', cat: 'Specter', desc: 'Specter Shrink fades in and out faster', baseVal: 0.18, type: 'additive' }
         ];
 
         // Stacking Boss Weapon Pool
@@ -1305,6 +1341,17 @@
             m.damageMult = clampValue(m.damageMult || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxDamageMultBonus);
             m.killHeal = clampValue(m.killHeal || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxKillHeal);
             m.xpGain = clampValue(m.xpGain || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxXpGain);
+            m.focusMax = clampValue(m.focusMax || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFocusMaxBonus);
+            m.focusRegen = clampValue(m.focusRegen || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFocusRegenBonus);
+            m.focusRegenDelay = Math.max(m.focusRegenDelay || 1, PLAYER_MODIFIER_GUARDRAILS.minFocusRegenDelayMult);
+            m.focusLockout = Math.max(m.focusLockout || 1, PLAYER_MODIFIER_GUARDRAILS.minFocusLockoutMult);
+            m.focusDrop = clampValue(m.focusDrop || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFocusDropBonus);
+            m.focusDriveDrain = Math.max(m.focusDriveDrain || 1, PLAYER_MODIFIER_GUARDRAILS.minFocusDriveDrainMult);
+            m.focusDriveSlow = clampValue(m.focusDriveSlow || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFocusDriveSlowBonus);
+            m.focusDriveTransition = clampValue(m.focusDriveTransition || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFocusDriveTransitionBonus);
+            m.focusSpecterDrain = Math.max(m.focusSpecterDrain || 1, PLAYER_MODIFIER_GUARDRAILS.minFocusSpecterDrainMult);
+            m.focusSpecterShrink = clampValue(m.focusSpecterShrink || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFocusSpecterShrinkBonus);
+            m.focusSpecterTransition = clampValue(m.focusSpecterTransition || 0, 0, PLAYER_MODIFIER_GUARDRAILS.maxFocusSpecterTransitionBonus);
             player.maxHp = Math.max(1, Math.floor(getPlayerBaseMaxHp() * (1 + m.maxHp)));
             player.hp = Math.min(player.hp, player.maxHp);
         }
@@ -1361,7 +1408,9 @@
                 else if (r < weights.epic + weights.rare) rarity = 'Rare';
                 
                 let mult = rarity === 'Epic' ? 1.5 : (rarity === 'Rare' ? 1.25 : 1.0);
-                let val = item.type === 'multiplicative' ? 1 - (1 - item.baseVal) * mult : item.baseVal * mult;
+                const levelBonus = (item.levelScale || 0) * Math.max(0, level - 1);
+                const baseVal = item.type === 'multiplicative' ? item.baseVal : item.baseVal + levelBonus;
+                let val = item.type === 'multiplicative' ? 1 - (1 - baseVal) * mult : baseVal * mult;
                 
                 let color = rarity === 'Epic' ? '#ff8800' : (rarity === 'Rare' ? '#aa00ff' : '#aaaaaa');
                 let displayName = rarity === 'Common' ? item.name : `${rarity.toUpperCase()} ${item.name}`;
@@ -1396,6 +1445,26 @@
                 player.modifiers.maxHp -= opt.value * 0.6;
             }
             else if (opt.id === 'overflow') player.modifiers.xpGain += opt.value;
+            else if (opt.id === 'focus_cell') {
+                const oldMax = typeof getFocusMeterMax === 'function' ? getFocusMeterMax() : FOCUS_METER_MAX;
+                player.modifiers.focusMax += opt.value;
+                applyPlayerModifierGuardrails();
+                const newMax = typeof getFocusMeterMax === 'function' ? getFocusMeterMax() : FOCUS_METER_MAX;
+                if (typeof focusMeter === 'number') focusMeter = Math.min(newMax, focusMeter + Math.max(0, newMax - oldMax));
+                return;
+            }
+            else if (opt.id === 'recharge_loop') player.modifiers.focusRegen += opt.value;
+            else if (opt.id === 'quick_reset') {
+                player.modifiers.focusRegenDelay *= opt.value;
+                player.modifiers.focusLockout *= opt.value;
+            }
+            else if (opt.id === 'focus_salvage') player.modifiers.focusDrop += opt.value;
+            else if (opt.id === 'chrono_brake') player.modifiers.focusDriveSlow += opt.value;
+            else if (opt.id === 'time_dilator') player.modifiers.focusDriveDrain *= opt.value;
+            else if (opt.id === 'trail_buffer') player.modifiers.focusDriveTransition += opt.value;
+            else if (opt.id === 'specter_capacitor') player.modifiers.focusSpecterDrain *= opt.value;
+            else if (opt.id === 'ghost_geometry') player.modifiers.focusSpecterShrink += opt.value;
+            else if (opt.id === 'phase_veil') player.modifiers.focusSpecterTransition += opt.value;
             applyPlayerModifierGuardrails();
         }
 
@@ -1439,13 +1508,18 @@
 
         function buildConsoleWaveHelpLines() {
             const bossWaves = [];
-            for (let i = 0; i < WaveManager.waves.length; i++) {
-                if (WaveManager.waves[i].isBoss) bossWaves.push(String(i + 1));
+            const runWaveLimit = getConsoleRunWaveLimit();
+            for (let i = 1; i <= runWaveLimit; i++) {
+                const waveDef = typeof WaveManager.getWaveDefinitionForWave === 'function'
+                    ? WaveManager.getWaveDefinitionForWave(i)
+                    : WaveManager.waves[i - 1];
+                if (waveDef && waveDef.isBoss) bossWaves.push(String(i));
             }
             return [
-                `wave <n> : jump to any wave from 1-${WaveManager.waves.length}`,
+                `wave/w <target> : jump to run wave 1-${runWaveLimit}`,
+                'Galaxy target is optional: g1, g2, etc.',
                 `Boss waves: ${bossWaves.join(', ')}`,
-                'Example: wave 15'
+                'Examples: wave 15 | wave g1w13 | w w12g2 | g2 w10'
             ];
         }
 
@@ -1462,13 +1536,102 @@
             return [
                 'Commands:',
                 'help [wave|lvl|wep|remwep]',
-                'wave <n>',
+                'wave/w <n|g1w13|w12g2> or bare g2 w10',
                 'lvl [n]',
                 'wep <n|weapon name>',
                 'remwep/rwep <active slot|weapon name>',
                 'gm [on|off]',
                 'Try: help wep'
             ];
+        }
+
+        function getConsoleRunWaveLimit() {
+            if (typeof WaveManager !== 'undefined' && typeof WaveManager.getRunWaveLimit === 'function') {
+                return WaveManager.getRunWaveLimit();
+            }
+            return WaveManager && WaveManager.waves ? WaveManager.waves.length : 0;
+        }
+
+        function getConsoleRunWaveLimitForGalaxy(galaxyIndex) {
+            if (typeof WaveManager !== 'undefined' && typeof WaveManager.getRunWaveLimitForGalaxy === 'function') {
+                return WaveManager.getRunWaveLimitForGalaxy(galaxyIndex);
+            }
+            if (typeof getGalaxyRunWaveLimit === 'function') {
+                return getGalaxyRunWaveLimit(galaxyIndex);
+            }
+            return getConsoleRunWaveLimit();
+        }
+
+        function getLastConsoleRegexInt(text, regex) {
+            let value = null;
+            let match;
+            regex.lastIndex = 0;
+            while ((match = regex.exec(text)) !== null) {
+                value = parseInt(match[1], 10);
+                if (match.index === regex.lastIndex) regex.lastIndex++;
+            }
+            return value;
+        }
+
+        function getConsoleGalaxyDefinition(galaxyIndex) {
+            if (typeof getGalaxyDefinition === 'function') return getGalaxyDefinition(galaxyIndex);
+            if (typeof GALAXY_DEFINITIONS !== 'undefined') return GALAXY_DEFINITIONS[galaxyIndex] || null;
+            return galaxyIndex === 0 ? { name: 'GALAXY 1', title: 'GALAXY 1', available: true } : null;
+        }
+
+        function isBareConsoleWaveTarget(commandLine) {
+            const raw = (commandLine || '').trim().toLowerCase();
+            if (!raw) return false;
+            const compact = raw.replace(/[\s,;:/_-]+/g, '');
+            const hasGalaxy = /g(?:alaxy)?[1-9]\d*/.test(compact);
+            const hasWave = /w(?:ave)?[1-9]\d*/.test(compact);
+            return hasGalaxy && hasWave;
+        }
+
+        function parseConsoleWaveTarget(argString) {
+            const defaultRunWaveLimit = getConsoleRunWaveLimit();
+            const raw = (argString || '').trim().toLowerCase();
+            if (!raw) {
+                return { ok: false, message: `Usage: wave 1-${defaultRunWaveLimit} or wave g1w13` };
+            }
+
+            const galaxyNumber = getLastConsoleRegexInt(raw, /g(?:alaxy)?\s*([1-9]\d*)/g);
+            let waveNumber = getLastConsoleRegexInt(raw, /w(?:ave)?\s*([1-9]\d*)/g);
+
+            if (waveNumber === null) {
+                const withoutGalaxy = raw.replace(/g(?:alaxy)?\s*[1-9]\d*/g, ' ');
+                const bareWaveMatch = withoutGalaxy.match(/\b([1-9]\d*)\b/);
+                if (bareWaveMatch) {
+                    waveNumber = parseInt(bareWaveMatch[1], 10);
+                } else {
+                    const compactWithoutGalaxy = raw
+                        .replace(/[\s,;:/_-]+/g, '')
+                        .replace(/g(?:alaxy)?[1-9]\d*/g, '');
+                    const compactWaveMatch = compactWithoutGalaxy.match(/([1-9]\d*)/);
+                    if (compactWaveMatch) waveNumber = parseInt(compactWaveMatch[1], 10);
+                }
+            }
+
+            let galaxyIndex = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : 0;
+            let galaxySpecified = false;
+            if (galaxyNumber !== null) {
+                galaxySpecified = true;
+                galaxyIndex = galaxyNumber - 1;
+                const galaxy = getConsoleGalaxyDefinition(galaxyIndex);
+                if (!galaxy) {
+                    return { ok: false, message: `Galaxy ${galaxyNumber} does not exist.` };
+                }
+                if (galaxy.available === false) {
+                    return { ok: false, message: `${galaxy.title || galaxy.name || `Galaxy ${galaxyNumber}`} is locked.` };
+                }
+            }
+
+            const runWaveLimit = getConsoleRunWaveLimitForGalaxy(galaxyIndex);
+            if (!waveNumber || waveNumber < 1 || waveNumber > runWaveLimit) {
+                return { ok: false, message: `Usage: wave 1-${runWaveLimit}, wave g1w13, or w w12g2` };
+            }
+
+            return { ok: true, waveNumber, galaxyIndex, galaxySpecified };
         }
 
         function removePlayerWeapon(argString) {
@@ -1525,6 +1688,40 @@
             return true;
         }
 
+        function resetConsoleWavePlayerVisualState() {
+            clearGameplayKeys();
+            deathTimer = 0;
+            launchTimer = 0;
+            playerExploded = false;
+            debris = [];
+            thrusterParticles = [];
+            shake = 0;
+            wobble = 0;
+            postResumeBombLockTimer = 0;
+            if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
+
+            if (player) {
+                if (!Number.isFinite(player.x) || player.x < 40 || player.x > width - 40) {
+                    player.x = width / 2;
+                }
+                const bottomLimit = typeof getGameplayBottomLimit === 'function' ? getGameplayBottomLimit(70) : height - 130;
+                if (!Number.isFinite(player.y) || player.y < 40 || player.y > bottomLimit) {
+                    player.y = Math.min(height * 0.8, bottomLimit);
+                }
+                player.vx = 0;
+                player.vy = 0;
+                player.isBeaming = false;
+                player.isFiring = false;
+                player.beamDeploy = 0;
+                player.invincibilityTimer = Math.max(player.invincibilityTimer || 0, 0.65);
+                player.flashTimer = 0;
+                if (!Number.isFinite(player.hp) || player.hp <= 0) {
+                    player.hp = Math.max(1, player.maxHp || (typeof getPlayerBaseMaxHp === 'function' ? getPlayerBaseMaxHp() : 100));
+                }
+                player._renderLayoutCache = null;
+            }
+        }
+
         function executeConsoleCommand(rawInput) {
             const commandLine = rawInput.trim();
             if (!commandLine) return false;
@@ -1537,14 +1734,33 @@
 
             if (command !== 'help') clearConsoleReference();
 
-            if (command === 'wave') {
-                const targetWave = parseInt(argString, 10);
-                if (isNaN(targetWave) || targetWave < 1 || targetWave > WaveManager.waves.length) {
-                    pushConsoleNotification(`Usage: wave 1-${WaveManager.waves.length}`, 'error');
+            const isWaveCommand = command === 'wave' || command === 'w';
+            if (isWaveCommand || isBareConsoleWaveTarget(commandLine)) {
+                const parsedTarget = parseConsoleWaveTarget(isWaveCommand ? argString : commandLine);
+                if (!parsedTarget.ok) {
+                    pushConsoleNotification(parsedTarget.message, 'error');
                     return false;
                 }
 
-                const targetWaveDef = WaveManager.waves[targetWave - 1];
+                const previousGalaxyIndex = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : 0;
+                const targetWave = parsedTarget.waveNumber;
+                if (parsedTarget.galaxySpecified && parsedTarget.galaxyIndex !== previousGalaxyIndex) {
+                    currentGalaxyIndex = parsedTarget.galaxyIndex;
+                    selectedGalaxyIndex = parsedTarget.galaxyIndex;
+                    if (typeof WaveManager.prepareGalaxyRun === 'function') {
+                        WaveManager.prepareGalaxyRun(currentGalaxyIndex);
+                    }
+                } else if (typeof WaveManager.getActiveGalaxyIndex === 'function') {
+                    WaveManager.activeGalaxyIndex = WaveManager.getActiveGalaxyIndex();
+                }
+
+                const targetWaveDef = typeof WaveManager.getWaveDefinitionForWave === 'function'
+                    ? WaveManager.getWaveDefinitionForWave(targetWave)
+                    : WaveManager.waves[targetWave - 1];
+                if (!targetWaveDef) {
+                    pushConsoleNotification(`Wave ${targetWave} is unavailable.`, 'error');
+                    return false;
+                }
                 teardownBossCinematic();
                 queuedConsoleLevels = 0;
                 stopMusic();
@@ -1561,13 +1777,19 @@
                 bombBlastRings = [];
                 drops = [];
                 xpOrbs = [];
+                resetConsoleWavePlayerVisualState();
                 clearPauseVolumePreview();
                 gameState = 'PLAYING';
+                pauseReturnState = 'PLAYING';
                 applyCurrentVolume();
                 if (!targetWaveDef.isBoss) {
                     startMusic();
                 }
-                pushConsoleNotification(`Jumped to wave ${targetWave}.`, 'success');
+                const galaxy = getConsoleGalaxyDefinition(parsedTarget.galaxyIndex);
+                const galaxyLabel = parsedTarget.galaxySpecified && galaxy
+                    ? ` (${galaxy.shortName || galaxy.name || `G${parsedTarget.galaxyIndex + 1}`})`
+                    : '';
+                pushConsoleNotification(`Jumped to G${parsedTarget.galaxyIndex + 1} W${targetWave}${galaxyLabel}.`, 'success');
                 return true;
             }
 

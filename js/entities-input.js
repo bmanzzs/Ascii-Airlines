@@ -56,6 +56,7 @@
 
         function beginLaunchSequence() {
             clearGameplayKeys();
+            if (typeof prepareRunStateForLaunch === 'function') prepareRunStateForLaunch();
             if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
             applySelectedShipToPlayer({ heal: true });
             restartLoadingSequence = false;
@@ -143,6 +144,13 @@
             }
             
             const k = e.key.toLowerCase();
+            if (typeof isRunCompleteTransitionActive === 'function' && isRunCompleteTransitionActive()) {
+                if ((k === 'enter' || k === ' ') && typeof completeRunToScoreScreen === 'function') {
+                    completeRunToScoreScreen();
+                    e.preventDefault();
+                    return;
+                }
+            }
             if (keys.hasOwnProperty(k)) {
                 keys[k] = true;
                 if (gameState === 'PLAYING' && k === 'arrowdown' && !e.repeat && bombProjectiles.length > 0) {
@@ -157,6 +165,8 @@
             if (k === 'escape') {
                 if (gameState === 'PLAYING') {
                     enterPauseMode();
+                } else if (gameState === 'GALAXY_SELECT') {
+                    enterPauseMode();
                 } else if (gameState === 'PAUSED') {
                     if (pauseState === 'SETTINGS') {
                         pauseState = 'MAIN';
@@ -165,10 +175,80 @@
                     }
                 } else if (gameState === 'SHIP_SELECT') {
                     shipSelectIndex = selectedShipIndex;
-                    gameState = 'START';
+                    gameState = 'GALAXY_SELECT';
+                    resetPauseMenuShipCursor();
                 }
                 e.preventDefault();
                 return;
+            }
+            if (gameState === 'VICTORY') {
+                if (k === 'enter' || k === ' ') {
+                    advanceCampaignScreen();
+                    e.preventDefault();
+                }
+                return;
+            }
+            if (gameState === 'RUN_SCORE') {
+                const buildCount = lastRunSummary && lastRunSummary.weapons ? lastRunSummary.weapons.length : 0;
+                if (buildCount > 0) {
+                    if (k === 'arrowleft' || k === 'a') {
+                        runScoreBuildSelection = (runScoreBuildSelection + buildCount - 1) % buildCount;
+                        e.preventDefault();
+                        return;
+                    }
+                    if (k === 'arrowright' || k === 'd') {
+                        runScoreBuildSelection = (runScoreBuildSelection + 1) % buildCount;
+                        e.preventDefault();
+                        return;
+                    }
+                    if (k === 'arrowup' || k === 'w') {
+                        runScoreBuildSelection = Math.max(0, runScoreBuildSelection - 5);
+                        e.preventDefault();
+                        return;
+                    }
+                    if (k === 'arrowdown' || k === 's') {
+                        runScoreBuildSelection = Math.min(buildCount - 1, runScoreBuildSelection + 5);
+                        e.preventDefault();
+                        return;
+                    }
+                }
+                if (k === 'enter' || k === ' ') {
+                    advanceCampaignScreen();
+                    e.preventDefault();
+                }
+                return;
+            }
+            if (gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP') {
+                e.preventDefault();
+                return;
+            }
+            if (gameState === 'GALAXY_SELECT') {
+                const galaxyCount = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1;
+                if (k === 'arrowleft' || k === 'a') {
+                    selectedGalaxyIndex = (selectedGalaxyIndex + galaxyCount - 1) % galaxyCount;
+                    e.preventDefault();
+                    return;
+                }
+                if (k === 'arrowright' || k === 'd') {
+                    selectedGalaxyIndex = (selectedGalaxyIndex + 1) % galaxyCount;
+                    e.preventDefault();
+                    return;
+                }
+                if (k === 'arrowup' || k === 'w') {
+                    selectedGalaxyIndex = (selectedGalaxyIndex + galaxyCount - 3) % galaxyCount;
+                    e.preventDefault();
+                    return;
+                }
+                if (k === 'arrowdown' || k === 's') {
+                    selectedGalaxyIndex = (selectedGalaxyIndex + 3) % galaxyCount;
+                    e.preventDefault();
+                    return;
+                }
+                if (k === 'enter' || k === ' ') {
+                    selectHighlightedGalaxy();
+                    e.preventDefault();
+                    return;
+                }
             }
             if (gameState === 'START') {
                 if (k === 'arrowleft' || k === 'arrowright') {
@@ -202,11 +282,22 @@
                     return;
                 }
             }
-            if (gameState === 'GAMEOVER' && k === ' ') location.reload();
+            if (gameState === 'GAMEOVER' && k === ' ') {
+                if (typeof beginReturnToGalaxySelectLoading === 'function') {
+                    beginReturnToGalaxySelectLoading();
+                } else {
+                    location.reload();
+                }
+                e.preventDefault();
+                return;
+            }
             if (gameState === 'PAUSED') {
-                const pauseMenuOptions = ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
+                const pauseMenuOptions = getPauseMenuOptions();
                 if (pauseState === 'MAIN') {
-                    const hasPowerups = player.weapons.length > 0;
+                    const hasPowerups = isPausePowerupMenuAvailable();
+                    if (pauseSelection !== -1) {
+                        pauseSelection = Math.max(0, Math.min(pauseMenuOptions.length - 1, pauseSelection));
+                    }
                     if (pauseSelection === -1 && hasPowerups) {
                         if (k === 'arrowleft' || k === 'a') {
                             pausePowerupSelection = (pausePowerupSelection + player.weapons.length - 1) % player.weapons.length;
@@ -236,7 +327,8 @@
                         pausePowerupSelection = 0;
                     }
                     
-                    if (pauseSelection === 2) {
+                    const volumeIndex = pauseMenuOptions.indexOf('VOLUME');
+                    if (pauseSelection === volumeIndex) {
                         if (k === 'arrowleft' || k === 'a') {
                             currentVolume = Math.max(0, Math.round((currentVolume - 0.05) * 20) / 20);
                             previewPauseVolumeAdjustment();
@@ -248,20 +340,21 @@
                     }
 
                     if (k === 'enter' || k === ' ') {
-                        if (pauseSelection === 0) {
+                        const selectedPauseOption = pauseMenuOptions[pauseSelection];
+                        if (selectedPauseOption === 'RESUME') {
                             resumeFromPauseMode();
                         }
-                        else if (pauseSelection === 1) resetGame();
-                        else if (pauseSelection === 2) {
+                        else if (selectedPauseOption === 'RESTART') resetGame();
+                        else if (selectedPauseOption === 'VOLUME') {
                             isMuted = !isMuted;
                             clearPauseVolumePreview();
                             applyCurrentVolume(gameState === 'PAUSED' ? PAUSE_VOLUME_SCALE : 1);
                         }
-                        else if (pauseSelection === 3) {
+                        else if (selectedPauseOption === 'SETTINGS') {
                             pauseState = 'SETTINGS';
                             settingsSelection = 0;
                         }
-                        else if (pauseSelection === 4) {
+                        else if (selectedPauseOption === 'FULLSCREEN' || selectedPauseOption === 'EXIT FULLSCREEN') {
                             const container = document.getElementById('game-container');
                             if (!document.fullscreenElement) {
                                 container.requestFullscreen().catch(()=>{});
@@ -269,7 +362,13 @@
                                 document.exitFullscreen().catch(()=>{});
                             }
                         }
-                        else if (pauseSelection === 5) location.reload();
+                        else if (selectedPauseOption === 'EXIT') {
+                            if (pauseReturnState === 'PLAYING' && typeof beginReturnToGalaxySelectLoading === 'function') {
+                                beginReturnToGalaxySelectLoading();
+                            } else {
+                                location.reload();
+                            }
+                        }
                 }
             } else if (pauseState === 'SETTINGS') {
                     const lastSettingsIndex = SETTINGS_MENU_OPTION_COUNT - 1;

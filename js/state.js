@@ -114,11 +114,12 @@
         let comboFocusNoticeAt = 0;
         let comboFocusNoticeX = 0;
         let comboFocusNoticeY = 0;
-        let gameState = 'START';
+        let gameState = 'GALAXY_SELECT';
         let titleAlpha = 1.0;
         let autoLaunch = false;
         let pauseState = 'MAIN'; // 'MAIN' or 'SETTINGS'
         let pauseSelection = 0;
+        let pauseReturnState = 'PLAYING';
         let pausePowerupSelection = 0;
         let pausePowerupBarAnim = {
             mode: 'idle',
@@ -164,6 +165,10 @@
             pauseMenuShipCursor.targetKey = '';
             pauseMenuShipCursor.routeKey = '';
             pauseMenuShipCursor.approachComplete = false;
+            pauseMenuShipCursor.renderX = 0;
+            pauseMenuShipCursor.renderY = 0;
+            pauseMenuShipCursor.renderRot = 0;
+            pauseMenuShipCursor.renderScale = pauseMenuShipCursor.scale || 0.34;
         }
         let settingsSelection = 0;
         let isMuted = false;
@@ -188,6 +193,51 @@
         let hostileTimeScale = 1;
         let hostileTimeMs = performance.now();
         let restartLoadingSequence = false;
+        let selectedGalaxyIndex = 0;
+        let currentGalaxyIndex = 0;
+        let galaxySelectNotice = '';
+        let galaxySelectNoticeTimer = 0;
+        const RETURN_LOADING_DURATION = 0.9;
+        let returnLoadingTransition = {
+            active: false,
+            startedAt: 0,
+            color: '#6aa8ff'
+        };
+        const GALAXY_WARP_DURATION = 1.2;
+        const GALAXY_WARP_HANDOFF_START = 0.66;
+        const GALAXY_WARP_OUTRO_FADE = 0.56;
+        let galaxyWarpTransition = {
+            active: false,
+            startedAt: 0,
+            galaxyIndex: 0,
+            fromX: 0,
+            fromY: 0,
+            fromRot: 0,
+            fromScale: 0.24,
+            toX: 0,
+            toY: 0,
+            color: '#6aa8ff',
+            outroStartedAt: 0
+        };
+        let victoryTimer = 0;
+        let scoreScreenTimer = 0;
+        let runScoreBuildSelection = 0;
+        const VICTORY_AUTO_ADVANCE_SECONDS = 2.6;
+        const SCORE_AUTO_ADVANCE_SECONDS = 12.0;
+        const RUN_COMPLETE_REWARD_SECONDS = 2.25;
+        const RUN_COMPLETE_SLOWMO_SECONDS = 1.15;
+        const RUN_COMPLETE_FADE_SECONDS = 0.85;
+        const RUN_WAVE_LIMIT = 25;
+        let lastRunSummary = null;
+        let runStats = createEmptyRunStats();
+        let runCompleteTransition = {
+            active: false,
+            elapsed: 0,
+            defeatedBoss: null,
+            slowmo: 0,
+            fade: 0,
+            color: '#6aa8ff'
+        };
         const PAUSE_VOLUME_SCALE = 0.4;
         const LEVELUP_VOLUME_SCALE = 0.75;
         const PAUSE_VOLUME_PREVIEW_MS = 1000;
@@ -214,6 +264,404 @@
             return 1 + getComboFocusDamageBonus(comboValue);
         }
 
+        function getGalaxyDefinition(index = currentGalaxyIndex) {
+            if (typeof GALAXY_DEFINITIONS !== 'undefined' && GALAXY_DEFINITIONS[index]) {
+                return GALAXY_DEFINITIONS[index];
+            }
+            return {
+                id: 'galaxy-1',
+                name: 'NEON RIFT',
+                title: 'NEON RIFT',
+                available: true,
+                desc: 'Current campaign sector.',
+                colors: ['#6aa8ff', '#ff5e8a', '#dcecff']
+            };
+        }
+
+        function createEmptyRunStats() {
+            return {
+                galaxyIndex: 0,
+                galaxyName: 'NEON RIFT',
+                startedAt: 0,
+                endedAt: 0,
+                enemiesKilled: 0,
+                bossesDefeated: 0,
+                damageTaken: 0,
+                bombsUsed: 0,
+                focusDriveTime: 0,
+                specterTime: 0,
+                wavesCleared: 0
+            };
+        }
+
+        function resetRunStats() {
+            const galaxy = getGalaxyDefinition(currentGalaxyIndex);
+            runStats = createEmptyRunStats();
+            runStats.galaxyIndex = currentGalaxyIndex;
+            runStats.galaxyName = galaxy.title || galaxy.name;
+            runStats.startedAt = performance.now();
+            runStats.endedAt = 0;
+        }
+
+        function getActiveRunWaveLimit() {
+            if (typeof WaveManager !== 'undefined' && typeof WaveManager.getRunWaveLimit === 'function') {
+                return WaveManager.getRunWaveLimit();
+            }
+            if (typeof getGalaxyRunWaveLimit === 'function') {
+                return getGalaxyRunWaveLimit(currentGalaxyIndex);
+            }
+            return RUN_WAVE_LIMIT;
+        }
+
+        function recordRunEnemyKilled(enemy) {
+            if (!runStats || (enemy && enemy.suppressComboReward)) return;
+            runStats.enemiesKilled++;
+        }
+
+        function recordRunBossDefeated() {
+            if (!runStats) return;
+            runStats.bossesDefeated++;
+            const runWaveLimit = getActiveRunWaveLimit();
+            runStats.wavesCleared = Math.max(runStats.wavesCleared || 0, Math.min(runWaveLimit, WaveManager.currentWave || 0));
+        }
+
+        function recordRunDamageTaken(amount) {
+            if (!runStats) return;
+            runStats.damageTaken += Math.max(0, amount || 0);
+        }
+
+        function recordRunBombUsed() {
+            if (!runStats) return;
+            runStats.bombsUsed++;
+        }
+
+        function recordRunFocusTime(mode, dt) {
+            if (!runStats || gameState !== 'PLAYING') return;
+            if (mode === 'drive') runStats.focusDriveTime += Math.max(0, dt || 0);
+            if (mode === 'specter') runStats.specterTime += Math.max(0, dt || 0);
+        }
+
+        function captureRunSummary(defeatedBoss = null) {
+            const galaxy = getGalaxyDefinition(currentGalaxyIndex);
+            const now = performance.now();
+            runStats.endedAt = now;
+            runStats.wavesCleared = getActiveRunWaveLimit();
+            return {
+                galaxyIndex: currentGalaxyIndex,
+                galaxyName: galaxy.title || galaxy.name,
+                galaxyDesc: galaxy.desc || '',
+                finalBoss: defeatedBoss ? defeatedBoss.name : '',
+                score,
+                enemiesKilled: runStats.enemiesKilled || 0,
+                bossesDefeated: runStats.bossesDefeated || 0,
+                damageTaken: Math.round(runStats.damageTaken || 0),
+                bombsUsed: runStats.bombsUsed || 0,
+                highestCombo: comboPeak || 0,
+                focusDriveTime: runStats.focusDriveTime || 0,
+                specterTime: runStats.specterTime || 0,
+                timeSurvived: Math.max(0, ((runStats.endedAt || now) - (runStats.startedAt || now)) / 1000),
+                selectedShip: getSelectedShipConfig().name,
+                level: player.level || 1,
+                maxHp: Math.round(player.maxHp || 0),
+                weapons: player.weapons.map((weapon, index) => ({
+                    index,
+                    name: weapon.name,
+                    displayName: weapon.displayName || weapon.name,
+                    cat: weapon.cat || 'weapon',
+                    desc: weapon.desc || '',
+                    glyph: weapon.glyph || '*',
+                    icon: weapon.icon || '',
+                    color: weapon.color || currentThemeColor,
+                    rarity: weapon.rarity || ''
+                }))
+            };
+        }
+
+        function resetRunCompleteTransition() {
+            runCompleteTransition = {
+                active: false,
+                elapsed: 0,
+                defeatedBoss: null,
+                slowmo: 0,
+                fade: 0,
+                color: currentThemeColor || '#6aa8ff'
+            };
+        }
+
+        function isRunCompleteTransitionActive() {
+            return !!(runCompleteTransition && runCompleteTransition.active);
+        }
+
+        function getRunCompletePhysicsScale() {
+            if (!isRunCompleteTransitionActive()) return 1;
+            const t = Math.max(0, Math.min(1, runCompleteTransition.slowmo || 0));
+            return 1 - t * 0.74;
+        }
+
+        function getRunCompleteFadeAmount() {
+            if (!isRunCompleteTransitionActive()) return 0;
+            return Math.max(0, Math.min(1, runCompleteTransition.fade || 0));
+        }
+
+        function getRunCompleteSlowmoAmount() {
+            if (!isRunCompleteTransitionActive()) return 0;
+            return Math.max(0, Math.min(1, runCompleteTransition.slowmo || 0));
+        }
+
+        function smoothRunCompleteStep(t) {
+            const n = Math.max(0, Math.min(1, t || 0));
+            return n * n * (3 - n * 2);
+        }
+
+        function beginRunCompleteHandoff(defeatedBoss = null) {
+            if (gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GALAXY_SELECT') return;
+            clearGameplayKeys();
+            if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
+            runCompleteTransition = {
+                active: true,
+                elapsed: 0,
+                defeatedBoss: defeatedBoss ? { name: defeatedBoss.name } : null,
+                slowmo: 0,
+                fade: 0,
+                color: (defeatedBoss && defeatedBoss.color) || currentThemeColor || '#6aa8ff'
+            };
+            waveSignalNotice = null;
+            enemies = [];
+            enemyBullets = [];
+            comboProjectiles = [];
+            bombProjectiles = [];
+            bombBlastRings = [];
+            boss = null;
+            WaveManager.waveDelay = 999;
+            WaveManager.interWaveDelayQueued = false;
+            WaveManager.pendingFormationUnits = 0;
+            gameState = 'PLAYING';
+            pauseReturnState = 'PLAYING';
+            applyCurrentVolume(0.82, 0.35);
+        }
+
+        function completeRunToScoreScreen() {
+            const defeatedBoss = runCompleteTransition && runCompleteTransition.defeatedBoss
+                ? runCompleteTransition.defeatedBoss
+                : null;
+            lastRunSummary = captureRunSummary(defeatedBoss);
+            resetRunCompleteTransition();
+            clearGameplayKeys();
+            if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
+            scoreScreenTimer = 0;
+            victoryTimer = VICTORY_AUTO_ADVANCE_SECONDS;
+            runScoreBuildSelection = 0;
+            waveSignalNotice = null;
+            enemies = [];
+            enemyBullets = [];
+            comboProjectiles = [];
+            bombProjectiles = [];
+            bombBlastRings = [];
+            drops = [];
+            xpOrbs = [];
+            boss = null;
+            WaveManager.waveDelay = 0;
+            WaveManager.interWaveDelayQueued = false;
+            WaveManager.pendingFormationUnits = 0;
+            if (typeof updateFocusMusicPlaybackRate === 'function') updateFocusMusicPlaybackRate(1, 0.22);
+            gameState = 'RUN_SCORE';
+            applyCurrentVolume(0.82, 0.35);
+        }
+
+        function updateRunCompleteTransition(dt) {
+            if (!isRunCompleteTransitionActive() || gameState !== 'PLAYING') return;
+            const safeDt = Math.max(0, Math.min(0.05, dt || 0));
+            runCompleteTransition.elapsed += safeDt;
+            const slowStart = RUN_COMPLETE_REWARD_SECONDS;
+            const fadeStart = RUN_COMPLETE_REWARD_SECONDS + RUN_COMPLETE_SLOWMO_SECONDS * 0.42;
+            runCompleteTransition.slowmo = smoothRunCompleteStep((runCompleteTransition.elapsed - slowStart) / RUN_COMPLETE_SLOWMO_SECONDS);
+            runCompleteTransition.fade = smoothRunCompleteStep((runCompleteTransition.elapsed - fadeStart) / RUN_COMPLETE_FADE_SECONDS);
+            if (typeof updateFocusMusicPlaybackRate === 'function' && runCompleteTransition.slowmo > 0.01) {
+                updateFocusMusicPlaybackRate(1 - runCompleteTransition.slowmo * 0.38, 0.14);
+            }
+            if (runCompleteTransition.elapsed >= fadeStart + RUN_COMPLETE_FADE_SECONDS) {
+                completeRunToScoreScreen();
+            }
+        }
+
+        function beginRunVictoryFlow(defeatedBoss = null) {
+            if (gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GALAXY_SELECT') return;
+            clearGameplayKeys();
+            if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
+            lastRunSummary = captureRunSummary(defeatedBoss);
+            victoryTimer = 0;
+            scoreScreenTimer = 0;
+            runScoreBuildSelection = 0;
+            waveSignalNotice = null;
+            enemies = [];
+            enemyBullets = [];
+            comboProjectiles = [];
+            bombProjectiles = [];
+            boss = null;
+            WaveManager.waveDelay = 0;
+            WaveManager.interWaveDelayQueued = false;
+            WaveManager.pendingFormationUnits = 0;
+            gameState = 'VICTORY';
+            applyCurrentVolume(0.82, 0.35);
+        }
+
+        function advanceCampaignScreen() {
+            clearGameplayKeys();
+            if (gameState === 'VICTORY') {
+                victoryTimer = VICTORY_AUTO_ADVANCE_SECONDS;
+                scoreScreenTimer = 0;
+                runScoreBuildSelection = 0;
+                gameState = 'RUN_SCORE';
+                return;
+            }
+            if (gameState === 'RUN_SCORE') {
+                enterGalaxySelectScreen();
+            }
+        }
+
+        function updateCampaignScreens(dt) {
+            const safeDt = Math.max(0, Math.min(0.05, dt || 0));
+            if (galaxySelectNoticeTimer > 0) {
+                galaxySelectNoticeTimer = Math.max(0, galaxySelectNoticeTimer - safeDt);
+                if (galaxySelectNoticeTimer <= 0) galaxySelectNotice = '';
+            }
+            if (gameState === 'RETURN_LOADING') {
+                const elapsed = ((currentFrameNow || performance.now()) - (returnLoadingTransition.startedAt || 0)) / 1000;
+                if (elapsed >= RETURN_LOADING_DURATION) completeReturnToGalaxySelectLoading();
+            } else if (gameState === 'GALAXY_WARP') {
+                const elapsed = ((currentFrameNow || performance.now()) - (galaxyWarpTransition.startedAt || 0)) / 1000;
+                if (elapsed >= GALAXY_WARP_DURATION) completeGalaxyWarpTransition();
+            } else if (gameState === 'VICTORY') {
+                victoryTimer += safeDt;
+                if (victoryTimer >= VICTORY_AUTO_ADVANCE_SECONDS) advanceCampaignScreen();
+            } else if (gameState === 'RUN_SCORE') {
+                scoreScreenTimer += safeDt;
+                if (scoreScreenTimer >= SCORE_AUTO_ADVANCE_SECONDS) advanceCampaignScreen();
+            }
+        }
+
+        function beginReturnToGalaxySelectLoading() {
+            const now = currentFrameNow || performance.now();
+            clearGameplayKeys();
+            clearPauseVolumePreview();
+            if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
+            returnLoadingTransition = {
+                active: true,
+                startedAt: now,
+                color: currentThemeColor || '#6aa8ff'
+            };
+            gameState = 'RETURN_LOADING';
+            pauseReturnState = 'GALAXY_SELECT';
+            pauseState = 'MAIN';
+            pauseSelection = 0;
+            pausePowerupSelection = 0;
+            pausePowerupBarAnim.mode = 'idle';
+            pausePowerupBarAnim.startTime = 0;
+            pausePowerupBarAnim.closeTime = 0;
+            resetPauseMenuShipCursor();
+            applyCurrentVolume(0, 0.35);
+        }
+
+        function completeReturnToGalaxySelectLoading() {
+            if (!returnLoadingTransition.active && gameState !== 'RETURN_LOADING') return;
+            returnLoadingTransition.active = false;
+            if (typeof prepareRunStateForLaunch === 'function') prepareRunStateForLaunch();
+            enterGalaxySelectScreen();
+        }
+
+        function enterGalaxySelectScreen() {
+            clearGameplayKeys();
+            resetRunCompleteTransition();
+            selectedGalaxyIndex = Math.max(0, Math.min((typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1) - 1, selectedGalaxyIndex));
+            gameState = 'GALAXY_SELECT';
+            pauseState = 'MAIN';
+            pauseSelection = 0;
+            pausePowerupSelection = 0;
+            pausePowerupBarAnim.mode = 'idle';
+            resetPauseMenuShipCursor();
+            stopMusic();
+            applyCurrentVolume();
+            if (typeof updateFocusMusicPlaybackRate === 'function') updateFocusMusicPlaybackRate(1, 0.08);
+        }
+
+        function selectHighlightedGalaxy() {
+            const galaxy = getGalaxyDefinition(selectedGalaxyIndex);
+            if (!galaxy.available) {
+                galaxySelectNotice = `${galaxy.title || galaxy.name} LOCKED`;
+                galaxySelectNoticeTimer = 1.4;
+                return false;
+            }
+            currentGalaxyIndex = selectedGalaxyIndex;
+            galaxySelectNotice = '';
+            galaxySelectNoticeTimer = 0;
+            clearGameplayKeys();
+            beginGalaxyWarpTransition(selectedGalaxyIndex);
+            titleAlpha = 1;
+            return true;
+        }
+
+        function beginGalaxyWarpTransition(galaxyIndex = selectedGalaxyIndex) {
+            const galaxy = getGalaxyDefinition(galaxyIndex);
+            const now = currentFrameNow || performance.now();
+            const slot = typeof getGalaxySelectSlot === 'function'
+                ? getGalaxySelectSlot(galaxyIndex)
+                : { x: width / 2, y: height * 0.35 };
+            const fromX = pauseMenuShipCursor && pauseMenuShipCursor.initialized
+                ? (Number.isFinite(pauseMenuShipCursor.renderX) ? pauseMenuShipCursor.renderX : pauseMenuShipCursor.x)
+                : slot.x - 72;
+            const fromY = pauseMenuShipCursor && pauseMenuShipCursor.initialized
+                ? (Number.isFinite(pauseMenuShipCursor.renderY) ? pauseMenuShipCursor.renderY : pauseMenuShipCursor.y)
+                : slot.y + 12;
+            const fromRot = pauseMenuShipCursor && pauseMenuShipCursor.initialized && Number.isFinite(pauseMenuShipCursor.renderRot)
+                ? pauseMenuShipCursor.renderRot
+                : Math.atan2(slot.y - fromY, slot.x - fromX) + Math.PI / 2;
+            const fromScale = pauseMenuShipCursor && pauseMenuShipCursor.initialized && Number.isFinite(pauseMenuShipCursor.renderScale)
+                ? pauseMenuShipCursor.renderScale
+                : (pauseMenuShipCursor.scale || 0.24);
+            galaxyWarpTransition = {
+                active: true,
+                startedAt: now,
+                galaxyIndex,
+                fromX,
+                fromY,
+                fromRot,
+                fromScale,
+                toX: slot.x,
+                toY: slot.y,
+                color: (galaxy.colors && (galaxy.colors[1] || galaxy.colors[0])) || currentThemeColor,
+                outroStartedAt: 0
+            };
+            gameState = 'GALAXY_WARP';
+            clearPauseVolumePreview();
+            applyCurrentVolume();
+        }
+
+        function completeGalaxyWarpTransition() {
+            if (!galaxyWarpTransition.active) return;
+            galaxyWarpTransition.active = false;
+            galaxyWarpTransition.outroStartedAt = currentFrameNow || performance.now();
+            resetPauseMenuShipCursor();
+            clearGameplayKeys();
+            titleAlpha = 0;
+            selectShip(shipSelectIndex, true);
+            if (typeof beginLaunchSequence === 'function') {
+                beginLaunchSequence();
+            } else {
+                gameState = 'SHIP_SELECT';
+            }
+        }
+
+        function isPausePowerupMenuAvailable() {
+            return pauseReturnState === 'PLAYING' && player && player.weapons && player.weapons.length > 0;
+        }
+
+        function getPauseMenuOptions() {
+            if (pauseReturnState === 'GALAXY_SELECT') {
+                return ['RESUME', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
+            }
+            return ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
+        }
+
         function addScore(baseScore, useCombo = true) {
             const amount = Math.max(0, baseScore || 0);
             const multiplier = useCombo ? getComboScoreMultiplier() : 1;
@@ -238,6 +686,7 @@
         }
 
         function registerComboKill(enemy, baseScore = 150) {
+            recordRunEnemyKilled(enemy);
             if (!(enemy && enemy.suppressComboReward)) {
                 const previousFocusBonus = getComboFocusDamageBonus();
                 comboCount++;
@@ -308,12 +757,81 @@
             return current + (target - current) * blend;
         }
 
+        function clampFocusTuning(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function getFocusModifierValue(key, fallback = 0) {
+            if (typeof player === 'undefined' || !player || !player.modifiers) return fallback;
+            const value = player.modifiers[key];
+            return Number.isFinite(value) ? value : fallback;
+        }
+
+        function getFocusMeterMax() {
+            return FOCUS_METER_MAX * (1 + clampFocusTuning(getFocusModifierValue('focusMax', 0), 0, 1.5));
+        }
+
+        function getFocusDriveDrainPerSec() {
+            return FOCUS_DRIVE_DRAIN_PER_SEC * clampFocusTuning(getFocusModifierValue('focusDriveDrain', 1), 0.45, 1);
+        }
+
+        function getFocusSpecterDrainPerSec() {
+            return FOCUS_SPECTER_DRAIN_PER_SEC * clampFocusTuning(getFocusModifierValue('focusSpecterDrain', 1), 0.45, 1);
+        }
+
+        function getFocusRegenPerSec() {
+            return FOCUS_REGEN_PER_SEC * (1 + clampFocusTuning(getFocusModifierValue('focusRegen', 0), 0, 2.25));
+        }
+
+        function getFocusRegenDelaySeconds() {
+            return FOCUS_REGEN_DELAY * clampFocusTuning(getFocusModifierValue('focusRegenDelay', 1), 0.35, 1);
+        }
+
+        function getFocusEmptyLockoutSeconds() {
+            return FOCUS_EMPTY_LOCKOUT * clampFocusTuning(getFocusModifierValue('focusLockout', 1), 0.35, 1);
+        }
+
+        function getFocusEliteDropAmount() {
+            return FOCUS_ELITE_DROP_AMOUNT * (1 + clampFocusTuning(getFocusModifierValue('focusDrop', 0), 0, 1.25));
+        }
+
+        function getFocusDriveHostileTimeScale() {
+            const slowBonus = clampFocusTuning(getFocusModifierValue('focusDriveSlow', 0), 0, 0.12);
+            return clampFocusTuning(FOCUS_DRIVE_HOSTILE_TIME_SCALE - slowBonus, 0.18, FOCUS_DRIVE_HOSTILE_TIME_SCALE);
+        }
+
+        function getFocusDriveFadeInSeconds() {
+            return FOCUS_DRIVE_FADE_IN / (1 + clampFocusTuning(getFocusModifierValue('focusDriveTransition', 0), 0, 1.5));
+        }
+
+        function getFocusDriveFadeOutSeconds() {
+            return FOCUS_DRIVE_FADE_OUT / (1 + clampFocusTuning(getFocusModifierValue('focusDriveTransition', 0), 0, 1.5));
+        }
+
+        function getFocusSpecterFadeInSeconds() {
+            return FOCUS_SPECTER_FADE_IN / (1 + clampFocusTuning(getFocusModifierValue('focusSpecterTransition', 0), 0, 1.5));
+        }
+
+        function getFocusSpecterFadeOutSeconds() {
+            return FOCUS_SPECTER_FADE_OUT / (1 + clampFocusTuning(getFocusModifierValue('focusSpecterTransition', 0), 0, 1.5));
+        }
+
+        function getFocusSpecterVisualTargetScale() {
+            const shrinkBonus = clampFocusTuning(getFocusModifierValue('focusSpecterShrink', 0), 0, 0.16);
+            return clampFocusTuning(FOCUS_SPECTER_VISUAL_SCALE - shrinkBonus, 0.46, FOCUS_SPECTER_VISUAL_SCALE);
+        }
+
+        function getFocusSpecterHitboxTargetScale() {
+            const shrinkBonus = clampFocusTuning(getFocusModifierValue('focusSpecterShrink', 0), 0, 0.16);
+            return clampFocusTuning(FOCUS_SPECTER_HITBOX_SCALE - shrinkBonus * 0.88, 0.34, FOCUS_SPECTER_HITBOX_SCALE);
+        }
+
         function isBossIntroActive() {
             return !!(typeof boss !== 'undefined' && boss && boss.phase === 'INTRO');
         }
 
         function areFocusAbilitiesSuppressed() {
-            return isBossIntroActive();
+            return isBossIntroActive() || isRunCompleteTransitionActive();
         }
 
         function canUseFocusAbilitiesNow() {
@@ -323,7 +841,7 @@
         }
 
         function resetFocusAbilities() {
-            focusMeter = FOCUS_METER_MAX;
+            focusMeter = getFocusMeterMax();
             focusRegenDelay = 0;
             focusLockoutTimer = 0;
             focusMode = 'idle';
@@ -346,7 +864,8 @@
 
         function getHostileTimeScale() {
             if (areFocusAbilitiesSuppressed()) return 1;
-            return Math.max(FOCUS_DRIVE_HOSTILE_TIME_SCALE, Math.min(1, hostileTimeScale || 1));
+            const minScale = getFocusDriveHostileTimeScale();
+            return Math.max(minScale, Math.min(1, hostileTimeScale || 1));
         }
 
         function getHostileDt(dt) {
@@ -354,18 +873,22 @@
         }
 
         function getPlayerSpecterVisualScale() {
-            return 1 - (1 - FOCUS_SPECTER_VISUAL_SCALE) * getSpecterRenderIntensity();
+            const targetScale = getFocusSpecterVisualTargetScale();
+            return 1 - (1 - targetScale) * getSpecterRenderIntensity();
         }
 
         function getPlayerSpecterHitboxScale() {
-            return 1 - (1 - FOCUS_SPECTER_HITBOX_SCALE) * getSpecterRenderIntensity();
+            const targetScale = getFocusSpecterHitboxTargetScale();
+            return 1 - (1 - targetScale) * getSpecterRenderIntensity();
         }
 
         function updateFocusAbilities(dt, canUseAbilities = false) {
             const safeDt = Math.max(0, Math.min(0.05, dt || 0));
             const godModeFocus = !!(typeof player !== 'undefined' && player && player.godMode);
+            const focusMax = getFocusMeterMax();
+            focusMeter = Math.min(focusMeter, focusMax);
             if (godModeFocus) {
-                focusMeter = FOCUS_METER_MAX;
+                focusMeter = focusMax;
                 focusRegenDelay = 0;
                 focusLockoutTimer = 0;
             }
@@ -378,18 +901,18 @@
             let wantDrive = canSpendFocus && driveHeld;
             let wantSpecter = canSpendFocus && specterHeld;
             const drain = wantDrive
-                ? FOCUS_DRIVE_DRAIN_PER_SEC
-                : (wantSpecter ? FOCUS_SPECTER_DRAIN_PER_SEC : 0);
+                ? getFocusDriveDrainPerSec()
+                : (wantSpecter ? getFocusSpecterDrainPerSec() : 0);
 
             if (drain > 0) {
                 if (godModeFocus) {
-                    focusMeter = FOCUS_METER_MAX;
+                    focusMeter = focusMax;
                     focusRegenDelay = 0;
                 } else {
                     focusMeter = Math.max(0, focusMeter - drain * safeDt);
-                    focusRegenDelay = FOCUS_REGEN_DELAY;
+                    focusRegenDelay = getFocusRegenDelaySeconds();
                     if (focusMeter <= 0) {
-                        focusLockoutTimer = FOCUS_EMPTY_LOCKOUT;
+                        focusLockoutTimer = getFocusEmptyLockoutSeconds();
                         wantDrive = false;
                         wantSpecter = false;
                     }
@@ -398,26 +921,29 @@
                 if (focusRegenDelay > 0) {
                     focusRegenDelay = Math.max(0, focusRegenDelay - safeDt);
                 } else if (canUseAbilities) {
-                    focusMeter = Math.min(FOCUS_METER_MAX, focusMeter + FOCUS_REGEN_PER_SEC * safeDt);
+                    focusMeter = Math.min(focusMax, focusMeter + getFocusRegenPerSec() * safeDt);
                 }
             }
 
             const driveTarget = wantDrive ? 1 : 0;
             const specterTarget = wantSpecter ? 1 : 0;
+            if (wantDrive) recordRunFocusTime('drive', safeDt);
+            if (wantSpecter) recordRunFocusTime('specter', safeDt);
             focusDriveIntensity = smoothFocusStep(
                 focusDriveIntensity,
                 driveTarget,
                 safeDt,
-                driveTarget > focusDriveIntensity ? FOCUS_DRIVE_FADE_IN : FOCUS_DRIVE_FADE_OUT
+                driveTarget > focusDriveIntensity ? getFocusDriveFadeInSeconds() : getFocusDriveFadeOutSeconds()
             );
             focusSpecterIntensity = smoothFocusStep(
                 focusSpecterIntensity,
                 specterTarget,
                 safeDt,
-                specterTarget > focusSpecterIntensity ? FOCUS_SPECTER_FADE_IN : FOCUS_SPECTER_FADE_OUT
+                specterTarget > focusSpecterIntensity ? getFocusSpecterFadeInSeconds() : getFocusSpecterFadeOutSeconds()
             );
             focusMode = wantDrive ? 'drive' : (wantSpecter ? 'specter' : 'idle');
-            hostileTimeScale = 1 - getFocusDriveRenderIntensity() * (1 - FOCUS_DRIVE_HOSTILE_TIME_SCALE);
+            const driveTimeScale = getFocusDriveHostileTimeScale();
+            hostileTimeScale = 1 - getFocusDriveRenderIntensity() * (1 - driveTimeScale);
             hostileTimeMs += safeDt * 1000 * getHostileTimeScale();
 
             if (typeof updateFocusMusicPlaybackRate === 'function') {
@@ -443,13 +969,15 @@
         }
 
         function enterPauseMode() {
-            if (gameState !== 'PLAYING' || isBossIntroActive()) return;
+            if (gameState !== 'PLAYING' && gameState !== 'GALAXY_SELECT') return;
+            if (gameState === 'PLAYING' && isBossIntroActive()) return;
             clearPauseVolumePreview();
+            pauseReturnState = gameState;
             gameState = 'PAUSED';
             pauseState = 'MAIN';
             pauseSelection = 0;
             pausePowerupSelection = 0;
-            pausePowerupBarAnim.mode = 'opening';
+            pausePowerupBarAnim.mode = isPausePowerupMenuAvailable() ? 'opening' : 'idle';
             pausePowerupBarAnim.startTime = performance.now();
             pausePowerupBarAnim.closeTime = 0;
             resetPauseMenuShipCursor();
@@ -459,10 +987,11 @@
         function resumeFromPauseMode() {
             if (gameState !== 'PAUSED') return;
             clearPauseVolumePreview();
-            gameState = 'PLAYING';
-            pausePowerupBarAnim.mode = 'closing';
+            const returnState = pauseReturnState || 'PLAYING';
+            gameState = returnState;
+            pausePowerupBarAnim.mode = returnState === 'PLAYING' && player.weapons.length > 0 ? 'closing' : 'idle';
             pausePowerupBarAnim.closeTime = performance.now();
-            postResumeBombLockTimer = POST_RESUME_BOMB_LOCK_SECONDS;
+            postResumeBombLockTimer = returnState === 'PLAYING' ? POST_RESUME_BOMB_LOCK_SECONDS : 0;
             keys[' '] = false;
             keys.arrowdown = false;
             keys.shift = false;

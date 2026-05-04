@@ -100,6 +100,20 @@
                 burstColors: ['#ffffff', '#bff0ff', '#7ed4ff', '#5fa8ff'],
                 burstChars: ['*', '#', '+', 'x']
             },
+            'TURNBOUND TRINITY': {
+                debrisCap: 210,
+                preserveSourceColor: true,
+                debrisLife: 1.5,
+                debrisVelocity: 940,
+                rings: [
+                    { color: '#ffffff', maxRadius: 160, maxLife: 0.34, lineWidth: 5, shadowBlur: 16 },
+                    { color: '#ffe27a', maxRadius: 230, maxLife: 0.52, lineWidth: 4, shadowBlur: 14 },
+                    { color: '#b99dff', maxRadius: 315, maxLife: 0.74, lineWidth: 3, shadowBlur: 12 }
+                ],
+                burstCount: 36,
+                burstColors: ['#ffffff', '#ffe27a', '#c8f4ff', '#b99dff'],
+                burstChars: ['*', '+', '#', 'x']
+            },
             'ECLIPSE WARDEN': {
                 debrisCap: 165,
                 preserveSourceColor: true,
@@ -178,6 +192,29 @@
                                 layout.cubeScale
                             );
                         }
+                    }
+                }
+            } else if (bossObj && bossObj.isTurnboundTrinity && sprite.length > 0 && Array.isArray(bossObj.parts)) {
+                const renderScale = bossObj.renderScale || 0.44;
+                const cellW = charW * renderScale;
+                const cellH = charH * renderScale;
+                const spriteWidth = typeof TURNBOUND_TRINITY_SPRITE_WIDTH === 'number'
+                    ? TURNBOUND_TRINITY_SPRITE_WIDTH
+                    : (sprite[0] ? sprite[0].length : 0);
+                const cells = typeof TURNBOUND_TRINITY_VISIBLE_CELLS !== 'undefined'
+                    ? TURNBOUND_TRINITY_VISIBLE_CELLS
+                    : buildSpriteVisibleCells(sprite);
+                for (let p = 0; p < bossObj.parts.length; p++) {
+                    const part = bossObj.parts[p];
+                    const partColor = bossObj.flashTimer > 0 ? '#ffffff' : (part.color || fallbackColor);
+                    const startX = part.x - (spriteWidth * cellW) / 2;
+                    const startY = part.y - (sprite.length * cellH) / 2;
+                    for (let i = 0; i < cells.length; i++) {
+                        const cell = cells[i];
+                        const row = sprite[cell.row] || '';
+                        const char = row[cell.col];
+                        if (!char || char === ' ') continue;
+                        recordBossRenderGlyph(entries, char, (startX + cell.col * cellW) | 0, (startY + cell.row * cellH) | 0, partColor, renderScale);
                     }
                 }
             } else if (sprite.length > 0) {
@@ -326,12 +363,31 @@
             if (originalBulletCount > 0 || enemies.length > 0) addShake(6);
         }
 
+        function dropBossWeaponReward(defeatedBoss) {
+            if (!defeatedBoss) return;
+            const opts = drawWeapons();
+            drops.push({
+                x: defeatedBoss.x,
+                y: defeatedBoss.y,
+                vy: 30,
+                vx: 0,
+                isWeapon: true,
+                options: opts,
+                cycleTimer: 0,
+                currentIndex: 0
+            });
+        }
+
         function finalizeBossDefeat(defeatedBoss) {
             if (!defeatedBoss) return;
 
             explodeBoss(defeatedBoss);
-            const opts = drawWeapons();
-            drops.push({ x: defeatedBoss.x, y: defeatedBoss.y, vy: 30, vx: 0, isWeapon: true, options: opts, cycleTimer: 0, currentIndex: 0 });
+            recordRunBossDefeated();
+            dropBossWeaponReward(defeatedBoss);
+            if (typeof WaveManager !== 'undefined' && WaveManager.isFinalRunBoss && WaveManager.isFinalRunBoss(defeatedBoss)) {
+                beginRunCompleteHandoff(defeatedBoss);
+                return;
+            }
             boss = null;
             WaveManager.waveDelay = 8.5;
             WaveManager.interWaveDelayQueued = true;

@@ -64,6 +64,20 @@
             };
         }
 
+        function buildSpriteVisibleCells(sprite) {
+            const cells = [];
+            if (!sprite) return cells;
+            for (let r = 0; r < sprite.length; r++) {
+                for (let c = 0; c < sprite[r].length; c++) {
+                    const char = sprite[r][c];
+                    if (char !== ' ') {
+                        cells.push({ row: r, col: c, char });
+                    }
+                }
+            }
+            return cells;
+        }
+
         // Boss sprites
         const NULL_PHANTOM_SOURCE = [
             "                                   ▌",
@@ -256,15 +270,16 @@
         ];
         const GHOST_SIGNAL_GLOW_COLOR = 'rgba(255, 255, 255, 0.82)';
         const GHOST_SIGNAL_VERTICAL_STRETCH = 1.08;
-        const GHOST_SIGNAL_BODY_GLOW = 22;
         const GHOST_SIGNAL_FONT_SIZE = 10;
         const GHOST_SIGNAL_SWAY_X = 4.5;
         const GHOST_SIGNAL_SWAY_Y = 2.8;
+        const GHOST_SIGNAL_OFFSET_BANDS = 10;
         const GHOST_SIGNAL_LOOP_FRAMES = 300;
         const GHOST_SIGNAL_DRIFT_X = 34;
         const GHOST_SIGNAL_DRIFT_Y = 13;
         const GHOST_SIGNAL_FOOTPRINT = getSpriteVisibleMetrics(GHOST_SIGNAL_LEGACY_SPRITE);
         const GHOST_SIGNAL_METRICS = getSpriteVisibleMetrics(GHOST_SIGNAL_SOURCE);
+        const GHOST_SIGNAL_VISIBLE_CELLS = buildSpriteVisibleCells(GHOST_SIGNAL_SOURCE);
         const ghostSignalBodyColorCache = new Map();
         const GHOST_SIGNAL_SCALE = Math.min(
             GHOST_SIGNAL_FOOTPRINT.width / GHOST_SIGNAL_METRICS.width,
@@ -311,22 +326,32 @@
                 visibleTop,
                 cubeScale,
                 tAngle: ((renderFrameCount % GHOST_SIGNAL_LOOP_FRAMES) / GHOST_SIGNAL_LOOP_FRAMES) * Math.PI * 2,
-                centerCol: GHOST_SIGNAL_METRICS.minX + (GHOST_SIGNAL_METRICS.width - 1) / 2
+                centerCol: GHOST_SIGNAL_METRICS.minX + (GHOST_SIGNAL_METRICS.width - 1) / 2,
+                offsetCache: new Map()
             };
         }
 
         function getGhostSignalWaveOffsets(layout, row, col) {
             const rowRatio = (row - GHOST_SIGNAL_METRICS.minY) / Math.max(1, GHOST_SIGNAL_METRICS.height - 1);
-            const colRatio = (col - GHOST_SIGNAL_METRICS.minX) / Math.max(1, GHOST_SIGNAL_METRICS.width - 1);
-            const loopNoise = Math.sin(2 * layout.tAngle - row * 0.5 + col * 0.3) * 0.6 +
-                Math.cos(3 * layout.tAngle - row * 0.3 + col * 0.2) * 0.6;
-            const waveNoise = Math.sin(4 * layout.tAngle - row * 0.34 - col * 0.12);
+            const rawColRatio = (col - GHOST_SIGNAL_METRICS.minX) / Math.max(1, GHOST_SIGNAL_METRICS.width - 1);
+            const colBand = Math.max(0, Math.min(GHOST_SIGNAL_OFFSET_BANDS, Math.round(rawColRatio * GHOST_SIGNAL_OFFSET_BANDS)));
+            const cacheKey = `${row}|${colBand}`;
+            const cached = layout.offsetCache.get(cacheKey);
+            if (cached) return cached;
+
+            const colRatio = colBand / GHOST_SIGNAL_OFFSET_BANDS;
+            const sampleCol = GHOST_SIGNAL_METRICS.minX + colRatio * Math.max(1, GHOST_SIGNAL_METRICS.width - 1);
+            const loopNoise = Math.sin(2 * layout.tAngle - row * 0.5 + sampleCol * 0.3) * 0.6 +
+                Math.cos(3 * layout.tAngle - row * 0.3 + sampleCol * 0.2) * 0.6;
+            const waveNoise = Math.sin(4 * layout.tAngle - row * 0.34 - sampleCol * 0.12);
             const lateral = loopNoise * GHOST_SIGNAL_SWAY_X * (0.35 + rowRatio * 0.65);
             const vertical = waveNoise * GHOST_SIGNAL_SWAY_Y * (0.45 + (1 - Math.abs(colRatio - 0.5) * 2) * 0.55) + loopNoise * 0.9;
-            return {
+            const offsets = {
                 x: lateral,
                 y: vertical
             };
+            layout.offsetCache.set(cacheKey, offsets);
+            return offsets;
         }
 
         function getGhostSignalGlyphPosition(layout, row, col) {
@@ -399,6 +424,8 @@
             "                          ░░▒▒░░      ░░                          "
         ];
 
+        const FIREWALL_VISIBLE_CELLS = buildSpriteVisibleCells(FIREWALL_SPRITE);
+
         const VOID_ORBITER_SPRITE = [
             "  ▗▄▖  ",
             " ▝███▘ ",
@@ -445,6 +472,94 @@
             "      ░▓██▓░      "
         ];
 
+        const TURNBOUND_TRINITY_SPRITE = [
+            "                 ▓▓",
+            "                █▐▐█",
+            "              ░█▌ ▐█▌",
+            "          ▄   █▐▌  ██▄  ▄▄",
+            "         █▐   █░▌▄ █▐▌  █▐▌",
+            "        █▌▐ ▄█▌ █▓█▌░█▄ █ █",
+            "        █ ████ ▄ ▀ ▄▌████ ▓▌",
+            "       ██▀███▌▐▌  ░▐█ ███▐▀█",
+            "      ▓█  ██▌ █ ▄▀▀▄▓▌▐██  ▓█▄",
+            "   ▄▀ ▐█  ██ ▐█ ▌  █▓█ ▓█▌▓▐█ ▀▄",
+            " ▄▀ ▓▓█▌ ▐██  ██▌▐ █▓█▐██▓  ██▓ ▀▓▄",
+            "█▄▓▓█▓█▓ ▓█▓▓▓▀█████▌ ▓▓█▓▀▀████▓▓▐▌",
+            "█▓█▓▀▀██▀████▌ ██▓▓█  ████▀███▀██▓█▌",
+            "      ▐█▄██  █▓░▓█▓█ █▀ ▐████",
+            "        ▀▀    █ ▐▓█ ██    ▀▀",
+            "               █ █ ▓█",
+            "               ▀▌ ▐█",
+            "                ▀▓▀"
+        ];
+        const TURNBOUND_TRINITY_SPRITE_WIDTH = TURNBOUND_TRINITY_SPRITE.reduce((max, row) => Math.max(max, row.length), 0);
+        const TURNBOUND_TRINITY_RENDER_SPRITE = TURNBOUND_TRINITY_SPRITE.map(row => row.padEnd(TURNBOUND_TRINITY_SPRITE_WIDTH, ' '));
+        const TURNBOUND_TRINITY_VISIBLE_CELLS = buildSpriteVisibleCells(TURNBOUND_TRINITY_RENDER_SPRITE);
+
+        const TURNBOUND_TRINITY_SWORD_SPRITE_RAW = [
+            "    ▒▒▒▒░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░▄▄▒▒▒",
+            "    ▒▒▒▓▀▀▌▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█ ▀▌▒▒",
+            "    ▒▒█▓ ▐█▄▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█▓ ▐▓▌▒",
+            "    ▒▐▌  ▓▓█▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▐█  ▀▐█▒",
+            "    ▒█▌▒ ▒▓█▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▌░▒▒░█▒",
+            "    ▒█▒▒ ▒▓█▒▒▒▒▒▒▒▒▒▄▄▌▀▀▀▀▀▄▄░▒▒▒▒▒▒▒▒▐▌    █▒",
+            "    ▒█▒  ░▓█▄▒▒▒░▄▓▀█▒ ▓▒    ▒▒▐█▀▄▄▒▒▒▒██   ░█▒",
+            "    ▒█▌▒ ░▓▌█▄▀▀▒▒▓▓   ▓     ░ ▌▓▓▓▒▀▀▓▐▌█  ▐▒█▒",
+            "    ▒█▌▒ ▒███▓▓▓▓▀▒▓   ▌ ▄▄  ▒▒▌▐▌▀▓▓▓▓▓██▒ ▐▒█▒",
+            "    ▒█▌ ▒▓██▓▓▓▄▓▓▀    ▓ ▄▄▒▌▌░▌ ▀▓▐▄▓▓▓▓█▓▄▒▓█░",
+            "    ▒▐▌  ▐██▀▀   ▐     ▌▐▌▓█▐▌ ▌  ▓    ▀██▌ ▒▐█▒",
+            "    ▒▒▀▓▓█▌      ▓     ▓ ▀▀▒▓ ▒▌  ▓      ▐█▀▀▀▒▒",
+            "    ▒▒▒▒▐▌       ▓   ▐▄  ▀▀▀ ▒▓   ▓     ░ ▐█▒▒▒▒",
+            "    ▒▒▒▒▐█        ▓    ▀▄▄▄▄▓▀   ▓     ▌  ▓█▒▒▒▒",
+            "    ▒▒▒▒▐█▒  ▓     ▓           ░▓     ▒  ▒▓█▒▒▒▒",
+            "    ▒▒▒▒▒▀▓▒▄▄    ▒   ▀▓▄▄▄▄▓▀       ▒ ▄ ▓█▒▒▒▒▒",
+            "    ▒▒▒▒▒░▀▄▀▄▓▄▄▒                 ▓▄▓▓▓▒█░▒▒▒▒▒",
+            "    ▒▒▒▒▒▒▒░▓▄▒ ▒▒ ▄  ▒▄▄▄▄▄▄▒  ▐▌▓▒▒▒▒▓▀░▒▒▒▒▒▒",
+            "    ▒▒▒▒▒▒▒▒▒░▀▓▓▄▒▒▒ ▓      ▐▓▒▒▒▄▄▓▀░▒▒▒▒▒▒▒▒▒",
+            "    ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▀▀▀▀█▄▄▄▄▄▓▓▀▀▀▀░░▒▒▒▒▒▒▒▒▒▒▒▒"
+        ];
+        const TURNBOUND_TRINITY_SWORD_SPRITE = TURNBOUND_TRINITY_SWORD_SPRITE_RAW.map(row => row.replace(/[▒░]/g, ' '));
+        const TURNBOUND_TRINITY_SWORD_SPRITE_WIDTH = TURNBOUND_TRINITY_SWORD_SPRITE.reduce((max, row) => Math.max(max, row.length), 0);
+        const TURNBOUND_TRINITY_SWORD_RENDER_SPRITE = TURNBOUND_TRINITY_SWORD_SPRITE.map(row => row.padEnd(TURNBOUND_TRINITY_SWORD_SPRITE_WIDTH, ' '));
+        const TURNBOUND_TRINITY_SWORD_VISIBLE_CELLS = buildSpriteVisibleCells(TURNBOUND_TRINITY_SWORD_RENDER_SPRITE);
+
+        const TURNBOUND_TRINITY_SPELL_SPRITE = [
+            "             ▄▄▄▄▄             ",
+            "     ▄▓  ▓▄  █████  ▄▓  ▓▄     ",
+            "     ▓█  █▓ ▄▓███▓▄ ▓█  █▓     ",
+            "   ▄ ▓█  █▓▓▓▓███▓▓▓▓█  █▓ ▄   ",
+            "  ▐▓▌▓█▌ █▓▓███████▓▓█ ▐█▓▐▓▌  ",
+            "  ▓█ ▐██▄█▓▒▓█████▓▒▓█▄██▌ █▓  ",
+            " ▐██  ▀███▓▒▓█▓█▓█▓▒▓███▀  ██▌ ",
+            " ██▌   ▐██▓▓▓█ █ █▓▓▓██▌   ▐██ ",
+            " █▓  ▄▓███▓▓▓█ █ █▓▓▓███▓▄  ▓█ ",
+            " ▐▓▄▓▀ ▓█▓▓  █ █ █  ▓▓█▓ ▀▓▄▓▌ ",
+            "  ▀▀   ▓█▓   █ █ █   ▓█▓   ▀▀  ",
+            "       ▓█▓   █ █ █   ▓█▓       ",
+            "       ▐█▓   █ █ █   ▓█▌       ",
+            "        █▓   █ █ █   ▓█        ",
+            "        █▓  ▄█ █ █▄  ▓█        ",
+            "        ▐█▓▓██ █ ██▓▓█▌        ",
+            "         ▀▓███ █ ███▓▀         ",
+            "           ███ █ ███           ",
+            "           ▐██ █ ██▌           ",
+            "            ██ █ ██            ",
+            "            ▐█ █ █▌            ",
+            "             █ █ █             "
+        ];
+        const TURNBOUND_TRINITY_SPELL_SPRITE_WIDTH = TURNBOUND_TRINITY_SPELL_SPRITE.reduce((max, row) => Math.max(max, row.length), 0);
+        const TURNBOUND_TRINITY_SPELL_RENDER_SPRITE = TURNBOUND_TRINITY_SPELL_SPRITE.map(row => row.padEnd(TURNBOUND_TRINITY_SPELL_SPRITE_WIDTH, ' '));
+        const TURNBOUND_TRINITY_SPELL_VISIBLE_CELLS = buildSpriteVisibleCells(TURNBOUND_TRINITY_SPELL_RENDER_SPRITE);
+        const TURNBOUND_TRINITY_SPELL_PALETTE = Object.freeze({
+            '█': '#0b1320',
+            '▓': '#e7edf2',
+            '▒': '#7e827d',
+            '▐': '#d7e4ec',
+            '▌': '#d7e4ec',
+            '▄': '#f5f8fb',
+            '▀': '#9fa9b1'
+        });
+
         const BATTLE_STARSHIP_SPRITE = [
             "        ▐▓▌              ▐▓▌        ",
             "        ▓▒▓▄   ▄████▄   ▄▓▒▓        ",
@@ -474,6 +589,24 @@
             "         ▀▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▀         ",
             "           ▐  ▀▀▀▀▀▀▀▀  ▌           "
         ];
+
+        const DREAD_LITURGY_SPRITE = [
+            "        .   .   .        ",
+            "      .-+-./_\\. -+-.      ",
+            "    ./  _/###\\_  \\.    ",
+            "   /__ /##/ \\##\\ __\\   ",
+            "  |   |##| ! |##|   |  ",
+            "  |.-.|##|___|##|.-.|  ",
+            "  || ||###| |###|| ||  ",
+            "  ||_||##/| |\\##||_||  ",
+            "  |   \\#/ | | \\#/   |  ",
+            "   \\_  `--|-|--`  _/   ",
+            "     \\__  | |  __/     ",
+            "        \\_|_|_/        ",
+            "          /_\\          ",
+            "         /___\\         "
+        ];
+        const DREAD_LITURGY_VISIBLE_CELLS = buildSpriteVisibleCells(DREAD_LITURGY_SPRITE);
 
         // Boss guardian and minion sprites
         const WRAITH_SPRITE = [
@@ -535,6 +668,13 @@
             return `rgb(${r},${g},${b})`;
         }
 
+        const WRAITH_VISIBLE_CELLS = buildSpriteVisibleCells(WRAITH_SPRITE).map(cell => ({
+            row: cell.row,
+            col: cell.col,
+            char: cell.char,
+            color: getWraithGlyphColor(WRAITH_SPRITE, cell.row, cell.col)
+        }));
+
         function createGhostSignalWraith(spawnX, spawnY, velocityX, hoverX) {
             return {
                 x: spawnX, y: spawnY, vx: velocityX, vy: 0,
@@ -556,11 +696,35 @@
             };
         }
         const FIREWALL_GUARDIAN_SPRITE = [
-            "  ▲  ",
-            " (█) ",
-            "(███)",
-            " ▀█▀ "
+            "    ░     ",
+            "   ░▓░    ",
+            "  ░▓█▓░   ",
+            " ░▓███▓░  ",
+            " ▒█████▒  ",
+            "░▓██▓██▓░ ",
+            " ▒██░██▒  ",
+            "  ▓█▄█▓   ",
+            "  ░▀█▀░   "
         ];
+        const FIREWALL_GUARDIAN_VISIBLE_CELLS = buildSpriteVisibleCells(FIREWALL_GUARDIAN_SPRITE).map(cell => {
+            const rowRatio = cell.row / Math.max(1, FIREWALL_GUARDIAN_SPRITE.length - 1);
+            const spriteRow = FIREWALL_GUARDIAN_SPRITE[cell.row] || '';
+            const colRatio = cell.col / Math.max(1, spriteRow.length - 1);
+            const fromCenter = Math.abs(colRatio - 0.5) * 2;
+            const glyphHeat = cell.char === '█' ? 1 :
+                cell.char === '▓' || cell.char === '▄' ? 0.76 :
+                cell.char === '▒' || cell.char === '▀' ? 0.52 : 0.28;
+            const coreHeat = Math.max(0, 1 - fromCenter * 1.35) * 0.24;
+            const baseHeat = Math.max(0.16, Math.min(1, glyphHeat + coreHeat - rowRatio * 0.08));
+            return {
+                row: cell.row,
+                col: cell.col,
+                char: cell.char,
+                rowRatio,
+                colRatio,
+                baseHeat
+            };
+        });
 
         function createFirewallGuardianMinion() {
             return {

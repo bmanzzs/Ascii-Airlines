@@ -71,8 +71,10 @@
             } else if (enemy.flyByDropType === 'healthSmall') {
                 drops.push(createHealthDrop(enemy.x, enemy.y, 0.05, 22));
             }
-            if (enemy.isElite && !enemy.isBossMinion && typeof focusMeter === 'number' && focusMeter < FOCUS_METER_MAX - 0.02) {
-                drops.push(createFocusDrop(enemy.x, enemy.y, FOCUS_ELITE_DROP_AMOUNT));
+            const focusMax = typeof getFocusMeterMax === 'function' ? getFocusMeterMax() : FOCUS_METER_MAX;
+            if (enemy.isElite && !enemy.isBossMinion && typeof focusMeter === 'number' && focusMeter < focusMax - 0.02) {
+                const focusDropAmount = typeof getFocusEliteDropAmount === 'function' ? getFocusEliteDropAmount() : FOCUS_ELITE_DROP_AMOUNT;
+                drops.push(createFocusDrop(enemy.x, enemy.y, focusDropAmount));
             }
             addShake(5); registerComboKill(enemy, 150); applyWakeForce(enemy.x, enemy.y, 160, 18);
 
@@ -719,6 +721,7 @@
             const origin = getPlayerBombIndicatorOrigin();
             const indicatorVisual = getPlayerBombIndicatorVisual();
             player.bombTimer = getPlayerBombCooldownTotal();
+            recordRunBombUsed();
             const angle = getPlayerFireAngle();
             const vx = Math.cos(angle) * BOMB_GRENADE_SPEED;
             const vy = Math.sin(angle) * BOMB_GRENADE_SPEED;
@@ -927,9 +930,12 @@
         }
 
         function getWraithFlameColor(life) {
-            if (life > 0.66) return '#c8ffff';
-            if (life > 0.33) return '#f4fbff';
-            return '#101317';
+            const t = Math.max(0, Math.min(1, (life || 0) / 0.78));
+            const eased = t * t * (3 - 2 * t);
+            const r = Math.round(16 + (244 - 16) * eased);
+            const g = Math.round(19 + (251 - 19) * eased);
+            const b = Math.round(23 + (255 - 23) * eased);
+            return `rgb(${r},${g},${b})`;
         }
 
         function getSpriteGlyphColor(spriteColors, row, col, fallbackColor) {
@@ -971,21 +977,30 @@
         }
 
         function getBossBarLayout() {
-            const barW = width * 0.75;
-            const barH = 24;
+            const barW = Math.min(width * 0.86, width - 64);
+            const barH = 12;
             const barX = width / 2 - barW / 2;
-            const barY = height - getHudOverlayInset(36);
+            const playfieldH = height - HUD_HEIGHT;
+            const cameraScale = typeof bossCameraZoomScale === 'number' && Number.isFinite(bossCameraZoomScale)
+                ? Math.max(0.5, Math.min(1, bossCameraZoomScale))
+                : 1;
+            const centerY = playfieldH / 2;
+            const screenGap = 10;
+            const desiredScreenTop = playfieldH - screenGap - barH * cameraScale;
+            const barY = centerY + (desiredScreenTop - centerY) / cameraScale;
             return {
                 barW,
                 barH,
                 barX,
                 barY,
-                nameY: barY - 20
+                nameY: barY - 15
             };
         }
 
-        function resetGame() {
+        function prepareRunStateForLaunch() {
             teardownBossCinematic();
+            if (typeof resetRunCompleteTransition === 'function') resetRunCompleteTransition();
+            resetRunStats();
             score = 0;
             comboCount = 0;
             comboPeak = 0;
@@ -997,16 +1012,20 @@
             comboFocusNoticeAt = 0;
             comboFocusNoticeX = 0;
             comboFocusNoticeY = 0;
-            WaveManager.currentWave = 0;
-            WaveManager.waveDelay = 0;
-            WaveManager.hasSpawnedWave = false;
-            WaveManager.interWaveDelayQueued = false;
-            WaveManager.pendingFormationUnits = 0;
-            WaveManager.activeFormationId = 0;
-            WaveManager.formationId = 0;
-            WaveManager.randomizeEarlyProceduralWaves();
-            WaveManager.randomizeFlyByAssignments();
-            WaveManager.randomizeSignalDrifts();
+            if (typeof WaveManager.prepareGalaxyRun === 'function') {
+                WaveManager.prepareGalaxyRun(currentGalaxyIndex);
+            } else {
+                WaveManager.currentWave = 0;
+                WaveManager.waveDelay = 0;
+                WaveManager.hasSpawnedWave = false;
+                WaveManager.interWaveDelayQueued = false;
+                WaveManager.pendingFormationUnits = 0;
+                WaveManager.activeFormationId = 0;
+                WaveManager.formationId = 0;
+                WaveManager.randomizeEarlyProceduralWaves();
+                WaveManager.randomizeFlyByAssignments();
+                WaveManager.randomizeSignalDrifts();
+            }
             waveSignalNotice = null;
             enemies = []; boss = null; enemyBullets = []; comboProjectiles = []; bombProjectiles = []; bombBlastRings = [];
             drops = []; debris = []; xpOrbs = []; thrusterParticles = [];
@@ -1021,7 +1040,9 @@
             player.hp = getPlayerBaseMaxHp(); player.maxHp = getPlayerBaseMaxHp();
             player.xp = 0; player.xpNeeded = 10; player.level = 1;
             player.stats = { L: 1, M: 0, B: 0 };
-            player.modifiers = { moveSpeed: 0, maxHp: 0, laserDamage: 0, hitbox: 1, fireRate: 0, hpRegen: 0, invincibility: 0, adrenaline: 0, magnet: 0, bombCooldown: 1, bombDamage: 0, bombRadius: 0, momentumFireRate: 0, xpHeal: 0, damageMult: 0, killHeal: 0, xpGain: 0 };
+            player.modifiers = typeof createBasePlayerModifiers === 'function'
+                ? createBasePlayerModifiers()
+                : { moveSpeed: 0, maxHp: 0, laserDamage: 0, hitbox: 1, fireRate: 0, hpRegen: 0, invincibility: 0, adrenaline: 0, magnet: 0, bombCooldown: 1, bombDamage: 0, bombRadius: 0, momentumFireRate: 0, xpHeal: 0, damageMult: 0, killHeal: 0, xpGain: 0, focusMax: 0, focusRegen: 0, focusRegenDelay: 1, focusLockout: 1, focusDrop: 0, focusDriveDrain: 1, focusDriveSlow: 0, focusDriveTransition: 0, focusSpecterDrain: 1, focusSpecterShrink: 0, focusSpecterTransition: 0 };
             player.weaponStats = createBaseWeaponStats();
             player.weapons = [];
             weaponWeights = {};
@@ -1044,8 +1065,12 @@
             pausePowerupBarAnim.startTime = 0;
             pausePowerupBarAnim.closeTime = 0;
             resetPauseMenuShipCursor();
+            postResumeBombLockTimer = 0;
+        }
+
+        function resetGame() {
+            prepareRunStateForLaunch();
             titleAlpha = 0; autoLaunch = true;
             restartLoadingSequence = true;
-            postResumeBombLockTimer = 0;
             gameState = 'START';
         }

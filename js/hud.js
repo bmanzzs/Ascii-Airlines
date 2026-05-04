@@ -461,6 +461,23 @@
             if ((m.adrenaline || 0) > 0) other.push(`ADRN ${formatHudStatPercent(m.adrenaline)}`);
             if (other.length) rows.push(createHudStatRow('OTHER', other.join(' / ')));
 
+            const focusStats = [];
+            if ((m.focusMax || 0) > 0) focusStats.push(`MAX ${formatHudStatPercent(m.focusMax)}`);
+            if ((m.focusRegen || 0) > 0) focusStats.push(`REG ${formatHudStatPercent(m.focusRegen)}`);
+            if ((m.focusDrop || 0) > 0) focusStats.push(`DROP ${formatHudStatPercent(m.focusDrop)}`);
+            if ((m.focusRegenDelay || 1) < 0.999) focusStats.push(`WAIT -${Math.round((1 - m.focusRegenDelay) * 100)}%`);
+            if ((m.focusLockout || 1) < 0.999) focusStats.push(`LOCK -${Math.round((1 - m.focusLockout) * 100)}%`);
+            if (focusStats.length) rows.push(createHudStatRow('FOCUS', focusStats.join(' / ')));
+
+            const abilityStats = [];
+            if ((m.focusDriveDrain || 1) < 0.999) abilityStats.push(`DRN -${Math.round((1 - m.focusDriveDrain) * 100)}%`);
+            if ((m.focusDriveSlow || 0) > 0) abilityStats.push(`SLOW +${Math.round(m.focusDriveSlow * 100)}%`);
+            if ((m.focusDriveTransition || 0) > 0) abilityStats.push(`TRAIL ${formatHudStatPercent(m.focusDriveTransition)}`);
+            if ((m.focusSpecterDrain || 1) < 0.999) abilityStats.push(`SPEC -${Math.round((1 - m.focusSpecterDrain) * 100)}%`);
+            if ((m.focusSpecterShrink || 0) > 0) abilityStats.push(`SHRK ${formatHudStatPercent(m.focusSpecterShrink)}`);
+            if ((m.focusSpecterTransition || 0) > 0) abilityStats.push(`VEIL ${formatHudStatPercent(m.focusSpecterTransition)}`);
+            if (abilityStats.length) rows.push(createHudStatRow('ABILITY', abilityStats.join(' / ')));
+
             return rows;
         }
 
@@ -504,7 +521,7 @@
 
         function syncStatsPanel(forceHide = false) {
             if (!statsPanel) return;
-            const hiddenForState = forceHide || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GAMEOVER' || window.innerHeight < 700 || window.innerWidth < 525;
+            const hiddenForState = forceHide || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT') || window.innerHeight < 700 || window.innerWidth < 525;
             const visible = showStatsPanel && !hiddenForState;
             statsPanel.style.display = visible ? 'block' : 'none';
             if (!visible) {
@@ -544,7 +561,7 @@
                 syncStatsPanel(true);
                 return;
             }
-            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GAMEOVER') {
+            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT')) {
                 hud.style.display = 'none';
                 hud.style.opacity = 0;
                 hud.style.transform = 'translateY(calc(100% + 6px))';
@@ -623,8 +640,9 @@
             const bombBlocks = Math.ceil(bombRatio * HUD_BAR_BLOCKS);
             const bombReady = bombRatio >= 0.999;
 
+            const focusMax = typeof getFocusMeterMax === 'function' ? getFocusMeterMax() : FOCUS_METER_MAX;
             const focusRatio = typeof focusMeter === 'number'
-                ? Math.max(0, Math.min(1, focusMeter / FOCUS_METER_MAX))
+                ? Math.max(0, Math.min(1, focusMeter / focusMax))
                 : 1;
             const focusBlocks = Math.ceil(focusRatio * HUD_BAR_BLOCKS);
             const driveVisual = typeof getFocusDriveRenderIntensity === 'function' ? getFocusDriveRenderIntensity() : 0;

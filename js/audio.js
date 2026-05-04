@@ -17,7 +17,7 @@
             } catch (e) { console.error("Audio load failed:", url); return null; }
         }
         
-        let buf1, buf2, bufVoidIntro, bufVoidLoop, bufGlitchIntro, bufGlitchLoop, bufBoss3Intro, bufBoss3Loop, bufBoss4Intro, bufBoss4Loop, bufBoss5Intro, bufBoss5Loop, bufBossExplosion, bufPlayerExplosion;
+        let buf1, buf2, bufVoidIntro, bufVoidLoop, bufGlitchIntro, bufGlitchLoop, bufBoss3Intro, bufBoss3Loop, bufBoss4Intro, bufBoss4Loop, bufBoss5Intro, bufBoss5Loop, bufBoss6Intro, bufBoss6Loop, bufBoss7Intro, bufBoss7Loop, bufBoss8IntroLoop, bufBossExplosion, bufPlayerExplosion;
         let bgmSources = [];
         let bossSources = [];
         let bgmOffset = 0;
@@ -71,6 +71,11 @@
             bufBoss4Loop = await loadBuffer('./audio/ascii-airlines-boss4-loop.mp3');
             bufBoss5Intro = await loadBuffer('./audio/ascii-airlines-boss5-intro.mp3');
             bufBoss5Loop = await loadBuffer('./audio/ascii-airlines-boss5-loop.mp3');
+            bufBoss6Intro = await loadBuffer('./audio/ascii-airlines-boss6-intro.mp3');
+            bufBoss6Loop = await loadBuffer('./audio/ascii-airlines-boss6-loop.mp3');
+            bufBoss7Intro = await loadBuffer('./audio/ascii-airlines-boss7-intro.mp3');
+            bufBoss7Loop = await loadBuffer('./audio/ascii-airlines-boss7-loop.mp3');
+            bufBoss8IntroLoop = await loadBuffer('./audio/ascii-airlines-boss8-introloop.mp3');
             bufBossExplosion = await loadBuffer('./audio/explode.mp3');
             bufPlayerExplosion = await loadBuffer('./audio/playerexplode.mp3');
         }
@@ -192,6 +197,24 @@
             bossSources.push(source1);
         }
 
+        function playLoopingBossMusic(loopBuf) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            stopBossMusic(0);
+            if (!loopBuf) return;
+
+            bossGain.gain.cancelScheduledValues(audioCtx.currentTime);
+            bossGain.gain.setValueAtTime(1, audioCtx.currentTime);
+            bossPlayToken++;
+
+            const source = audioCtx.createBufferSource();
+            source.buffer = loopBuf;
+            source.loop = true;
+            source.connect(bossGain);
+            setSourcePlaybackRate(source, currentMusicPlaybackRate);
+            source.start(audioCtx.currentTime);
+            bossSources.push(source);
+        }
+
         function playBossMusicAtDrop(introBuf, loopBuf, introDuration, dropTime) {
             if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
             stopBgm(1.5);
@@ -266,6 +289,34 @@
             resumeMainMusic();
         }
 
+        function startMatrixHydraMusic() {
+            if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
+            stopBgm(1.5);
+            bossMusicTimeout = setTimeout(() => {
+                playBossMusic(bufBoss6Intro, bufBoss6Loop);
+            }, 1000);
+        }
+
+        function stopMatrixHydraMusic() {
+            if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
+            stopBossMusic(2.0);
+            resumeMainMusic();
+        }
+
+        function startAxiomCoreMusic() {
+            if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
+            stopBgm(1.5);
+            bossMusicTimeout = setTimeout(() => {
+                playBossMusic(bufBoss7Intro, bufBoss7Loop);
+            }, 1000);
+        }
+
+        function stopAxiomCoreMusic() {
+            if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
+            stopBossMusic(2.0);
+            resumeMainMusic();
+        }
+
         function startSignalGhostMusic() {
             if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
             stopBgm(1.5);
@@ -298,7 +349,7 @@
             if (bossMusicTimeout) clearTimeout(bossMusicTimeout);
             stopBgm(1.5);
             bossMusicTimeout = setTimeout(() => {
-                playBossMusic(bufBoss3Intro, bufBoss3Loop);
+                playLoopingBossMusic(bufBoss8IntroLoop);
             }, 1000);
         }
 

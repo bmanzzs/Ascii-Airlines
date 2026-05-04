@@ -4,6 +4,123 @@
         const NON_BOSS_ENEMY_AIM_TARGET_JITTER = 56;
         const NON_BOSS_ENEMY_AIM_ANGLE_JITTER = 0.12;
         const NON_BOSS_ENEMY_SHOT_SPEED_JITTER = 0.04;
+        const GALAXY_ONE_RUN_WAVE_LIMIT = 30;
+        const GALAXY_TWO_RUN_WAVE_LIMIT = 20;
+        const GALAXY_RUN_WAVE_LIMIT = GALAXY_ONE_RUN_WAVE_LIMIT;
+
+        function getGalaxyRunWaveLimit(galaxyIndex = 0) {
+            return galaxyIndex === 1 ? GALAXY_TWO_RUN_WAVE_LIMIT : GALAXY_ONE_RUN_WAVE_LIMIT;
+        }
+        const GALAXY_DEFINITIONS = Object.freeze([
+            {
+                id: 'neon-rift',
+                title: 'NEON RIFT',
+                name: 'NEON RIFT',
+                desc: 'The current cyberpunk front: rogue signals, ghost firewalls, and a burning carrier lane.',
+                available: true,
+                colors: ['#6aa8ff', '#ff5e8a', '#dcecff'],
+                coreColor: '#dcecff',
+                arms: 3,
+                tilt: 0.48,
+                twist: 2.8,
+                seed: 11
+            },
+            {
+                id: 'void-circuit',
+                title: 'VOID CIRCUIT',
+                name: 'VOID CIRCUIT',
+                desc: 'A second live route through synthetic dark matter and corrupted navigation logic.',
+                available: true,
+                colors: ['#8b78ff', '#55f7d1', '#f7f1ff'],
+                coreColor: '#f7f1ff',
+                arms: 2,
+                tilt: 0.38,
+                twist: 3.55,
+                seed: 29
+            },
+            {
+                id: 'rose-quasar',
+                title: 'ROSE QUASAR',
+                name: 'ROSE QUASAR',
+                desc: 'Locked sector.',
+                available: false,
+                colors: ['#ff7ab8', '#ffd1e8', '#8fb8ff'],
+                coreColor: '#fff0fa',
+                arms: 4,
+                tilt: 0.58,
+                twist: 2.35,
+                seed: 47
+            },
+            {
+                id: 'amber-halo',
+                title: 'AMBER HALO',
+                name: 'AMBER HALO',
+                desc: 'Locked sector.',
+                available: false,
+                colors: ['#ffb347', '#ffe6a1', '#7cc7ff'],
+                coreColor: '#fff1bf',
+                arms: 2,
+                tilt: 0.52,
+                twist: 2.95,
+                seed: 73
+            },
+            {
+                id: 'glass-nebula',
+                title: 'GLASS NEBULA',
+                name: 'GLASS NEBULA',
+                desc: 'Locked sector.',
+                available: false,
+                colors: ['#b9f7ff', '#e9faff', '#a78bff'],
+                coreColor: '#ffffff',
+                arms: 5,
+                tilt: 0.44,
+                twist: 1.95,
+                seed: 101
+            },
+            {
+                id: 'red-dwarf',
+                title: 'RED DWARF',
+                name: 'RED DWARF',
+                desc: 'Locked sector.',
+                available: false,
+                colors: ['#ff6f61', '#ffc2a8', '#ffe6d6'],
+                coreColor: '#fff3ea',
+                arms: 3,
+                tilt: 0.62,
+                twist: 3.2,
+                seed: 137
+            }
+        ]);
+        const MATRIX_HYDRA_SPRITE = [
+            "      /\\      ",
+            "   __/==\\__   ",
+            "  <_  ><  _>  ",
+            "    \\_||_/    ",
+            "  ==-[##]-==  ",
+            "    /_||_\\    ",
+            "  <_  ><  _>  ",
+            "   --\\==/--   ",
+            "      \\/      "
+        ];
+        const AXIOM_CORE_SPRITE = [
+            "     .-====-.     ",
+            "   .'  .--.  '.   ",
+            "  /  <|####|>  \\  ",
+            " |  ==|####|==  | ",
+            " |  < |####| >  | ",
+            "  \\  <|####|>  /  ",
+            "   '.  '--'  .'   ",
+            "     '-====-'     "
+        ];
+        const BLACK_VOID_BOSS_WAVE = Object.freeze({ isBoss: true, name: 'BLACK VOID', sprite: BLACK_VOID_SPRITE, hp: 2000 });
+        const BATTLE_STARSHIP_BOSS_WAVE = Object.freeze({ isBoss: true, name: 'BATTLE STARSHIP', sprite: BATTLE_STARSHIP_SPRITE, hp: 2400 });
+        const DREAD_LITURGY_BOSS_WAVE = Object.freeze({ isBoss: true, name: 'DREAD LITURGY', sprite: DREAD_LITURGY_SPRITE, hp: 2850, galaxyBossType: 'dreadLiturgy' });
+        const GALAXY_TWO_LEGACY_WAVES = Object.freeze({
+            26: { count: 12, color: '#ff00ff', type: 'wave2', speed: 0.85, stagger: 0.62, doubleElite: true, firePattern: 'splitFan', fireEveryNth: 4, fireInterval: 2.5 },
+            27: { count: 14, color: '#ff0088', type: 'wave4', speed: 0.82, stagger: 0.58, doubleElite: true, firePattern: 'downFan', fireEveryNth: 4, fireInterval: 2.4 },
+            28: { count: 13, color: '#00ffff', type: 'wave7', speed: 0.86, stagger: 0.42, doubleElite: true, firePattern: 'spiralNeedle', fireEveryNth: 4, fireInterval: 2.6 },
+            29: { count: 14, color: '#ff00ff', type: 'wave8', speed: 0.78, stagger: 1.6, doubleElite: true, firePattern: 'scatterMark', fireEveryNth: 5, fireInterval: 2.6 }
+        });
         const SIGNAL_DRIFT_POOL = [
             {
                 id: 'mirror',
@@ -196,6 +313,31 @@
                 stagger: [0.78, 0.72, 0.66, 0.60][tier],
                 elite: waveNumber >= 4
             }, waveNumber, theme);
+        }
+
+        function cloneWaveDefinition(waveDef, overrides = {}) {
+            if (!waveDef) return null;
+            return { ...waveDef, ...overrides };
+        }
+
+        function tuneEarlyProceduralWaveForGalaxy(waveDef, difficultyScale = 1) {
+            if (!waveDef || difficultyScale <= 1.001) return waveDef;
+            const tuned = { ...waveDef };
+            tuned.count = Math.max(1, Math.round((tuned.count || 1) + (tuned.proceduralWaveNumber >= 3 ? 2 : 1)));
+            if (typeof tuned.speed === 'number') tuned.speed = +(tuned.speed * Math.min(1.12, difficultyScale)).toFixed(3);
+            if (typeof tuned.stagger === 'number') tuned.stagger = +(tuned.stagger * 0.94).toFixed(3);
+            if (typeof tuned.weaveGroupDelay === 'number') tuned.weaveGroupDelay = +(tuned.weaveGroupDelay * 0.94).toFixed(3);
+            if (typeof tuned.hpMult === 'number') tuned.hpMult = +(tuned.hpMult * 1.10).toFixed(3);
+            tuned.enemyHpMult = +((tuned.enemyHpMult || 1) * 1.10).toFixed(3);
+            if (tuned.proceduralWaveNumber >= 3 && !tuned.firePattern && tuned.proceduralThemeId !== 'swarm') {
+                tuned.firePattern = tuned.proceduralWaveNumber >= 4 ? 'splitFan' : 'aimedPulse';
+                tuned.fireEveryNth = 5;
+                tuned.fireInterval = 3.35;
+                tuned.fireOffset = 0.24;
+            }
+            tuned.proceduralHudDesc = `${tuned.proceduralHudDesc || 'VARIANT'}+`;
+            tuned.galaxyDifficultyScale = difficultyScale;
+            return tuned;
         }
 
         function pickEarlyProceduralTheme(waveNumber, lastThemeId, themeUseCounts) {
@@ -493,6 +635,14 @@
             ];
         }
 
+        function buildUpperEndgamePath(points, segments = 58) {
+            const capped = (points || []).map(point => ({
+                x: point.x,
+                y: point.y < 0 ? point.y : Math.min(0.64, point.y)
+            }));
+            return resamplePolylinePath(capped, segments);
+        }
+
         function pushRemasterEnemyBullet(x, y, angle, speed, char, color, extras = {}) {
             enemyBullets.push({
                 x,
@@ -536,6 +686,31 @@
                         speed: 250
                     });
                 }
+            } else if (enemy.remasterFirePattern === 'crescentFan') {
+                for (const offset of [-0.34, -0.14, 0.14, 0.34]) {
+                    pushRemasterEnemyBullet(enemy.x, enemy.y, aimAngle + offset, 220, offset < 0 ? '(' : ')', color, {
+                        turnRate: -offset * 0.42,
+                        speed: 220,
+                        hitboxScale: 0.78
+                    });
+                }
+            } else if (enemy.remasterFirePattern === 'runeRain') {
+                for (const offset of [-34, 0, 34]) {
+                    pushRemasterEnemyBullet(enemy.x + offset, enemy.y + 6, Math.PI / 2 + offset * 0.002, 205, offset === 0 ? '!' : '|', color, {
+                        hitboxScale: 0.72
+                    });
+                }
+            } else if (enemy.remasterFirePattern === 'latticeWave') {
+                for (const offset of [-20, 20]) {
+                    pushRemasterEnemyBullet(enemy.x + offset, enemy.y, Math.PI / 2, 210, '+', color, {
+                        isLatticeShot: true,
+                        baseX: enemy.x + offset,
+                        waveAmp: 22 + Math.abs(offset) * 0.35,
+                        waveFreq: 3.2,
+                        wavePhase: offset < 0 ? 0 : Math.PI,
+                        hitboxScale: 0.74
+                    });
+                }
             }
         }
 
@@ -554,10 +729,260 @@
             return enemy;
         }
 
+        function armEndgameWaveEnemy(enemy, config = {}) {
+            if (!enemy) return enemy;
+            if (config.visualScale) enemy.enemyShipVisualScale = config.visualScale;
+            if (config.pattern) {
+                enemy.remasterFirePattern = config.pattern;
+                enemy.remasterFireInterval = (config.fireInterval || 2.7) * NON_BOSS_ENEMY_FIRE_INTERVAL_MULT;
+                enemy.remasterFireTimer = -(config.fireOffset || 0);
+                enemy.remasterFireColor = config.fireColor || enemy.enemyBulletColor || enemy.color;
+                enemy.disableRandomFire = true;
+            }
+            enemy.explosionDebrisCap = config.debrisCap || 30;
+            enemy.explosionDebrisVelocity = config.debrisVelocity || 300;
+            enemy.explosionDebrisLife = config.debrisLife || 0.62;
+            return enemy;
+        }
+
+        function createEndgamePathEnemy(config = {}) {
+            const path = cloneWavePath(config.path || [{ x: 0.5, y: -0.12 }, { x: 0.5, y: -0.12 }]);
+            const hp = config.hp || 36;
+            const enemy = {
+                x: path[0].x * width,
+                y: path[0].y * height,
+                vx: 0,
+                vy: 0,
+                sprite: [" ▼ ▼ ", "  ■  "],
+                color: config.color || '#9be3ff',
+                hp,
+                maxHp: hp,
+                isArmored: config.kind === 'armored',
+                isElite: config.kind === 'elite',
+                flashTimer: 0,
+                onScreen: false,
+                hoverX: 0,
+                fireTimer: 0,
+                disableRandomFire: true,
+                path,
+                pathIndex: 0,
+                pathT: config.delay || 0,
+                speedMult: config.speed || 1,
+                pathTypeWave: 'upperEndgame',
+                pathLoopsCompleted: 0,
+                despawnOnLoopEnd: true
+            };
+            configureEnemyShipVisual(enemy, config.kind || 'base', {
+                visualScale: config.visualScale || (config.kind === 'elite' ? 1.12 : 1.03),
+                color: config.color
+            });
+            return armEndgameWaveEnemy(enemy, config);
+        }
+
         function spawnExtendedLateWaveEnemies(w) {
             const spawned = [];
 
-            if (w.customType === 'shatteredOrbit') {
+            if (w.customType === 'neonCrown') {
+                for (let group = 0; group < 4; group++) {
+                    for (let lane = 0; lane < 3; lane++) {
+                        const fromLeft = group % 2 === 0;
+                        spawned.push(createVoidOrbiter({
+                            centerX: width * (fromLeft ? 0.26 : 0.74),
+                            centerY: -98 - group * 26,
+                            centerDriftX: width * (fromLeft ? 0.16 : -0.16),
+                            centerFall: height * 0.43,
+                            centerBob: 18,
+                            centerPhase: group * 0.72 + lane * 1.1,
+                            orbitRadiusX: 46 + lane * 9,
+                            orbitRadiusY: 24 + lane * 4,
+                            orbitAngle: lane * (Math.PI * 2 / 3),
+                            orbitSpeed: 2.15 + lane * 0.18,
+                            routeDuration: 9.35,
+                            delay: -(group * 0.52 + lane * 0.12),
+                            speed: 1,
+                            fireInterval: 2.8,
+                            fireSpeed: 218,
+                            color: fromLeft ? '#9be3ff' : '#ff9ee8',
+                            fireColor: '#e6f5ff'
+                        }));
+                    }
+                }
+                for (let i = 0; i < 5; i++) {
+                    const fromLeft = i % 2 === 0;
+                    const lane = i % 5;
+                    const sweep = createLaneSweepEnemy({
+                        startX: fromLeft ? -70 : width + 70,
+                        startY: height * (0.10 + lane * 0.035),
+                        endX: fromLeft ? width + 72 : -72,
+                        endY: height * (0.23 + ((lane + 2) % 5) * 0.052),
+                        delay: -(1.65 + i * 0.34),
+                        routeDuration: 8.59,
+                        laneAmplitude: 24 + lane * 4,
+                        lanePhase: i * 0.78,
+                        speed: 1,
+                        hp: 34 + (i % 2) * 6,
+                        color: fromLeft ? '#bff0ff' : '#ffc6f5',
+                        enemyShipKind: i === 2 ? 'elite' : 'armored'
+                    });
+                    spawned.push(armEndgameWaveEnemy(sweep, {
+                        pattern: i === 2 ? 'spiralNeedle' : 'aimedPulse',
+                        fireInterval: i === 2 ? 2.35 : 3.05,
+                        fireOffset: i * 0.2,
+                        visualScale: i === 2 ? 1.11 : 1.04,
+                        fireColor: i === 2 ? '#fff07a' : '#dff7ff'
+                    }));
+                }
+            } else if (w.customType === 'sidewinderLattice') {
+                for (let i = 0; i < 12; i++) {
+                    const fromLeft = i % 2 === 0;
+                    const row = i % 6;
+                    const isElite = i === 5 || i === 10;
+                    const sweep = createLaneSweepEnemy({
+                        startX: fromLeft ? -72 : width + 72,
+                        startY: height * (0.08 + row * 0.045),
+                        endX: fromLeft ? width + 74 : -74,
+                        endY: height * (0.16 + ((row + 3) % 6) * 0.058),
+                        delay: -(i * 0.28),
+                        routeDuration: 9.78,
+                        laneAmplitude: 18 + (row % 3) * 9,
+                        lanePhase: i * 0.92,
+                        speed: 1,
+                        hp: isElite ? 62 : 38,
+                        color: isElite ? '#ffe27a' : (fromLeft ? '#7ee7ff' : '#ff9ee8'),
+                        isElite,
+                        enemyShipKind: isElite ? 'elite' : 'armored'
+                    });
+                    spawned.push(armEndgameWaveEnemy(sweep, {
+                        pattern: isElite ? 'crossDrop' : (i % 3 === 0 ? 'downFan' : 'aimedPulse'),
+                        fireInterval: isElite ? 2.35 : 3.1,
+                        fireOffset: i * 0.16,
+                        visualScale: isElite ? 1.12 : 1.03,
+                        fireColor: isElite ? '#fff2a8' : '#c8f4ff'
+                    }));
+                }
+                for (let i = 0; i < 2; i++) {
+                    const side = i === 0 ? -1 : 1;
+                    spawned.push(createVoidSentinel({
+                        spawnX: side < 0 ? -80 : width + 80,
+                        spawnY: height * 0.13,
+                        hoverX: width * (side < 0 ? 0.29 : 0.71),
+                        hoverY: height * 0.16,
+                        attackMode: i === 0 ? 'fan' : 'cross',
+                        arrivalDelay: 0.45 + i * 0.28,
+                        approachSpeed: 2.45,
+                        hp: 270,
+                        color: side < 0 ? '#9be3ff' : '#ffb6f2',
+                        hoverAmpX: 24,
+                        hoverAmpY: 7
+                    }));
+                }
+            } else if (w.customType === 'helixNeedle') {
+                const paths = [
+                    [{ x: 0.18, y: -0.12 }, { x: 0.30, y: 0.10 }, { x: 0.70, y: 0.16 }, { x: 0.35, y: 0.34 }, { x: 0.78, y: 0.48 }, { x: 1.08, y: 0.24 }, { x: 0.18, y: -0.12 }],
+                    [{ x: 0.82, y: -0.12 }, { x: 0.70, y: 0.10 }, { x: 0.30, y: 0.16 }, { x: 0.65, y: 0.34 }, { x: 0.22, y: 0.48 }, { x: -0.08, y: 0.24 }, { x: 0.82, y: -0.12 }],
+                    [{ x: -0.08, y: 0.18 }, { x: 0.22, y: 0.11 }, { x: 0.52, y: 0.26 }, { x: 0.30, y: 0.42 }, { x: 0.68, y: 0.56 }, { x: 1.08, y: 0.15 }, { x: -0.08, y: 0.18 }],
+                    [{ x: 1.08, y: 0.18 }, { x: 0.78, y: 0.11 }, { x: 0.48, y: 0.26 }, { x: 0.70, y: 0.42 }, { x: 0.32, y: 0.56 }, { x: -0.08, y: 0.15 }, { x: 1.08, y: 0.18 }]
+                ].map(path => resamplePolylinePath(path, 54));
+                for (let i = 0; i < 12; i++) {
+                    const isElite = i % 6 === 2;
+                    spawned.push(createEndgamePathEnemy({
+                        path: paths[i % paths.length],
+                        delay: -Math.floor(i / 4) * 0.62 - (i % 4) * 0.12,
+                        speed: 0.83,
+                        hp: isElite ? 70 : 40,
+                        kind: isElite ? 'elite' : (i % 2 ? 'armored' : 'base'),
+                        color: isElite ? '#fff07a' : (i % 2 ? '#b9a6ff' : '#7ee7ff'),
+                        pattern: isElite ? 'spiralNeedle' : (i % 3 === 0 ? 'splitFan' : 'aimedPulse'),
+                        fireInterval: isElite ? 2.25 : 3.0,
+                        fireOffset: i * 0.17,
+                        visualScale: isElite ? 1.13 : 1.04
+                    }));
+                }
+                for (let i = 0; i < 5; i++) {
+                    spawned.push(createVoidOrbiter({
+                        centerX: width * (0.22 + (i % 5) * 0.14),
+                        centerY: -95 - i * 20,
+                        centerDriftX: width * (i % 2 === 0 ? 0.06 : -0.06),
+                        centerFall: height * 0.38,
+                        centerBob: 12,
+                        centerPhase: i * 0.8,
+                        orbitRadiusX: 36 + (i % 3) * 8,
+                        orbitRadiusY: 21 + (i % 2) * 5,
+                        orbitAngle: i * 1.1,
+                        orbitSpeed: 2.35,
+                        routeDuration: 8.51,
+                        delay: -(1.0 + i * 0.26),
+                        speed: 1,
+                        fireInterval: 2.65,
+                        hp: 34,
+                        color: i % 2 ? '#ff9ee8' : '#9be3ff',
+                        fireColor: '#f4fbff'
+                    }));
+                }
+            } else if (w.customType === 'royalCrossfire') {
+                for (let i = 0; i < 2; i++) {
+                    const side = i === 0 ? -1 : 1;
+                    spawned.push(createVoidSentinel({
+                        sprite: VOID_ANCHOR_SPRITE,
+                        renderScale: 1.05,
+                        spawnX: width * (side < 0 ? 0.18 : 0.82),
+                        spawnY: -150 - i * 36,
+                        hoverX: width * (side < 0 ? 0.28 : 0.72),
+                        hoverY: height * 0.15,
+                        attackMode: i === 0 ? 'anchor' : 'cross',
+                        arrivalDelay: 0.25 + i * 0.55,
+                        hp: 420,
+                        color: side < 0 ? '#c8f4ff' : '#ffd0f5',
+                        hoverAmpX: 16,
+                        hoverAmpY: 7
+                    }));
+                }
+                for (let i = 0; i < 10; i++) {
+                    const fromLeft = i % 2 === 0;
+                    const row = i % 5;
+                    const sweep = createLaneSweepEnemy({
+                        startX: fromLeft ? -76 : width + 76,
+                        startY: height * (0.11 + row * 0.036),
+                        endX: fromLeft ? width + 78 : -78,
+                        endY: height * (0.20 + ((row + 2) % 5) * 0.055),
+                        delay: -(0.9 + i * 0.33),
+                        routeDuration: 9.77,
+                        laneAmplitude: 22 + row * 5,
+                        lanePhase: i * 0.64,
+                        speed: 1,
+                        hp: 42,
+                        color: fromLeft ? '#7ee7ff' : '#ff9ee8',
+                        enemyShipKind: 'armored'
+                    });
+                    spawned.push(armEndgameWaveEnemy(sweep, {
+                        pattern: i % 4 === 0 ? 'crossDrop' : 'aimedPulse',
+                        fireInterval: 2.8,
+                        fireOffset: i * 0.18,
+                        visualScale: 1.05
+                    }));
+                }
+                for (let i = 0; i < 6; i++) {
+                    spawned.push(createVoidOrbiter({
+                        centerX: width * (0.24 + (i % 3) * 0.26),
+                        centerY: -120 - Math.floor(i / 3) * 34,
+                        centerDriftX: width * 0.08 * (i % 2 === 0 ? 1 : -1),
+                        centerFall: height * 0.36,
+                        centerBob: 14,
+                        centerPhase: i * 0.7,
+                        orbitRadiusX: 42 + (i % 3) * 7,
+                        orbitRadiusY: 24 + (i % 2) * 5,
+                        orbitAngle: i * (Math.PI / 3),
+                        orbitSpeed: 2.05,
+                        routeDuration: 10.0,
+                        delay: -(1.2 + i * 0.32),
+                        speed: 1,
+                        fireInterval: 2.7,
+                        hp: 36,
+                        color: i % 2 === 0 ? '#ffe27a' : '#b9a6ff',
+                        fireColor: '#f4fbff'
+                    }));
+                }
+            } else if (w.customType === 'shatteredOrbit') {
                 const centers = [0.24, 0.74, 0.36, 0.64];
                 for (let group = 0; group < centers.length; group++) {
                     for (let lane = 0; lane < 3; lane++) {
@@ -975,6 +1400,214 @@
                         color: fromLeft ? '#f8a9e8' : '#9fe0ff'
                     }));
                 }
+            } else if (w.customType === 'sutureChoir') {
+                for (let i = 0; i < 12; i++) {
+                    const side = i % 2 === 0 ? -1 : 1;
+                    const row = i % 4;
+                    const start = { x: side < 0 ? -0.13 : 1.13, y: 0.10 + row * 0.055 };
+                    const path = buildUpperEndgamePath([
+                        start,
+                        { x: side < 0 ? 0.18 : 0.82, y: 0.08 + row * 0.035 },
+                        { x: side < 0 ? 0.62 : 0.38, y: 0.22 + row * 0.035 },
+                        { x: side < 0 ? 0.36 : 0.64, y: 0.48 + row * 0.028 },
+                        { x: side < 0 ? 0.12 : 0.88, y: 0.28 + row * 0.04 },
+                        start
+                    ], 60);
+                    spawned.push(createEndgamePathEnemy({
+                        path,
+                        delay: -Math.floor(i / 4) * 0.52 - (i % 4) * 0.13,
+                        speed: 0.9,
+                        hp: i % 5 === 0 ? 70 : 42,
+                        kind: i % 5 === 0 ? 'elite' : (i % 2 === 0 ? 'armored' : 'base'),
+                        color: i % 5 === 0 ? '#fff0a8' : (side < 0 ? '#f6a1ff' : '#8ff7ff'),
+                        pattern: i % 5 === 0 ? 'crescentFan' : (i % 3 === 0 ? 'runeRain' : 'aimedPulse'),
+                        fireInterval: i % 5 === 0 ? 2.2 : 2.85,
+                        fireOffset: i * 0.13,
+                        visualScale: i % 5 === 0 ? 1.17 : 1.07
+                    }));
+                }
+                for (let i = 0; i < 4; i++) {
+                    const start = { x: 0.24 + i * 0.17, y: -0.14 };
+                    const path = buildUpperEndgamePath([
+                        start,
+                        { x: start.x + (i % 2 === 0 ? 0.08 : -0.08), y: 0.12 },
+                        { x: 0.50 + (i - 1.5) * 0.08, y: 0.34 },
+                        { x: start.x + (i % 2 === 0 ? -0.10 : 0.10), y: 0.54 },
+                        { x: start.x, y: 0.10 },
+                        start
+                    ], 56);
+                    spawned.push(createEndgamePathEnemy({
+                        path,
+                        delay: -(1.15 + i * 0.24),
+                        speed: 0.84,
+                        hp: 46,
+                        kind: 'armored',
+                        color: i % 2 ? '#c4b7ff' : '#ffd0f5',
+                        pattern: 'latticeWave',
+                        fireInterval: 3.05,
+                        fireOffset: i * 0.2,
+                        visualScale: 1.08
+                    }));
+                }
+            } else if (w.customType === 'razorParallax') {
+                for (let i = 0; i < 14; i++) {
+                    const fromLeft = i % 2 === 0;
+                    const row = i % 7;
+                    const sweep = createLaneSweepEnemy({
+                        startX: fromLeft ? -86 : width + 86,
+                        startY: height * (0.09 + row * 0.045),
+                        endX: fromLeft ? width + 86 : -86,
+                        endY: height * (0.15 + ((row + 3) % 7) * 0.061),
+                        delay: -(0.42 + i * 0.25),
+                        routeDuration: 9.6,
+                        laneAmplitude: 16 + (row % 4) * 7,
+                        lanePhase: i * 0.66 + (fromLeft ? 0 : Math.PI),
+                        speed: 0.93,
+                        hp: i % 6 === 2 ? 76 : 44,
+                        color: i % 6 === 2 ? '#ffe27a' : (fromLeft ? '#92f7ff' : '#ff91da'),
+                        isElite: i % 6 === 2,
+                        enemyShipKind: i % 6 === 2 ? 'elite' : 'armored'
+                    });
+                    spawned.push(armEndgameWaveEnemy(sweep, {
+                        pattern: i % 6 === 2 ? 'spiralNeedle' : (i % 3 === 0 ? 'crescentFan' : 'downFan'),
+                        fireInterval: i % 6 === 2 ? 2.15 : 2.75,
+                        fireOffset: i * 0.12,
+                        visualScale: i % 6 === 2 ? 1.16 : 1.06,
+                        fireColor: i % 2 === 0 ? '#c8f4ff' : '#ffd0f5'
+                    }));
+                }
+                for (let i = 0; i < 4; i++) {
+                    const side = i % 2 === 0 ? -1 : 1;
+                    const start = { x: side < 0 ? -0.11 : 1.11, y: 0.22 + i * 0.035 };
+                    const path = buildUpperEndgamePath([
+                        start,
+                        { x: 0.50 + side * 0.22, y: 0.10 + i * 0.02 },
+                        { x: 0.50 - side * 0.16, y: 0.32 + i * 0.025 },
+                        { x: 0.50 + side * 0.10, y: 0.56 },
+                        start
+                    ], 52);
+                    spawned.push(createEndgamePathEnemy({
+                        path,
+                        delay: -(1.55 + i * 0.34),
+                        speed: 0.82,
+                        hp: 58,
+                        kind: 'elite',
+                        color: i % 2 ? '#a6ffda' : '#f6a1ff',
+                        pattern: 'runeRain',
+                        fireInterval: 2.65,
+                        fireOffset: i * 0.24,
+                        visualScale: 1.16
+                    }));
+                }
+            } else if (w.customType === 'graveOrbit') {
+                const centers = [
+                    { x: 0.25, y: 0.23 },
+                    { x: 0.50, y: 0.18 },
+                    { x: 0.75, y: 0.25 },
+                    { x: 0.38, y: 0.43 },
+                    { x: 0.62, y: 0.45 }
+                ];
+                for (let i = 0; i < 15; i++) {
+                    const center = centers[i % centers.length];
+                    const topX = Math.max(0.12, Math.min(0.88, center.x + ((i % 3) - 1) * 0.05));
+                    const rx = 0.10 + (i % 3) * 0.025;
+                    const ry = 0.075 + (i % 2) * 0.018;
+                    const start = { x: topX, y: -0.13 };
+                    const path = [start];
+                    const phase = (i % 4) * Math.PI / 2;
+                    for (let step = 0; step <= 20; step++) {
+                        const t = phase + step / 20 * Math.PI * 2;
+                        path.push({ x: center.x + Math.cos(t) * rx, y: center.y + Math.sin(t) * ry });
+                    }
+                    path.push({ x: topX + (i % 2 === 0 ? 0.08 : -0.08), y: 0.08 }, start);
+                    spawned.push(createEndgamePathEnemy({
+                        path: buildUpperEndgamePath(path, 66),
+                        delay: -Math.floor(i / 5) * 0.62 - (i % 5) * 0.14,
+                        speed: 0.82,
+                        hp: i % 5 === 0 ? 82 : 46,
+                        kind: i % 5 === 0 ? 'elite' : (i % 2 ? 'armored' : 'base'),
+                        color: i % 5 === 0 ? '#ffffff' : (i % 2 ? '#bda8ff' : '#8ff7ff'),
+                        pattern: i % 5 === 0 ? 'latticeWave' : (i % 3 === 0 ? 'crescentFan' : 'aimedPulse'),
+                        fireInterval: i % 5 === 0 ? 2.25 : 2.9,
+                        fireOffset: i * 0.11,
+                        visualScale: i % 5 === 0 ? 1.18 : 1.08
+                    }));
+                }
+                for (let i = 0; i < 4; i++) {
+                    const fromLeft = i % 2 === 0;
+                    const sweep = createLaneSweepEnemy({
+                        startX: fromLeft ? -82 : width + 82,
+                        startY: height * (0.18 + i * 0.055),
+                        endX: fromLeft ? width + 82 : -82,
+                        endY: height * (0.48 + (i % 2) * 0.07),
+                        delay: -(1.4 + i * 0.52),
+                        routeDuration: 8.7,
+                        laneAmplitude: 42,
+                        lanePhase: i * 0.8,
+                        speed: 0.86,
+                        hp: 44,
+                        color: fromLeft ? '#ffe0ff' : '#b5f7ff',
+                        enemyShipKind: 'armored'
+                    });
+                    spawned.push(armEndgameWaveEnemy(sweep, {
+                        pattern: 'runeRain',
+                        fireInterval: 2.85,
+                        fireOffset: i * 0.3,
+                        visualScale: 1.08
+                    }));
+                }
+            } else if (w.customType === 'omenLattice') {
+                for (let i = 0; i < 16; i++) {
+                    const fromTop = i % 4 === 0;
+                    const side = i % 2 === 0 ? -1 : 1;
+                    const start = fromTop
+                        ? { x: 0.16 + (i % 8) * 0.095, y: -0.14 }
+                        : { x: side < 0 ? -0.12 : 1.12, y: 0.12 + (i % 5) * 0.055 };
+                    const path = buildUpperEndgamePath([
+                        start,
+                        { x: 0.50 + side * (0.28 - (i % 3) * 0.05), y: 0.11 + (i % 4) * 0.04 },
+                        { x: 0.50 - side * 0.22, y: 0.32 + (i % 3) * 0.055 },
+                        { x: 0.50 + side * 0.18, y: 0.58 },
+                        { x: fromTop ? start.x : (side < 0 ? -0.12 : 1.12), y: fromTop ? 0.08 : 0.18 + (i % 4) * 0.06 },
+                        start
+                    ], 64);
+                    spawned.push(createEndgamePathEnemy({
+                        path,
+                        delay: -Math.floor(i / 4) * 0.54 - (i % 4) * 0.11,
+                        speed: i % 4 === 0 ? 0.78 : 0.86,
+                        hp: i % 4 === 0 ? 88 : 48,
+                        kind: i % 4 === 0 ? 'elite' : (i % 3 === 0 ? 'armored' : 'base'),
+                        color: i % 4 === 0 ? '#fff2a8' : (side < 0 ? '#ff9be6' : '#8eefff'),
+                        pattern: i % 4 === 0 ? 'crescentFan' : (i % 3 === 0 ? 'latticeWave' : 'runeRain'),
+                        fireInterval: i % 4 === 0 ? 2.05 : 2.72,
+                        fireOffset: i * 0.1,
+                        visualScale: i % 4 === 0 ? 1.2 : 1.09
+                    }));
+                }
+                for (let i = 0; i < 4; i++) {
+                    const fromLeft = i % 2 === 0;
+                    const sweep = createLaneSweepEnemy({
+                        startX: fromLeft ? -90 : width + 90,
+                        startY: height * (0.10 + i * 0.035),
+                        endX: fromLeft ? width + 90 : -90,
+                        endY: height * (0.22 + ((i + 2) % 4) * 0.095),
+                        delay: -(1.9 + i * 0.36),
+                        routeDuration: 9.25,
+                        laneAmplitude: 24 + i * 6,
+                        lanePhase: i * 1.1,
+                        speed: 0.9,
+                        hp: 58,
+                        color: fromLeft ? '#c8f4ff' : '#ffd0f5',
+                        enemyShipKind: 'elite'
+                    });
+                    spawned.push(armEndgameWaveEnemy(sweep, {
+                        pattern: 'spiralNeedle',
+                        fireInterval: 2.35,
+                        fireOffset: i * 0.22,
+                        visualScale: 1.15,
+                        fireColor: '#fff2a8'
+                    }));
+                }
             }
 
             return spawned;
@@ -990,6 +1623,7 @@
             scoutFlyByAssignments: {},
             signalDrifts: {},
             earlyProceduralWaves: {},
+            activeGalaxyIndex: 0,
             formationId: 0,
             activeFormationId: 0,
             pendingFormationUnits: 0,
@@ -1003,7 +1637,7 @@
                 { count: 12, color: '#00ffff', type: 'wave7', speed: 0.656, stagger: 0.36, elite: true, firePattern: 'aimedPulse', fireEveryNth: 4, fireInterval: 2.6 }, // Wave 7
                 { count: 12, color: '#ff00ff', type: 'wave8', speed: 0.72, stagger: 2.25, elite: true, firePattern: 'aimedPulse', fireEveryNth: 4, fireInterval: 3.0 }, // Wave 8
                 { count: 14, color: '#ff0088', type: 'wave9', speed: 0.95, stagger: 0.34, firePattern: 'splitFan', fireEveryNth: 5, fireInterval: 2.7 }, // Wave 9
-                { isBoss: true, name: 'DISTORTED GLITCH', sprite: GLITCH_SPRITE_1, hp: 1300 }, // Wave 10
+                { isBoss: true, name: 'DISTORTED GLITCH', sprite: GLITCH_SPRITE_1, hp: 1250 }, // Wave 10
                 { count: 14, color: '#ff00ff', type: 'zig2', speed: 0.64, stagger: 0.42, doubleElite: true, firePattern: 'downFan', fireEveryNth: 5, fireInterval: 2.5 }, // Wave 11
                 { count: 14, color: '#ff0088', type: 'zig5', speed: 0.64, stagger: 0.48, doubleElite: true, firePattern: 'splitFan', fireEveryNth: 5, fireInterval: 2.6 }, // Wave 12
                 { count: 30, color: '#ff0000', type: 'snake', speed: 0.72, stagger: 2.0, elite: true }, // Wave 13
@@ -1014,35 +1648,96 @@
                 { count: 12, color: '#ff0088', type: 'risingStar', speed: 0.9, elite: true, hpMult: 2.5, stagger: 0.58, routeDuration: 11.0, riseTime: 1.65, firePattern: 'crossDrop', fireEveryNth: 3, fireInterval: 2.8 }, // Wave 18
                 { count: 16, color: '#ff00ff', type: 'constellationSweep', speed: 0.76, elite: true, hpMult: 2.2, stagger: 0.5, routeDuration: 10.8, firePattern: 'splitFan', fireEveryNth: 5, fireInterval: 3.0 }, // Wave 19
                 { isBoss: true, name: 'OVERHEATING FIREWALL', sprite: FIREWALL_SPRITE, hp: 1000 }, // Wave 20
-                { count: 16, customType: 'shatteredOrbit' }, // Wave 21
-                { count: 12, customType: 'twinRondo' }, // Wave 22
-                { count: 13, customType: 'anchorSiege' }, // Wave 23
-                { count: 14, customType: 'falseHorizon' }, // Wave 24
-                { isBoss: true, name: 'BLACK VOID', sprite: BLACK_VOID_SPRITE, hp: 2000 }, // Wave 25
-                { count: 12, color: '#ff00ff', type: 'wave2', speed: 0.85, stagger: 0.62, doubleElite: true, firePattern: 'splitFan', fireEveryNth: 4, fireInterval: 2.5 }, // Wave 26
-                { count: 14, color: '#ff0088', type: 'wave4', speed: 0.82, stagger: 0.58, doubleElite: true, firePattern: 'downFan', fireEveryNth: 4, fireInterval: 2.4 }, // Wave 27
-                { count: 13, color: '#00ffff', type: 'wave7', speed: 0.86, stagger: 0.42, doubleElite: true, firePattern: 'spiralNeedle', fireEveryNth: 4, fireInterval: 2.6 }, // Wave 28
-                { count: 14, color: '#ff00ff', type: 'wave8', speed: 0.78, stagger: 1.6, doubleElite: true, firePattern: 'scatterMark', fireEveryNth: 5, fireInterval: 2.6 }, // Wave 29
-                { isBoss: true, name: 'BATTLE STARSHIP', sprite: BATTLE_STARSHIP_SPRITE, hp: 2400 }, // Wave 30
+                { count: 17, customType: 'neonCrown' }, // Wave 21
+                { count: 14, customType: 'sidewinderLattice' }, // Wave 22
+                { count: 17, customType: 'helixNeedle' }, // Wave 23
+                { count: 18, customType: 'royalCrossfire' }, // Wave 24
+                { isBoss: true, name: 'TURNBOUND TRINITY', sprite: TURNBOUND_TRINITY_RENDER_SPRITE, hp: 2300, galaxyBossType: 'turnboundTrinity' }, // Wave 25
+                { count: 16, customType: 'sutureChoir' }, // Wave 26
+                { count: 18, customType: 'razorParallax' }, // Wave 27
+                { count: 19, customType: 'graveOrbit' }, // Wave 28
+                { count: 20, customType: 'omenLattice' }, // Wave 29
+                DREAD_LITURGY_BOSS_WAVE, // Wave 30
                 { count: 17, customType: 'prismRift' }, // Wave 31 — Prism Conduit mini-boss
                 { count: 18, customType: 'phaseCorridor' }, // Wave 32
                 { count: 19, customType: 'latticeBloom' }, // Wave 33
                 { count: 20, customType: 'braidCrucible' }, // Wave 34
                 { isBoss: true, name: 'ECLIPSE WARDEN', sprite: ECLIPSE_WARDEN_SPRITE, hp: 2600 } // Wave 35
             ],
-            randomizeEarlyProceduralWaves() {
+            getRunWaveLimitForGalaxy(galaxyIndex = this.getActiveGalaxyIndex()) {
+                return getGalaxyRunWaveLimit(galaxyIndex);
+            },
+            getRunWaveLimit() {
+                return this.getRunWaveLimitForGalaxy(this.getActiveGalaxyIndex());
+            },
+            getActiveGalaxyIndex() {
+                if (typeof currentGalaxyIndex === 'number') return currentGalaxyIndex;
+                return this.activeGalaxyIndex || 0;
+            },
+            prepareGalaxyRun(galaxyIndex = 0) {
+                this.activeGalaxyIndex = galaxyIndex;
+                this.currentWave = 0;
+                this.waveDelay = 0;
+                this.hasSpawnedWave = false;
+                this.interWaveDelayQueued = false;
+                this.pendingFormationUnits = 0;
+                this.activeFormationId = 0;
+                this.formationId = 0;
+                this.randomizeEarlyProceduralWaves(galaxyIndex === 1 ? 1.10 : 1);
+                this.randomizeFlyByAssignments();
+                this.randomizeSignalDrifts();
+            },
+            randomizeEarlyProceduralWaves(difficultyScale = 1) {
                 this.earlyProceduralWaves = {};
                 const themeUseCounts = {};
                 let lastThemeId = null;
                 for (let waveNumber = 1; waveNumber <= EARLY_PROCEDURAL_WAVE_COUNT; waveNumber++) {
                     const theme = pickEarlyProceduralTheme(waveNumber, lastThemeId, themeUseCounts);
-                    this.earlyProceduralWaves[waveNumber] = buildEarlyProceduralWaveDef(waveNumber, theme.id);
+                    this.earlyProceduralWaves[waveNumber] = tuneEarlyProceduralWaveForGalaxy(
+                        buildEarlyProceduralWaveDef(waveNumber, theme.id),
+                        difficultyScale
+                    );
                     themeUseCounts[theme.id] = (themeUseCounts[theme.id] || 0) + 1;
                     lastThemeId = theme.id;
                 }
             },
+            getGalaxyTwoWaveDefinition(waveNumber) {
+                if (waveNumber <= EARLY_PROCEDURAL_WAVE_COUNT) {
+                    return this.earlyProceduralWaves[waveNumber] || tuneEarlyProceduralWaveForGalaxy(buildEarlyProceduralWaveDef(waveNumber, 'patrol'), 1.10);
+                }
+                const galaxyTwoMap = {
+                    5: { isBoss: true, name: 'MATRIX HYDRA', sprite: MATRIX_HYDRA_SPRITE, hp: 1080, galaxyBossType: 'matrixHydra' },
+                    6: GALAXY_TWO_LEGACY_WAVES[26],
+                    7: GALAXY_TWO_LEGACY_WAVES[27],
+                    8: GALAXY_TWO_LEGACY_WAVES[28],
+                    9: GALAXY_TWO_LEGACY_WAVES[29],
+                    10: { isBoss: true, name: 'AXIOM CORE', sprite: AXIOM_CORE_SPRITE, hp: 1420, galaxyBossType: 'axiomCore' },
+                    11: { count: 16, customType: 'shatteredOrbit' },
+                    12: { count: 12, customType: 'twinRondo' },
+                    13: { count: 13, customType: 'anchorSiege' },
+                    14: { count: 14, customType: 'falseHorizon' },
+                    15: BLACK_VOID_BOSS_WAVE,
+                    16: 31,
+                    17: 32,
+                    18: 33,
+                    19: 34,
+                    20: BATTLE_STARSHIP_BOSS_WAVE
+                };
+                const mapped = galaxyTwoMap[waveNumber];
+                if (typeof mapped === 'number') {
+                    return cloneWaveDefinition(this.waves[mapped - 1], {
+                        galaxySourceWave: mapped,
+                        galaxyWaveNumber: waveNumber
+                    });
+                }
+                return cloneWaveDefinition(mapped, { galaxyWaveNumber: waveNumber });
+            },
             getWaveDefinitionForWave(waveNumber) {
-                return this.earlyProceduralWaves[waveNumber] || this.waves[waveNumber - 1];
+                if (this.getActiveGalaxyIndex() === 1) return this.getGalaxyTwoWaveDefinition(waveNumber);
+                if (waveNumber <= EARLY_PROCEDURAL_WAVE_COUNT && this.earlyProceduralWaves[waveNumber]) {
+                    return this.earlyProceduralWaves[waveNumber];
+                }
+                return cloneWaveDefinition(this.waves[waveNumber - 1], { galaxyWaveNumber: waveNumber });
             },
             getEarlyProceduralWaveInfo(waveNumber) {
                 const waveDef = this.earlyProceduralWaves[waveNumber];
@@ -1076,7 +1771,7 @@
             randomizeSignalDrifts() {
                 this.signalDrifts = {};
                 let lastDriftId = null;
-                for (let i = 0; i < this.waves.length; i++) {
+                for (let i = 0; i < this.getRunWaveLimit(); i++) {
                     const waveNumber = i + 1;
                     const drift = pickSignalDriftForWave(this.getWaveDefinitionForWave(waveNumber), waveNumber, lastDriftId);
                     if (drift) {
@@ -1101,6 +1796,9 @@
                     if (assignedWave === waveNumber) return parseInt(tierText, 10);
                 }
                 return 0;
+            },
+            isFinalRunBoss(defeatedBoss) {
+                return !!(defeatedBoss && defeatedBoss.runWaveNumber >= this.getRunWaveLimit());
             },
             beginFormation(unitCount) {
                 this.formationId += 1;
@@ -1129,6 +1827,7 @@
             spawn() {
                 const waveNumber = this.currentWave + 1;
                 const w = this.getWaveDefinitionForWave(waveNumber);
+                if (!w) return;
                 const signalDrift = this.getSignalDriftForWave(waveNumber);
                 pushWaveSignalNotice(waveNumber, signalDrift);
                 if (w && w.isEarlyProcedural && typeof console !== 'undefined') {
@@ -1140,8 +1839,41 @@
                         x: width / 2, y: -200, hp: w.hp, maxHp: w.hp, name: w.name, sprite: w.sprite || [],
                         phase: 'INTRO', timer: 0, attackPattern: 0, lastFire: 0, spiralAngle: 0, 
                         color: '#444444', // All bosses start grey in intro
-                        flashTimer: 0
+                        flashTimer: 0,
+                        runWaveNumber: waveNumber,
+                        isFinalRunBoss: waveNumber >= this.getRunWaveLimit(),
+                        galaxyBossType: w.galaxyBossType || null
                     };
+                    if (w.name === 'MATRIX HYDRA') {
+                        startMatrixHydraMusic();
+                        boss.isMatrixHydra = true;
+                        boss.color = '#55f7d1';
+                        boss.renderScale = 0.92;
+                        boss.stage = 1;
+                        boss.introStartX = boss.x;
+                        boss.introStartY = boss.y;
+                        boss.introTargetX = width / 2;
+                        boss.introTargetY = height * 0.2;
+                        boss.driftTimer = 0;
+                        boss.ringAngle = 0;
+                        boss.codeGateTimer = 0;
+                        boss.matrixBurstTimer = 0;
+                    }
+                    if (w.name === 'AXIOM CORE') {
+                        startAxiomCoreMusic();
+                        boss.isAxiomCore = true;
+                        boss.color = '#bda8ff';
+                        boss.renderScale = 0.88;
+                        boss.stage = 1;
+                        boss.introStartX = boss.x;
+                        boss.introStartY = boss.y;
+                        boss.introTargetX = width / 2;
+                        boss.introTargetY = height * 0.18;
+                        boss.driftTimer = 0;
+                        boss.axiomAngle = 0;
+                        boss.axiomWallFlip = false;
+                        boss.axiomOrbitTimer = 0;
+                    }
                     if (w.name === 'NULL PHANTOM') {
                         startVoidWalkerMusic();
                         boss.introStartY = boss.y;
@@ -1176,6 +1908,50 @@
                         boss.introStartX = boss.x; boss.introStartY = boss.y;
                         boss.introTargetX = width / 2; boss.introTargetY = height * 0.2;
                     }
+                    if (w.name === 'TURNBOUND TRINITY') {
+                        startBattleStarshipMusic();
+                        boss.isTurnboundTrinity = true;
+                        boss.color = '#555b68';
+                        boss.renderScale = 0.44;
+                        boss.trinityActiveIndex = 0;
+                        boss.trinityTurnState = 'INTRO';
+                        boss.trinityStateTimer = 0;
+                        boss.trinityLastFire = 0;
+                        boss.trinityPatternAngle = 0;
+                        boss.trinitySwordAngle = Math.PI / 2;
+                        boss.isVulnerable = false;
+                        boss.isShielded = true;
+                        boss.parts = [
+                            { id: 'turret', x: width * 0.24, y: -210, vx: 0, vy: 0, color: '#ffd06a', label: 'TURRET' },
+                            {
+                                id: 'sword',
+                                x: width * 0.5,
+                                y: -250,
+                                vx: 0,
+                                vy: 0,
+                                color: '#c8f4ff',
+                                label: 'SWORD',
+                                sprite: TURNBOUND_TRINITY_SWORD_RENDER_SPRITE,
+                                visibleCells: TURNBOUND_TRINITY_SWORD_VISIBLE_CELLS,
+                                spriteWidth: TURNBOUND_TRINITY_SWORD_SPRITE_WIDTH,
+                                renderScale: 0.37
+                            },
+                            {
+                                id: 'spell',
+                                x: width * 0.76,
+                                y: -230,
+                                vx: 0,
+                                vy: 0,
+                                color: '#b99dff',
+                                label: 'SPELL',
+                                sprite: TURNBOUND_TRINITY_SPELL_RENDER_SPRITE,
+                                visibleCells: TURNBOUND_TRINITY_SPELL_VISIBLE_CELLS,
+                                spriteWidth: TURNBOUND_TRINITY_SPELL_SPRITE_WIDTH,
+                                renderScale: 0.43,
+                                spritePalette: TURNBOUND_TRINITY_SPELL_PALETTE
+                            }
+                        ];
+                    }
                     if (w.name === 'BLACK VOID') {
                         startBlackVoidMusic();
                         boss.isBlackVoid = true;
@@ -1192,6 +1968,29 @@
                         boss.beamAbsorbTimer = 0;
                         boss.patternDuration = 5.6;
                         boss.petalsAngle = 0;
+                    }
+                    if (w.name === 'DREAD LITURGY') {
+                        startBlackVoidMusic();
+                        boss.isDreadLiturgy = true;
+                        boss.color = '#d8d4ff';
+                        boss.renderScale = 1.12;
+                        boss.introStartX = boss.x;
+                        boss.introStartY = boss.y;
+                        boss.introTargetX = width / 2;
+                        boss.introTargetY = height * 0.18;
+                        boss.driftTimer = 0;
+                        boss.attackPattern = 0;
+                        boss.lastFire = 0;
+                        boss.isVulnerable = false;
+                        boss.isShielded = true;
+                        boss.dreadSafeLane = 1;
+                        boss.dreadCastIndex = 0;
+                        boss.dreadPatternStep = -1;
+                        boss.dreadWarningFired = false;
+                        boss.dreadPatternFired = false;
+                        boss.dreadSwingIndex = -1;
+                        boss.dreadSlash = null;
+                        boss.dreadDamageTimer = 0;
                     }
                     if (w.name === 'ECLIPSE WARDEN') {
                         startDistortedGlitchMusic();
@@ -1549,7 +2348,7 @@
                         }
                     }
                 }
-                this.currentWave = (this.currentWave + 1) % this.waves.length;
+                this.currentWave = Math.min(this.currentWave + 1, this.getRunWaveLimit());
                 this.hasSpawnedWave = true;
                 this.interWaveDelayQueued = false;
             }

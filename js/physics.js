@@ -77,6 +77,8 @@
             return codeLine;
         }
 
+        const DISTORTED_GLITCH_MATRIX_CHARS = 'ﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
         function pushDistortedGlitchShard(x, y, angle, speed, options = {}) {
             enemyBullets.push({
                 x,
@@ -97,47 +99,87 @@
             });
         }
 
-        function fireGlitchMatrixRainAttack(bossObj) {
-            const laneCount = 5;
-            const playerSafeLane = Math.max(0, Math.min(laneCount - 1, Math.floor((player.x / Math.max(1, width)) * laneCount)));
-            const lanes = [];
-            for (let lane = 0; lane < laneCount; lane++) {
-                if (lane !== playerSafeLane || Math.random() < 0.28) lanes.push(lane);
+        function buildMatrixRainColumn(length = 10) {
+            let column = '';
+            for (let i = 0; i < length; i++) {
+                column += DISTORTED_GLITCH_MATRIX_CHARS[Math.floor(Math.random() * DISTORTED_GLITCH_MATRIX_CHARS.length)];
             }
-            if (lanes.length > 4) lanes.splice(Math.floor(Math.random() * lanes.length), 1);
+            return column;
+        }
 
-            for (let i = 0; i < lanes.length; i++) {
-                const lane = lanes[i];
-                const laneX = width * ((lane + 0.5) / laneCount) + (Math.random() - 0.5) * 36;
-                const speed = 235 + Math.random() * 55;
-                pushDistortedGlitchShard(laneX, -36 - i * 18, Math.PI / 2 + (Math.random() - 0.5) * 0.06, speed, {
-                    char: buildGlitchCodeLine(7 + Math.floor(Math.random() * 5)),
-                    color: i % 2 === 0 ? '#00ff41' : '#baffc8',
-                    isCodeLine: true,
-                    hitboxScale: 0.75
+        function pushDistortedMatrixRainColumn(x, y, speed, options = {}) {
+            enemyBullets.push({
+                x,
+                y,
+                vx: (options.drift || 0),
+                vy: speed,
+                char: buildMatrixRainColumn(options.length || 10),
+                color: options.color || '#00ff41',
+                isGlitchBullet: true,
+                isMatrixRainColumn: true,
+                morphTimer: Math.random() * 0.12,
+                speed,
+                hitboxScale: options.hitboxScale || 0.55,
+                matrixGlyphGap: options.glyphGap || 16,
+                matrixTrailAlpha: options.trailAlpha || 0.52
+            });
+        }
+
+        function fireGlitchMatrixRainAttack(bossObj) {
+            const stageTwo = (bossObj.stage || 1) >= 2;
+            const laneCount = stageTwo ? 9 : 8;
+            const safeLane = Math.max(0, Math.min(laneCount - 1, Math.floor((player.x / Math.max(1, width)) * laneCount)));
+            const protectedLanes = new Set([safeLane]);
+            if (safeLane > 0 && Math.random() < 0.72) protectedLanes.add(safeLane - 1);
+            if (safeLane < laneCount - 1 && Math.random() < 0.72) protectedLanes.add(safeLane + 1);
+
+            const candidates = [];
+            for (let lane = 0; lane < laneCount; lane++) {
+                if (protectedLanes.has(lane)) continue;
+                candidates.push(lane);
+            }
+            const maxColumns = Math.min(candidates.length, stageTwo ? 6 : 5);
+            for (let i = candidates.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const temp = candidates[i];
+                candidates[i] = candidates[j];
+                candidates[j] = temp;
+            }
+
+            for (let i = 0; i < maxColumns; i++) {
+                const lane = candidates[i];
+                const laneX = width * ((lane + 0.5) / laneCount) + (Math.random() - 0.5) * 18;
+                const speed = (stageTwo ? 255 : 225) + Math.random() * 42;
+                pushDistortedMatrixRainColumn(laneX, -28 - i * 34, speed, {
+                    length: stageTwo ? 13 : 11,
+                    drift: (Math.random() - 0.5) * (stageTwo ? 18 : 12),
+                    color: i % 4 === 0 ? '#baffc8' : '#00ff41',
+                    glyphGap: stageTwo ? 15 : 16,
+                    trailAlpha: stageTwo ? 0.58 : 0.5,
+                    hitboxScale: stageTwo ? 0.58 : 0.52
                 });
             }
 
-            const sweepCount = 6;
-            for (let i = 0; i < sweepCount; i++) {
-                const angle = -Math.PI / 2 + (i - (sweepCount - 1) / 2) * 0.17;
-                pushDistortedGlitchShard(bossObj.x, bossObj.y + 12, angle, 250, {
+            const pulseCount = stageTwo ? 5 : 4;
+            for (let i = 0; i < pulseCount; i++) {
+                const angle = Math.PI / 2 + (i - (pulseCount - 1) / 2) * (stageTwo ? 0.12 : 0.15);
+                pushDistortedGlitchShard(bossObj.x, bossObj.y + 12, angle, 220 + i * 8, {
                     char: i % 2 ? '0' : '1',
-                    color: '#8dffb1',
-                    hitboxScale: 0.72
+                    color: '#baffc8',
+                    hitboxScale: 0.62
                 });
             }
 
             if (debris.length < 620) {
-                for (let i = 0; i < 12; i++) {
+                for (let i = 0; i < 18; i++) {
                     debris.push({
                         x: width * Math.random(),
                         y: -20 - Math.random() * 60,
-                        vx: (Math.random() - 0.5) * 25,
-                        vy: 80 + Math.random() * 90,
-                        char: Math.random() > 0.5 ? '1' : '0',
-                        color: '#00ff41',
-                        life: 0.35 + Math.random() * 0.25
+                        vx: (Math.random() - 0.5) * 18,
+                        vy: 75 + Math.random() * 110,
+                        char: DISTORTED_GLITCH_MATRIX_CHARS[Math.floor(Math.random() * DISTORTED_GLITCH_MATRIX_CHARS.length)],
+                        color: i % 5 === 0 ? '#d8ffe0' : '#00ff41',
+                        life: 0.28 + Math.random() * 0.24
                     });
                 }
             }
@@ -153,7 +195,7 @@
                     const angle = fromLeft ? 0 : Math.PI;
                     pushDistortedGlitchShard(lanes[sideIndex], y, angle + (Math.random() - 0.5) * 0.035, 310 + i * 18, {
                         char: GLITCH_CHARS[(i * 3 + sideIndex) % GLITCH_CHARS.length],
-                        color: i % 2 === 0 ? '#ff3355' : '#ffffff',
+                        color: i % 2 === 0 ? '#00ff41' : '#d8ffe0',
                         turnRate: (fromLeft ? 1 : -1) * (i - 2) * 0.11,
                         hitboxScale: 0.78
                     });
@@ -167,7 +209,7 @@
                 const spread = 0.18 + Math.floor(i / 2) * 0.09;
                 pushDistortedGlitchShard(bossObj.x, bossObj.y, aim + side * spread, 265 + i * 7, {
                     char: i % 2 ? '\uFF8B' : '\uFF8A',
-                    color: i % 3 === 0 ? '#ffffff' : '#ff3355',
+                    color: i % 3 === 0 ? '#ffffff' : '#00ff41',
                     turnRate: side * -0.18,
                     hitboxScale: 0.76
                 });
@@ -181,7 +223,7 @@
                         vx: (Math.random() - 0.5) * 120,
                         vy: (Math.random() - 0.5) * 30,
                         char: GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)],
-                        color: i % 3 === 0 ? '#ffffff' : '#ff3355',
+                        color: i % 3 === 0 ? '#ffffff' : '#00ff41',
                         life: 0.24 + Math.random() * 0.18
                     });
                 }
@@ -190,13 +232,14 @@
 
         function updateDistortedGlitchSpecialAttacks(bossObj, dt) {
             if (!bossObj || bossObj.phase !== 'ACTIVE' || bossObj.isDeadGlitching) return;
-            if (bossObj.stage === 1) {
-                bossObj.matrixRainTimer = (bossObj.matrixRainTimer ?? 3.2) - dt;
-                if (bossObj.matrixRainTimer <= 0) {
-                    fireGlitchMatrixRainAttack(bossObj);
-                    bossObj.matrixRainTimer = 6.8 + Math.random() * 1.6;
-                }
-            } else {
+            const stageTwo = (bossObj.stage || 1) >= 2;
+            bossObj.matrixRainTimer = (bossObj.matrixRainTimer ?? (stageTwo ? 0 : 3.2)) - dt;
+            if (bossObj.matrixRainTimer <= 0) {
+                fireGlitchMatrixRainAttack(bossObj);
+                bossObj.matrixRainTimer = (stageTwo ? 8.2 : 6.8) + Math.random() * (stageTwo ? 1.8 : 1.6);
+            }
+
+            if (stageTwo) {
                 bossObj.glitchTearTimer = (bossObj.glitchTearTimer ?? 2.7) - dt;
                 if (bossObj.glitchTearTimer <= 0) {
                     fireGlitchTearAttack(bossObj);
@@ -276,6 +319,8 @@
 
         const ELEMENTAL_TRAIL_SOFT_CAP = 190;
         const ELEMENTAL_TRAIL_HARD_CAP = 260;
+        const GHOST_SIGNAL_TRAIL_SOFT_CAP = 116;
+        const GHOST_SIGNAL_TRAIL_HARD_CAP = 180;
         const FIREWALL_TRAIL_SOFT_CAP = 92;
         const FIREWALL_TRAIL_HARD_CAP = 150;
         const GHOST_SIGNAL_STAGE_TWO_TRANSITION_DURATION = 1.3;
@@ -283,17 +328,24 @@
         function emitElementalBulletTrail(b, dt, isWraith = false) {
             if (gameState !== 'PLAYING') return;
             const isFirewallTrail = !!b.isFirewallBullet && !isWraith;
-            const hardCap = isFirewallTrail ? FIREWALL_TRAIL_HARD_CAP : ELEMENTAL_TRAIL_HARD_CAP;
+            const isGhostTrail = !!isWraith && !isFirewallTrail;
+            const softCap = isFirewallTrail ? FIREWALL_TRAIL_SOFT_CAP : (isGhostTrail ? GHOST_SIGNAL_TRAIL_SOFT_CAP : ELEMENTAL_TRAIL_SOFT_CAP);
+            const hardCap = isFirewallTrail ? FIREWALL_TRAIL_HARD_CAP : (isGhostTrail ? GHOST_SIGNAL_TRAIL_HARD_CAP : ELEMENTAL_TRAIL_HARD_CAP);
             if (thrusterParticles.length > hardCap) return;
-            if (isFirewallTrail && typeof b.trailSkipSeed !== 'number') b.trailSkipSeed = Math.random();
-            if (isFirewallTrail && thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP && b.trailSkipSeed < 0.48) return;
+            if ((isFirewallTrail || isGhostTrail) && typeof b.trailSkipSeed !== 'number') b.trailSkipSeed = Math.random();
+            if (isFirewallTrail && thrusterParticles.length > softCap && b.trailSkipSeed < 0.48) return;
+            if (isGhostTrail && thrusterParticles.length > softCap && b.trailSkipSeed < 0.36) return;
 
             b.trailTimer = (b.trailTimer || 0) + dt;
             let interval = thrusterParticles.length > ELEMENTAL_TRAIL_SOFT_CAP ? 0.085 : 0.052;
             if (isFirewallTrail) {
                 const load = enemyBullets.length;
                 interval = load > 76 ? 0.16 : (load > 52 ? 0.13 : (load > 30 ? 0.1 : 0.072));
-                if (thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP) interval *= 1.45;
+                if (thrusterParticles.length > softCap) interval *= 1.45;
+            } else if (isGhostTrail) {
+                const load = enemyBullets.length;
+                interval = load > 58 ? 0.13 : (load > 36 ? 0.105 : 0.078);
+                if (thrusterParticles.length > softCap) interval *= 1.35;
             }
             if (b.trailTimer < interval) return;
             b.trailTimer %= interval;
@@ -302,7 +354,7 @@
             const backX = -(b.vx || 0) / speed;
             const backY = -(b.vy || 0) / speed;
             const spread = isFirewallTrail ? 6 : 8;
-            const life = isFirewallTrail ? 0.38 : 0.56;
+            const life = isFirewallTrail ? 0.38 : (isGhostTrail ? 0.46 : 0.56);
             thrusterParticles.push({
                 x: b.x + backX * 7 + (Math.random() - 0.5) * spread,
                 y: b.y + backY * 7 + (Math.random() - 0.5) * spread,
@@ -420,6 +472,10 @@
             boss.signalPulseComboCount = 0;
             boss.signalPulseComboDelay = 0;
             boss.signalComboCooldownUntil = 0;
+            boss.signalMachineRelayCount = 0;
+            boss.signalMachineDelay = 0;
+            boss.signalMachineCooldownUntil = 0;
+            boss.signalMachineSideFlip = false;
             dissolveEnemyBulletsForBossTransition('#c8ffff');
 
             const wraiths = ensureGhostSignalStageTwoWraiths();
@@ -515,79 +571,122 @@
                 isWraithBolt: !!config.isWraithBolt,
                 isLargeWraith: !!config.isLargeWraith,
                 isSignalStormOrb: !!config.isSignalStormOrb,
+                isSignalMachineRelay: !!config.isSignalMachineRelay,
+                isSignalMachineBit: !!config.isSignalMachineBit,
+                nonDamaging: !!config.nonDamaging,
+                relayFireAt: config.relayFireAt,
+                relayLife: config.relayLife,
+                relayBaseY: config.relayBaseY,
+                relayAmp: config.relayAmp,
+                relayPhase: config.relayPhase,
+                relayIndex: config.relayIndex,
+                relayDir: config.relayDir,
                 speed: config.speed,
                 maxSpeed: config.maxSpeed,
                 accel: config.accel,
                 homingTurn: config.homingTurn,
                 age: 0,
-                hitboxScale: config.hitboxScale || 1
+                hitboxScale: config.hitboxScale ?? 1
             });
         }
 
-        function fireGhostSignalStageOneCompositePulse(pulseIndex = 0) {
-            const originX = boss.x;
-            const originY = boss.y;
-            const aim = Math.atan2(player.y - originY, player.x - originX);
-            const ringCount = 12;
-            const ringOffset = pulseIndex * 0.18;
-            for (let i = 0; i < ringCount; i++) {
-                const a = ringOffset + (i / ringCount) * Math.PI * 2;
-                pushGhostSignalBullet({
-                    x: originX,
-                    y: originY,
-                    vx: Math.cos(a) * 330,
-                    vy: Math.sin(a) * 330,
-                    type: 'pulse',
-                    color: '#9cfbff'
-                });
-            }
-            for (let i = -2; i <= 2; i += 2) {
-                const a = aim + i * 0.13;
-                pushGhostSignalBullet({
-                    x: originX,
-                    y: originY,
-                    vx: Math.cos(a) * 520,
-                    vy: Math.sin(a) * 520,
-                    type: 'pulse',
-                    color: '#d8fbff'
-                });
-            }
+        function releaseGhostSignalMachineRelay(relay) {
+            if (!relay || relay.relayFired) return;
+            relay.relayFired = true;
+            const aim = Math.atan2(player.y - relay.y, player.x - relay.x);
+            const spread = 0.18;
+            const chars = ['0', '1', '#'];
             for (let i = -1; i <= 1; i++) {
-                const a = aim + i * 0.24 + (pulseIndex - 1) * 0.05;
-                const speed = 360;
+                const a = aim + i * spread;
+                const speed = 285 + (i === 0 ? 35 : 0);
                 pushGhostSignalBullet({
-                    x: originX,
-                    y: originY,
+                    x: relay.x,
+                    y: relay.y,
                     vx: Math.cos(a) * speed,
                     vy: Math.sin(a) * speed,
-                    baseVx: Math.cos(a) * speed,
-                    baseVy: Math.sin(a) * speed,
-                    char: 'z',
-                    type: 'zigzag',
-                    color: '#00ffff',
-                    isZigZag: true,
-                    zigDir: i % 2 === 0 ? 1 : -1
+                    char: chars[i + 1],
+                    type: 'machineBit',
+                    color: i === 0 ? '#eaffff' : '#8ff7ff',
+                    isSignalMachineBit: true,
+                    hitboxScale: 0.72
                 });
             }
-            for (let i = 0; i < 2; i++) {
-                const a = aim + (i === 0 ? -0.08 : 0.08);
-                const speed = 430;
-                pushGhostSignalBullet({
-                    x: originX,
-                    y: originY,
-                    vx: Math.cos(a) * speed,
-                    vy: Math.sin(a) * speed,
-                    baseVx: Math.cos(a) * speed,
-                    baseVy: Math.sin(a) * speed,
-                    char: 'Y',
-                    type: 'fork',
-                    color: '#ffd400',
-                    isZigZag: true,
-                    isSignalYBullet: true,
-                    zigDir: i === 0 ? -1 : 1,
-                    zigInterval: 0.26,
-                    zigAmplitude: 250
-                });
+            const dripX = relay.x + (relay.relayDir || 1) * 12;
+            pushGhostSignalBullet({
+                x: dripX,
+                y: relay.y - 8,
+                vx: (relay.relayDir || 1) * 18,
+                vy: 315,
+                char: '|',
+                type: 'machineBit',
+                color: '#55f7d1',
+                isSignalMachineBit: true,
+                hitboxScale: 0.64
+            });
+            if (debris.length < 520) {
+                for (let i = 0; i < 5; i++) {
+                    const a = Math.random() * Math.PI * 2;
+                    debris.push({
+                        x: relay.x,
+                        y: relay.y,
+                        vx: Math.cos(a) * (30 + Math.random() * 70),
+                        vy: Math.sin(a) * (30 + Math.random() * 70),
+                        char: i % 2 ? '1' : '0',
+                        color: i % 3 === 0 ? '#ffffff' : '#55f7d1',
+                        life: 0.16 + Math.random() * 0.16,
+                        isImpact: true
+                    });
+                }
+            }
+        }
+
+        function fireGhostSignalMachineRelay(relayIndex = 0) {
+            const fromLeft = (relayIndex + (boss.signalMachineSideFlip ? 1 : 0)) % 2 === 0;
+            const laneCount = 5;
+            const lane = relayIndex % laneCount;
+            const relayY = height * (0.2 + lane * 0.105) + Math.sin((boss.driftTimer || 0) + relayIndex) * 16;
+            const dir = fromLeft ? 1 : -1;
+            const startX = fromLeft ? -34 : width + 34;
+            const speed = 128 + (relayIndex % 3) * 18;
+            pushGhostSignalBullet({
+                x: startX,
+                y: relayY,
+                vx: dir * speed,
+                vy: 0,
+                char: relayIndex % 2 === 0 ? '[ ]' : '<>',
+                type: 'machineRelay',
+                color: relayIndex % 2 === 0 ? '#bffcff' : '#55f7d1',
+                isSignalMachineRelay: true,
+                nonDamaging: true,
+                hitboxScale: 0,
+                relayFireAt: 0.74 + (relayIndex % 2) * 0.08,
+                relayLife: 1.45,
+                relayBaseY: relayY,
+                relayAmp: 10 + (relayIndex % 3) * 2,
+                relayPhase: relayIndex * 1.31,
+                relayIndex,
+                relayDir: dir
+            });
+        }
+
+        function updateGhostSignalMachinePossessionAttack(bossNow, dt) {
+            if (boss.signalMachineCooldownUntil && bossNow < boss.signalMachineCooldownUntil) return;
+            boss.signalMachineDelay = (boss.signalMachineDelay || 0) - dt;
+            if ((boss.signalMachineRelayCount || 0) <= 0) {
+                boss.signalMachineRelayCount = 5;
+                boss.signalMachineRelayTotal = 5;
+                boss.signalMachineDelay = 0;
+                boss.signalMachineSideFlip = !boss.signalMachineSideFlip;
+            }
+            if (boss.signalMachineRelayCount > 0 && boss.signalMachineDelay <= 0) {
+                const firedIndex = (boss.signalMachineRelayTotal || 5) - boss.signalMachineRelayCount;
+                fireGhostSignalMachineRelay(firedIndex);
+                boss.signalMachineRelayCount--;
+                boss.signalMachineDelay = 0.31;
+                if (boss.signalMachineRelayCount <= 0) {
+                    boss.signalMachineCooldownUntil = bossNow + 1450;
+                    boss.lastFire = bossNow;
+                }
             }
         }
 
@@ -632,22 +731,7 @@
                 }
                 boss.lastFire = bossNow;
             } else if (pattern === 2) {
-                if (boss.signalComboCooldownUntil && bossNow < boss.signalComboCooldownUntil) return;
-                boss.signalPulseComboDelay = (boss.signalPulseComboDelay || 0) - dt;
-                if ((boss.signalPulseComboCount || 0) <= 0) {
-                    boss.signalPulseComboCount = 3;
-                    boss.signalPulseComboDelay = 0;
-                }
-                if (boss.signalPulseComboCount > 0 && boss.signalPulseComboDelay <= 0) {
-                    const firedIndex = 3 - boss.signalPulseComboCount;
-                    fireGhostSignalStageOneCompositePulse(firedIndex);
-                    boss.signalPulseComboCount--;
-                    boss.signalPulseComboDelay = 0.34;
-                    if (boss.signalPulseComboCount <= 0) {
-                        boss.signalComboCooldownUntil = bossNow + 1300;
-                        boss.lastFire = bossNow;
-                    }
-                }
+                updateGhostSignalMachinePossessionAttack(bossNow, dt);
             }
         }
 
@@ -750,6 +834,226 @@
             }
         }
 
+        function fireMatrixHydraBullet(bossObj, angle, speed, char = '0', color = '#55f7d1', extras = {}) {
+            enemyBullets.push({
+                x: bossObj.x,
+                y: bossObj.y + 18,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                char,
+                color,
+                isMatrixBossBullet: true,
+                ...extras
+            });
+        }
+
+        function updateMatrixHydraBoss(hostileDt, bossNow) {
+            if (!boss) return false;
+            if (boss.phase === 'INTRO') {
+                const introDuration = 4.2;
+                const nextTimer = Math.min(introDuration, boss.timer + hostileDt);
+                const t = Math.max(0, Math.min(1, nextTimer / introDuration));
+                const eased = 1 - Math.pow(1 - t, 3);
+                boss.x = boss.introStartX + (boss.introTargetX - boss.introStartX) * eased + Math.sin(nextTimer * 4.2) * (1 - t) * 8;
+                boss.y = boss.introStartY + (boss.introTargetY - boss.introStartY) * eased;
+                boss.timer = nextTimer;
+                boss.color = '#55f7d1';
+                if (boss.timer >= introDuration) {
+                    boss.phase = 'ACTIVE';
+                    boss.timer = 0;
+                    boss.startX = boss.x;
+                    boss.startY = boss.y;
+                    boss.attackPattern = 0;
+                    boss.lastFire = 0;
+                }
+                return false;
+            }
+
+            if (maybeTriggerBossDeathCinematic(boss)) return true;
+            if ((boss.stage || 1) === 1 && boss.hp <= boss.maxHp * 0.5) {
+                boss.stage = 2;
+                boss.timer = 0;
+                boss.attackPattern = 1;
+                boss.lastFire = 0;
+                boss.color = '#9fffe8';
+                addShake(8);
+            }
+
+            boss.timer += hostileDt;
+            boss.driftTimer = (boss.driftTimer || 0) + hostileDt;
+            boss.ringAngle = (boss.ringAngle || 0) + hostileDt * ((boss.stage || 1) >= 2 ? 0.92 : 0.68);
+            boss.x = boss.startX + Math.sin(boss.driftTimer * 0.62) * (((boss.stage || 1) >= 2) ? 96 : 72);
+            boss.y = boss.startY + Math.sin(boss.driftTimer * 1.18 + 0.4) * 10;
+            applyWakeForce(boss.x, boss.y, 190, 5.5);
+
+            const patternDuration = (boss.stage || 1) >= 2 ? 3.7 : 4.3;
+            if (boss.timer > patternDuration) {
+                boss.timer = 0;
+                boss.attackPattern = (boss.attackPattern + 1) % 3;
+                boss.lastFire = 0;
+                boss.codeGateTimer = 0;
+                boss.matrixBurstTimer = 0;
+            }
+
+            if (boss.attackPattern === 0 && bossNow - boss.lastFire > (((boss.stage || 1) >= 2) ? 560 : 720)) {
+                const count = (boss.stage || 1) >= 2 ? 13 : 10;
+                const avoidAngle = Math.atan2(player.y - boss.y, player.x - boss.x);
+                for (let i = 0; i < count; i++) {
+                    const angle = boss.ringAngle + (i / count) * Math.PI * 2;
+                    if (Math.abs(getAngleDelta(angle, avoidAngle)) < 0.16) continue;
+                    fireMatrixHydraBullet(boss, angle, 225 + (i % 3) * 18, i % 2 === 0 ? '0' : '1');
+                }
+                boss.lastFire = bossNow;
+            } else if (boss.attackPattern === 1 && bossNow - boss.lastFire > 780) {
+                const lanes = 9;
+                const safeLane = Math.max(0, Math.min(lanes - 1, Math.round((player.x / width) * (lanes - 1))));
+                for (let lane = 0; lane < lanes; lane++) {
+                    if (Math.abs(lane - safeLane) <= 1) continue;
+                    const x = width * (0.11 + lane * 0.097);
+                    enemyBullets.push({
+                        x,
+                        y: -18,
+                        vx: Math.sin(boss.ringAngle + lane) * 18,
+                        vy: 245 + (lane % 3) * 18,
+                        char: lane % 2 === 0 ? '1' : '0',
+                        color: lane % 3 === 0 ? '#d9fff4' : '#55f7d1',
+                        isMatrixBossBullet: true,
+                        matrixColumn: true
+                    });
+                }
+                boss.lastFire = bossNow;
+            } else if (boss.attackPattern === 2 && bossNow - boss.lastFire > (((boss.stage || 1) >= 2) ? 520 : 680)) {
+                const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+                const spread = (boss.stage || 1) >= 2 ? [-0.34, -0.17, 0, 0.17, 0.34] : [-0.22, 0, 0.22];
+                for (const offset of spread) {
+                    fireMatrixHydraBullet(boss, aim + offset, 330, '+', '#a6fff0');
+                }
+                boss.lastFire = bossNow;
+            }
+            return false;
+        }
+
+        function fireAxiomCoreBullet(bossObj, angle, speed, char = '<>', color = '#bda8ff', extras = {}) {
+            enemyBullets.push({
+                x: bossObj.x,
+                y: bossObj.y + 20,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                char,
+                color,
+                isAxiomBossBullet: true,
+                ...extras
+            });
+        }
+
+        function updateAxiomCoreBoss(hostileDt, bossNow) {
+            if (!boss) return false;
+            if (boss.phase === 'INTRO') {
+                const introDuration = 4.6;
+                const nextTimer = Math.min(introDuration, boss.timer + hostileDt);
+                const t = Math.max(0, Math.min(1, nextTimer / introDuration));
+                const eased = 1 - Math.pow(1 - t, 2.7);
+                boss.x = boss.introStartX + (boss.introTargetX - boss.introStartX) * eased + Math.sin(nextTimer * 5.6) * (1 - t) * 5;
+                boss.y = boss.introStartY + (boss.introTargetY - boss.introStartY) * eased;
+                boss.timer = nextTimer;
+                boss.color = '#bda8ff';
+                if (boss.timer >= introDuration) {
+                    boss.phase = 'ACTIVE';
+                    boss.timer = 0;
+                    boss.startX = boss.x;
+                    boss.startY = boss.y;
+                    boss.attackPattern = 0;
+                    boss.lastFire = 0;
+                }
+                return false;
+            }
+
+            if (maybeTriggerBossDeathCinematic(boss)) return true;
+            if ((boss.stage || 1) === 1 && boss.hp <= boss.maxHp * 0.5) {
+                boss.stage = 2;
+                boss.timer = 0;
+                boss.attackPattern = 2;
+                boss.lastFire = 0;
+                boss.color = '#ff8fd8';
+                addShake(10);
+            }
+
+            boss.timer += hostileDt;
+            boss.driftTimer = (boss.driftTimer || 0) + hostileDt;
+            boss.axiomAngle = (boss.axiomAngle || 0) + hostileDt * (((boss.stage || 1) >= 2) ? 1.15 : 0.82);
+            boss.x = boss.startX + Math.sin(boss.driftTimer * 0.5) * (((boss.stage || 1) >= 2) ? 125 : 92);
+            boss.y = boss.startY + Math.sin(boss.driftTimer * 1.06) * 12;
+            applyWakeForce(boss.x, boss.y, 230, 6.5);
+
+            const patternDuration = (boss.stage || 1) >= 2 ? 4.0 : 4.6;
+            if (boss.timer > patternDuration) {
+                boss.timer = 0;
+                boss.attackPattern = (boss.attackPattern + 1) % 4;
+                boss.lastFire = 0;
+                boss.axiomOrbitTimer = 0;
+            }
+
+            if (boss.attackPattern === 0 && bossNow - boss.lastFire > 620) {
+                const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
+                for (const offset of [-0.36, -0.18, 0, 0.18, 0.36]) {
+                    fireAxiomCoreBullet(boss, aim + offset, 305, offset === 0 ? '<>' : '<', offset === 0 ? '#ffffff' : '#bda8ff');
+                }
+                boss.lastFire = bossNow;
+            } else if (boss.attackPattern === 1 && bossNow - boss.lastFire > 760) {
+                boss.axiomWallFlip = !boss.axiomWallFlip;
+                const lanes = 10;
+                const safeLane = Math.max(0, Math.min(lanes - 1, Math.round((player.x / width) * (lanes - 1))));
+                for (let lane = 0; lane < lanes; lane++) {
+                    if (Math.abs(lane - safeLane) <= 1) continue;
+                    const x = width * (0.08 + lane * 0.093);
+                    enemyBullets.push({
+                        x,
+                        y: -24,
+                        vx: (boss.axiomWallFlip ? 1 : -1) * Math.sin(lane * 0.8) * 26,
+                        vy: 260 + (lane % 2) * 32,
+                        char: lane % 2 === 0 ? '|' : ':',
+                        color: lane % 3 === 0 ? '#ff8fd8' : '#bda8ff',
+                        isAxiomBossBullet: true,
+                        hitboxScale: 0.92
+                    });
+                }
+                boss.lastFire = bossNow;
+            } else if (boss.attackPattern === 2 && bossNow - boss.lastFire > 980) {
+                const count = (boss.stage || 1) >= 2 ? 8 : 6;
+                for (let i = 0; i < count; i++) {
+                    const angle = boss.axiomAngle + i * (Math.PI * 2 / count);
+                    enemyBullets.push({
+                        x: boss.x + Math.cos(angle) * 28,
+                        y: boss.y + Math.sin(angle) * 18,
+                        vx: 0,
+                        vy: 0,
+                        char: 'o',
+                        color: i % 2 === 0 ? '#f8eaff' : '#8ff7ff',
+                        isAxiomBossBullet: true,
+                        isOrbitShot: true,
+                        anchorToBoss: true,
+                        anchorX: boss.x,
+                        anchorY: boss.y,
+                        orbitAngle: angle,
+                        orbitRadius: 34,
+                        orbitRadiusSpeed: 34,
+                        orbitAngularSpeed: i % 2 === 0 ? 2.1 : -2.1,
+                        holdTime: 0.95,
+                        releaseSpeed: 295 + (i % 3) * 20,
+                        releaseAngleOffset: i % 2 === 0 ? 0.1 : -0.1,
+                        hitboxScale: 0.9
+                    });
+                }
+                boss.lastFire = bossNow;
+            } else if (boss.attackPattern === 3 && bossNow - boss.lastFire > 180) {
+                const angle = boss.axiomAngle;
+                fireAxiomCoreBullet(boss, angle, 285, '*', '#ff8fd8');
+                fireAxiomCoreBullet(boss, angle + Math.PI, 285, '*', '#8ff7ff');
+                boss.lastFire = bossNow;
+            }
+            return false;
+        }
+
         // Main simulation update loop.
         function updatePhysics(dt) {
             if (window.innerHeight < 700 || window.innerWidth < 525) return;
@@ -757,6 +1061,11 @@
                 updateFocusAbilities(dt, typeof canUseFocusAbilitiesNow === 'function'
                     ? canUseFocusAbilitiesNow()
                     : gameState === 'PLAYING' && !(bossCinematic && bossCinematic.paused));
+            }
+            if (gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'VICTORY' || gameState === 'RUN_SCORE') {
+                if (gameState === 'RETURN_LOADING' || gameState === 'VICTORY' || gameState === 'RUN_SCORE') updateFieldParticles(dt);
+                if (typeof updateCampaignScreens === 'function') updateCampaignScreens(dt);
+                return;
             }
             if (gameState === 'LEVELUP') return;
 
@@ -852,6 +1161,14 @@
             }
 
             if (gameState !== 'PLAYING') return;
+
+            if (typeof updateRunCompleteTransition === 'function') {
+                updateRunCompleteTransition(dt);
+                if (gameState !== 'PLAYING') return;
+            }
+            if (typeof getRunCompletePhysicsScale === 'function') {
+                dt *= getRunCompletePhysicsScale();
+            }
 
             const hostileDt = typeof getHostileDt === 'function' ? getHostileDt(dt) : dt;
             const hostileScale = dt > 0 ? Math.max(0, Math.min(1, hostileDt / dt)) : 1;
@@ -1176,12 +1493,44 @@
                     b.vy = (b.vy || 0) * damp;
                     continue;
                 }
+
+                if (b.isTrinityGrenade) {
+                    b.age = (b.age || 0) + hostileDt;
+                    b.fuse -= hostileDt;
+                    b.vy += (b.gravity || 320) * hostileDt;
+                    b.vx *= Math.pow(0.992, hostileDt * 60);
+                    b.x += b.vx * hostileDt;
+                    b.y += b.vy * hostileDt;
+                    b.spin = (b.spin || 0) + hostileDt * (b.grounded ? 3.2 : 8.5);
+
+                    const floorY = height - 64;
+                    if (b.y > floorY && b.fuse > 0) {
+                        b.y = floorY;
+                        b.vy = 0;
+                        b.vx *= Math.pow(0.86, hostileDt * 60);
+                        b.grounded = true;
+                    }
+
+                    if (b.fuse <= 0 || b.x < -70 || b.x > width + 70) {
+                        if (typeof explodeTrinityGrenade === 'function') explodeTrinityGrenade(b);
+                        enemyBullets.splice(i, 1);
+                    }
+                    continue;
+                }
                 
                 if (b.isGlitchBullet) {
                     b.morphTimer += hostileDt;
                     if (b.morphTimer > 0.12) {
                         b.morphTimer = 0;
-                        if (b.isCodeLine) {
+                        if (b.isMatrixRainColumn) {
+                            const chars = DISTORTED_GLITCH_MATRIX_CHARS;
+                            let arr = String(b.char || '').split('');
+                            for (let m = 0; m < 3; m++) {
+                                const idx = Math.floor(Math.random() * Math.max(1, arr.length));
+                                arr[idx] = chars[Math.floor(Math.random() * chars.length)];
+                            }
+                            b.char = arr.join('');
+                        } else if (b.isCodeLine) {
                             // Randomly mutate a few characters in the code line
                             const codeChars = 'ﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙ01{}[];:=></%!&|~';
                             let arr = b.char.split('');
@@ -1225,6 +1574,19 @@
                     b.speed = nextSpeed;
                     b.vx = Math.cos(nextAngle) * nextSpeed;
                     b.vy = Math.sin(nextAngle) * nextSpeed;
+                }
+
+                if (b.isSignalMachineRelay) {
+                    b.age = (b.age || 0) + hostileDt;
+                    b.x += (b.vx || 0) * hostileDt;
+                    b.y = (b.relayBaseY ?? b.y) + Math.sin(b.age * 8.2 + (b.relayPhase || 0)) * (b.relayAmp || 10);
+                    if (!b.relayFired && b.age >= (b.relayFireAt || 0.72)) {
+                        releaseGhostSignalMachineRelay(b);
+                    }
+                    if (b.age >= (b.relayLife || 1.45) || b.x < -70 || b.x > width + 70) {
+                        enemyBullets.splice(i, 1);
+                    }
+                    continue;
                 }
 
                 if (b.isLargeFlame || b.isLargeWraith) {
@@ -1280,9 +1642,10 @@
                 const hitboxR = 30 * getPlayerHitboxScale();
                 const bulletHitboxScale = b.hitboxScale || 1;
                 
-                if (dx * dx + dy * dy < hitboxR * hitboxR * bulletHitboxScale * bulletHitboxScale * (b.decay ? Math.max(0.1, b.life) : 1)) {
+                if (!b.nonDamaging && dx * dx + dy * dy < hitboxR * hitboxR * bulletHitboxScale * bulletHitboxScale * (b.decay ? Math.max(0.1, b.life) : 1)) {
                     if (!player.godMode && player.invincibilityTimer <= 0) {
                         player.hp -= 10;
+                        recordRunDamageTaken(10);
                         resetComboOnPlayerDamage();
                         addShake(15); 
                         wobble = 1.0; 
@@ -1352,24 +1715,24 @@
                         boss.colorCycleTimer += hostileDt;
                         if (boss.isDeadGlitching) {
                             const c1 = boss.stage === 1 ? '#ff00ff' : '#ffffff';
-                            const c2 = boss.stage === 1 ? '#00ffff' : '#ff0000';
+                            const c2 = boss.stage === 1 ? '#00ffff' : '#00ff41';
                             boss.color = (Math.floor(currentFrameNow / 100) % 2 === 0) ? c1 : c2;
                         } else if (boss.stage === 1) {
                             boss.color = (boss.colorCycleTimer % 2.0 < 1.0) ? '#ff00ff' : '#00ffff';
                         } else {
-                            boss.color = (boss.colorCycleTimer % 1.0 < 0.5) ? '#ffffff' : '#ff0000';
+                            boss.color = (boss.colorCycleTimer % 1.0 < 0.5) ? '#ffffff' : '#00ff41';
                         }
 
                         if (maybeTriggerBossDeathCinematic(boss)) return;
 
                         if (boss.stage === 1 && boss.hp <= boss.maxHp / 2) {
-                        boss.stage = 2;
-                        boss.transitionFlash = 0.3;
-                        boss.transitionTextTimer = 2.0;
-                        boss.glitchTearTimer = 2.3;
-                        boss.matrixRainTimer = 999;
-                        boss.x = width / 2;
-                        boss.y = height / 3;
+                            boss.stage = 2;
+                            boss.transitionFlash = 0.3;
+                            boss.transitionTextTimer = 2.0;
+                            boss.glitchTearTimer = 3.6;
+                            boss.matrixRainTimer = 0;
+                            boss.x = width / 2;
+                            boss.y = height / 3;
                             boss.sprite = GLITCH_SPRITE_2;
                             boss.chargeTimer = 0;
                             boss.isCharging = false;
@@ -1566,6 +1929,14 @@
                             }
                         }
                     }
+                } else if (boss.isMatrixHydra) {
+                    if (updateMatrixHydraBoss(hostileDt, hostileNow)) return;
+                } else if (boss.isAxiomCore) {
+                    if (updateAxiomCoreBoss(hostileDt, hostileNow)) return;
+                } else if (boss.isTurnboundTrinity) {
+                    if (updateTurnboundTrinityBoss(hostileDt, hostileNow)) return;
+                } else if (boss.isDreadLiturgy) {
+                    if (updateDreadLiturgyBoss(hostileDt, hostileNow)) return;
                 } else if (boss.isBlackVoid) {
                     if (updateBlackVoidBoss(hostileDt)) return;
                 } else if (boss.isEclipseWarden) {
@@ -1897,6 +2268,9 @@
                             boss.signalPulseComboCount = 0;
                             boss.signalPulseComboDelay = 0;
                             boss.signalComboCooldownUntil = 0;
+                            boss.signalMachineRelayCount = 0;
+                            boss.signalMachineDelay = 0;
+                            boss.signalMachineCooldownUntil = 0;
                         }
 
                         const isPhantom = boss.name === 'NULL PHANTOM';
@@ -2378,7 +2752,7 @@
 
             if (!boss) WaveManager.syncFormationState(enemies);
 
-            if (!boss && WaveManager.pendingFormationUnits <= 0) {
+            if (!boss && WaveManager.pendingFormationUnits <= 0 && !(typeof isRunCompleteTransitionActive === 'function' && isRunCompleteTransitionActive())) {
                 if (enemies.length > 0 && WaveManager.hasSpawnedWave) {
                     WaveManager.waveDelay = Math.max(WaveManager.waveDelay, WaveManager.interWaveDelay);
                     WaveManager.interWaveDelayQueued = true;
@@ -2443,14 +2817,18 @@
                     e.hoverTimer = (e.hoverTimer || 0) + hostileDt;
                     e.fireTimer += hostileDt;
 
-                    if (Math.random() > 0.6) {
+                    e.frostTrailTimer = (e.frostTrailTimer || 0) + hostileDt;
+                    const wraithFrostCap = e.bossMinionOwner === 'GHOST SIGNAL' ? GHOST_SIGNAL_TRAIL_HARD_CAP : ELEMENTAL_TRAIL_HARD_CAP;
+                    const wraithFrostInterval = thrusterParticles.length > GHOST_SIGNAL_TRAIL_SOFT_CAP ? 0.16 : 0.092;
+                    if (e.frostTrailTimer >= wraithFrostInterval && thrusterParticles.length < wraithFrostCap) {
+                        e.frostTrailTimer %= wraithFrostInterval;
                         const frost = getWraithFrostEmitter(e);
                         thrusterParticles.push({
                             x: frost.x + (Math.random() - 0.5) * frost.spreadX,
                             y: frost.y + (Math.random() - 0.5) * 4,
                             vx: (Math.random() - 0.5) * 42, vy: -56 - Math.random() * 36,
                             char: ['^', '*', '░', '▒'][Math.floor(Math.random() * 4)],
-                            color: null, life: 1.0, isWraithFlame: true
+                            color: null, life: 0.78, isWraithFlame: true
                         });
                     }
 
@@ -2573,8 +2951,12 @@
                 }
 
                 if (e.isFlameGuardian) {
-                    e.color = frameCount % 40 < 20 ? '#e38914' : '#e01926';
                     e.hoverTimer = (e.hoverTimer || 0) + hostileDt;
+                    e.firePhase = (e.firePhase || Math.random() * Math.PI * 2) + hostileDt * 5.2;
+                    const guardianHeat = (Math.sin(e.firePhase) + 1) * 0.5;
+                    const guardianRed = Math.round(224 + guardianHeat * 31);
+                    const guardianGreen = Math.round(40 + guardianHeat * 130);
+                    e.color = `rgb(${guardianRed},${guardianGreen},24)`;
                     
                     e.flameTrailTimer = (e.flameTrailTimer || 0) + hostileDt;
                     const guardianTrailInterval = thrusterParticles.length > FIREWALL_TRAIL_SOFT_CAP ? 0.17 : 0.105;
@@ -2887,7 +3269,9 @@
                 if (e.isFlyBy && e.onScreen && isEnemyDamageable(e) && !player.godMode && player.invincibilityTimer <= 0) {
                     const hitboxR = 30 * getPlayerHitboxScale();
                     if (doesCircleHitTargetMask(player.x, player.y, hitboxR, e)) {
-                        player.hp -= e.flyByDamage || 12;
+                        const collisionDamage = e.flyByDamage || 12;
+                        player.hp -= collisionDamage;
+                        recordRunDamageTaken(collisionDamage);
                         resetComboOnPlayerDamage();
                         addShake(18);
                         wobble = 1.0;
@@ -2985,9 +3369,10 @@
                                 });
                             }
                         } else if (d.isFocus) {
-                            focusMeter = Math.min(FOCUS_METER_MAX, focusMeter + (d.focusAmount || FOCUS_ELITE_DROP_AMOUNT));
+                            const focusMax = typeof getFocusMeterMax === 'function' ? getFocusMeterMax() : FOCUS_METER_MAX;
+                            focusMeter = Math.min(focusMax, focusMeter + (d.focusAmount || FOCUS_ELITE_DROP_AMOUNT));
                             if (focusMeter > 0) focusLockoutTimer = 0;
-                            focusRegenDelay = FOCUS_REGEN_DELAY;
+                            focusRegenDelay = typeof getFocusRegenDelaySeconds === 'function' ? getFocusRegenDelaySeconds() : FOCUS_REGEN_DELAY;
                             for (let k = 0; k < 16; k++) {
                                 const a = Math.random() * Math.PI * 2;
                                 const spd = 45 + Math.random() * 135;
