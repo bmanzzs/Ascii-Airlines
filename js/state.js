@@ -51,15 +51,11 @@
         let savedSurvivorAimMode = sessionStorage.getItem('ascii_survivor_eight_way_aim');
         if (savedSurvivorAimMode !== null) survivorEightWayAimEnabled = savedSurvivorAimMode === 'true';
 
-        // FPS Counter & Benchmark State
+        // FPS Counter State
         let frameCount = 0;
         let renderFrameCount = 0;
         let fpsLastTime = performance.now();
         let currentFps = 0;
-        
-        let benchFrames = 0;
-        let benchStartTime = 0;
-        let fpsCapped = false;
         let lastRafTime = 0;
 
         // Physics Constants
@@ -96,6 +92,9 @@
         const FOCUS_SPECTER_FADE_OUT = 0.18;
         const FOCUS_SPECTER_VISUAL_SCALE = 0.62;
         const FOCUS_SPECTER_HITBOX_SCALE = 0.48;
+        const SURVIVOR_FOCUS_REGEN_MULT = 0.68;
+        const SURVIVOR_COMBINED_FOCUS_DRAIN_MULT = 1.22;
+        const SURVIVOR_COMBINED_FOCUS_SHRINK_SCALE = 0.925;
         let P_ACCEL = 3800;
         const P_FRICTION = 0.95;
         let P_MAX_SPEED = 720;
@@ -113,6 +112,15 @@
         let comboEventType = 'idle';
         let comboEventText = '';
         let comboEventAt = 0;
+        let comboBurstPhase = 'idle';
+        let comboBurstBaseCombo = 0;
+        let comboBurstCount = 0;
+        let comboBurstStartAt = 0;
+        let comboBurstLastKillAt = 0;
+        let comboBurstAbsorbAt = 0;
+        let comboBurstSerial = 0;
+        let comboBurstFocusTriggered = false;
+        let comboBurstApplied = false;
         let comboFocusNoticeText = '';
         let comboFocusNoticeAt = 0;
         let comboFocusNoticeX = 0;
@@ -207,8 +215,8 @@
             startedAt: 0,
             color: '#6aa8ff'
         };
-        const GALAXY_WARP_DURATION = 1.2;
-        const GALAXY_WARP_HANDOFF_START = 0.66;
+        const GALAXY_WARP_DURATION = 1.35;
+        const GALAXY_WARP_HANDOFF_START = 0.76;
         const GALAXY_WARP_OUTRO_FADE = 0.56;
         let galaxyWarpTransition = {
             active: false,
@@ -660,6 +668,10 @@
                 color: (galaxy.colors && (galaxy.colors[1] || galaxy.colors[0])) || currentThemeColor,
                 outroStartedAt: 0
             };
+            if (typeof prepareGalaxyWarpMenuSnapshot === 'function') {
+                prepareGalaxyWarpMenuSnapshot(now, galaxyIndex);
+                galaxyWarpTransition.startedAt = performance.now();
+            }
             gameState = 'GALAXY_WARP';
             clearPauseVolumePreview();
             applyCurrentVolume();
@@ -715,6 +727,86 @@
             comboEventAt = currentFrameNow || performance.now();
         }
 
+        const COMBO_BURST_LINK_MS = 420;
+        const COMBO_BURST_SINGLE_DELAY_MS = 90;
+        const COMBO_BURST_MULTI_HOLD_MS = 460;
+        const COMBO_BURST_ABSORB_MS = 360;
+        const COMBO_BURST_APPLY_T = 0.48;
+        const COMBO_BURST_POPUP_MIN = 5;
+
+        function resetComboBurstState() {
+            comboBurstPhase = 'idle';
+            comboBurstBaseCombo = comboCount || 0;
+            comboBurstCount = 0;
+            comboBurstStartAt = 0;
+            comboBurstLastKillAt = 0;
+            comboBurstAbsorbAt = 0;
+            comboBurstFocusTriggered = false;
+            comboBurstApplied = false;
+            comboBurstSerial++;
+        }
+
+        function queueComboBurstKill(previousCombo, focusTriggered = false) {
+            const now = currentFrameNow || performance.now();
+            const withinLinkWindow = (now - comboBurstLastKillAt) <= COMBO_BURST_LINK_MS;
+            const canExtend = withinLinkWindow && (comboBurstPhase === 'building' || (comboBurstPhase === 'absorbing' && !comboBurstApplied));
+            if (!canExtend) {
+                comboBurstPhase = 'building';
+                comboBurstBaseCombo = Math.max(0, previousCombo || 0);
+                comboBurstCount = 0;
+                comboBurstStartAt = now;
+                comboBurstFocusTriggered = false;
+                comboBurstApplied = false;
+            } else if (comboBurstPhase === 'absorbing') {
+                comboBurstPhase = 'building';
+                comboBurstAbsorbAt = 0;
+                comboBurstApplied = false;
+            }
+            comboBurstCount++;
+            comboBurstLastKillAt = now;
+            comboBurstFocusTriggered = comboBurstFocusTriggered || !!focusTriggered;
+            comboBurstSerial++;
+        }
+
+        function updateComboBurstState(now = currentFrameNow || performance.now()) {
+            if (comboBurstPhase === 'building') {
+                const holdMs = comboBurstCount > 1 ? COMBO_BURST_MULTI_HOLD_MS : COMBO_BURST_SINGLE_DELAY_MS;
+                if (now - comboBurstLastKillAt >= holdMs) {
+                    comboBurstPhase = 'absorbing';
+                    comboBurstAbsorbAt = now;
+                    comboBurstApplied = false;
+                    comboBurstSerial++;
+                }
+            }
+
+            if (comboBurstPhase === 'absorbing') {
+                const absorbT = Math.max(0, Math.min(1, (now - comboBurstAbsorbAt) / COMBO_BURST_ABSORB_MS));
+                if (!comboBurstApplied && absorbT >= COMBO_BURST_APPLY_T) {
+                    comboBurstApplied = true;
+                    const eventText = comboBurstCount >= COMBO_BURST_POPUP_MIN
+                        ? `x${comboBurstCount}`
+                        : (comboBurstCount > 1 ? `+${comboBurstCount}` : '+1');
+                    markComboEvent(comboBurstFocusTriggered ? 'focus' : 'kill', eventText);
+                    comboBurstSerial++;
+                }
+                if (absorbT >= 1) {
+                    comboBurstPhase = 'idle';
+                    comboBurstBaseCombo = comboCount || 0;
+                    comboBurstCount = 0;
+                    comboBurstFocusTriggered = false;
+                    comboBurstApplied = false;
+                    comboBurstSerial++;
+                }
+            }
+        }
+
+        function getComboHudDisplayCount(now = currentFrameNow || performance.now()) {
+            updateComboBurstState(now);
+            if (comboBurstPhase === 'building') return comboBurstBaseCombo;
+            if (comboBurstPhase === 'absorbing') return comboBurstApplied ? comboCount : comboBurstBaseCombo;
+            return comboCount;
+        }
+
         function triggerComboFocusNotice(focusBonus) {
             comboFocusNoticeText = `DMG +${Math.round(Math.max(0, focusBonus) * 100)}%`;
             comboFocusNoticeAt = currentFrameNow || performance.now();
@@ -729,14 +821,11 @@
             recordRunEnemyKilled(enemy);
             if (!(enemy && enemy.suppressComboReward)) {
                 const previousFocusBonus = getComboFocusDamageBonus();
+                const previousCombo = comboCount;
                 comboCount++;
                 comboPeak = Math.max(comboPeak, comboCount);
                 const nextFocusBonus = getComboFocusDamageBonus();
-                if (nextFocusBonus > previousFocusBonus) {
-                    markComboEvent('focus', '');
-                } else {
-                    markComboEvent('kill', '+1');
-                }
+                queueComboBurstKill(previousCombo, nextFocusBonus > previousFocusBonus);
             }
             addScore(baseScore, true);
         }
@@ -757,6 +846,7 @@
             const echoGain = Math.max(stageCount * 3, Math.round(hpWeight + streakEcho));
             comboCount += echoGain;
             comboPeak = Math.max(comboPeak, comboCount);
+            resetComboBurstState();
             markComboEvent('boss', `ECHO +${echoGain}`);
 
             const phaseBonus = Math.min(baseScore * 0.35, baseScore * 0.055 * stageCount);
@@ -767,6 +857,7 @@
         function resetComboOnPlayerDamage() {
             if (comboCount <= 0) return;
             comboCount = 0;
+            resetComboBurstState();
             markComboEvent('break', 'CHAIN BREAK');
         }
         
@@ -820,7 +911,9 @@
         }
 
         function getFocusRegenPerSec() {
-            return FOCUS_REGEN_PER_SEC * (1 + clampFocusTuning(getFocusModifierValue('focusRegen', 0), 0, 2.25));
+            const survivorFocus = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+            const modeMult = survivorFocus ? SURVIVOR_FOCUS_REGEN_MULT : 1;
+            return FOCUS_REGEN_PER_SEC * modeMult * (1 + clampFocusTuning(getFocusModifierValue('focusRegen', 0), 0, 2.25));
         }
 
         function getFocusRegenDelaySeconds() {
@@ -913,12 +1006,14 @@
         }
 
         function getPlayerSpecterVisualScale() {
-            const targetScale = getFocusSpecterVisualTargetScale();
+            const survivorFocus = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+            const targetScale = survivorFocus ? SURVIVOR_COMBINED_FOCUS_SHRINK_SCALE : getFocusSpecterVisualTargetScale();
             return 1 - (1 - targetScale) * getSpecterRenderIntensity();
         }
 
         function getPlayerSpecterHitboxScale() {
-            const targetScale = getFocusSpecterHitboxTargetScale();
+            const survivorFocus = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+            const targetScale = survivorFocus ? SURVIVOR_COMBINED_FOCUS_SHRINK_SCALE : getFocusSpecterHitboxTargetScale();
             return 1 - (1 - targetScale) * getSpecterRenderIntensity();
         }
 
@@ -935,13 +1030,15 @@
             if (focusLockoutTimer > 0) focusLockoutTimer = Math.max(0, focusLockoutTimer - safeDt);
 
             const inputKeys = typeof keys !== 'undefined' ? keys : null;
-            const driveHeld = !!(canUseAbilities && inputKeys && inputKeys[' ']);
-            const specterHeld = !!(canUseAbilities && inputKeys && inputKeys.shift && !driveHeld);
+            const survivorFocus = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+            const combinedHeld = !!(survivorFocus && canUseAbilities && inputKeys && inputKeys.shift);
+            const driveHeld = !!(canUseAbilities && inputKeys && (survivorFocus ? inputKeys.shift : inputKeys.shift));
+            const specterHeld = !!(canUseAbilities && inputKeys && (survivorFocus ? inputKeys.shift : (inputKeys.arrowdown && !driveHeld)));
             const canSpendFocus = canUseAbilities && focusLockoutTimer <= 0 && focusMeter > 0;
             let wantDrive = canSpendFocus && driveHeld;
             let wantSpecter = canSpendFocus && specterHeld;
             const drain = wantDrive
-                ? getFocusDriveDrainPerSec()
+                ? getFocusDriveDrainPerSec() * (combinedHeld ? SURVIVOR_COMBINED_FOCUS_DRAIN_MULT : 1)
                 : (wantSpecter ? getFocusSpecterDrainPerSec() : 0);
 
             if (drain > 0) {
@@ -981,7 +1078,7 @@
                 safeDt,
                 specterTarget > focusSpecterIntensity ? getFocusSpecterFadeInSeconds() : getFocusSpecterFadeOutSeconds()
             );
-            focusMode = wantDrive ? 'drive' : (wantSpecter ? 'specter' : 'idle');
+            focusMode = wantDrive && wantSpecter ? 'prism' : (wantDrive ? 'drive' : (wantSpecter ? 'specter' : 'idle'));
             const driveTimeScale = getFocusDriveHostileTimeScale();
             hostileTimeScale = 1 - getFocusDriveRenderIntensity() * (1 - driveTimeScale);
             hostileTimeMs += safeDt * 1000 * getHostileTimeScale();

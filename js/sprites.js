@@ -147,10 +147,13 @@
             return alpha < 1 ? `rgba(${r}, ${g}, ${b}, ${alpha})` : `rgb(${r}, ${g}, ${b})`;
         }
 
-        function getNullPhantomRenderLayout(bossObj) {
+        function getNullPhantomRenderLayout(bossObj, scaleOverride = 1) {
             const isIntro = bossObj && bossObj.phase === 'INTRO';
-            const cellW = Math.max(2.4, charW * NULL_PHANTOM_SCALE);
-            const cellH = Math.max(2.4, charH * NULL_PHANTOM_SCALE);
+            const layoutScale = Number.isFinite(scaleOverride) ? Math.max(0.08, scaleOverride) : 1;
+            const phantomScale = NULL_PHANTOM_SCALE * layoutScale;
+            const minCell = Math.max(1, 2.4 * layoutScale);
+            const cellW = Math.max(minCell, charW * phantomScale);
+            const cellH = Math.max(minCell, charH * phantomScale);
             const visibleW = NULL_PHANTOM_METRICS.width * cellW;
             const visibleH = NULL_PHANTOM_METRICS.height * cellH;
             const tAngle = ((renderFrameCount % NULL_PHANTOM_LOOP_FRAMES) / NULL_PHANTOM_LOOP_FRAMES) * Math.PI * 2;
@@ -179,7 +182,9 @@
                 chuckleAmount,
                 tAngle,
                 isIntro,
-                cubeScale: Math.max(0.22, Math.min(0.48, NULL_PHANTOM_SCALE * 2.02))
+                motionScale: layoutScale,
+                fontSize: Math.max(4, NULL_PHANTOM_FONT_SIZE * layoutScale),
+                cubeScale: Math.max(0.12, Math.min(0.48, NULL_PHANTOM_SCALE * layoutScale * 2.02))
             };
         }
 
@@ -209,26 +214,30 @@
             const jawClose = Math.max(0, -layout.laughWave);
             const lowerFaceWobbleFade = 1 - Math.min(0.74, mouthBandInfluence * 0.58 + chinInfluence * 0.4);
 
+            const motionScale = Number.isFinite(layout.motionScale) ? layout.motionScale : 1;
+            const x =
+                harmonicField * NULL_PHANTOM_SWAY_X * (0.22 + rowRatio * 0.58) * lowerFaceWobbleFade +
+                fromCenter * mouthBandInfluence * layout.laughAmount * NULL_PHANTOM_LAUGH_SPREAD * (0.24 + absCenter * 0.76) +
+                fromCenter * smileArcInfluence * jawOpen * NULL_PHANTOM_SMILE_OUTWARD_PULL +
+                fromCenter * clownSmileInfluence * jawOpen * 5.2 +
+                fromCenter * mouthCornerInfluence * jawOpen * 5.4 +
+                fromCenter * cheekInfluence * layout.chuckleAmount * 0.95;
+            const y =
+                verticalField * NULL_PHANTOM_SWAY_Y * (0.4 + (1 - absCenter) * 0.32) * lowerFaceWobbleFade +
+                lowerMouthInfluence * layout.laughAmount * NULL_PHANTOM_JAW_DROP * (0.68 + (1 - absCenter) * 0.32) -
+                cheekInfluence * layout.laughAmount * NULL_PHANTOM_CHEEK_LIFT -
+                upperFaceInfluence * layout.laughAmount * NULL_PHANTOM_BROW_LIFT * 0.6 -
+                smileArcInfluence * jawOpen * NULL_PHANTOM_SMILE_CORNER_LIFT -
+                clownSmileInfluence * jawOpen * 4.8 -
+                mouthCenterInfluence * jawOpen * NULL_PHANTOM_MOUTH_RAISE +
+                lowerMouthInfluence * jawOpen * NULL_PHANTOM_MOUTH_DROP_EXTRA +
+                mouthCenterInfluence * jawOpen * NULL_PHANTOM_SMILE_CENTER_DROP * 1.12 +
+                chinInfluence * jawOpen * NULL_PHANTOM_CHIN_STRETCH -
+                mouthCenterInfluence * jawClose * 1.8;
+
             return {
-                x:
-                    harmonicField * NULL_PHANTOM_SWAY_X * (0.22 + rowRatio * 0.58) * lowerFaceWobbleFade +
-                    fromCenter * mouthBandInfluence * layout.laughAmount * NULL_PHANTOM_LAUGH_SPREAD * (0.24 + absCenter * 0.76) +
-                    fromCenter * smileArcInfluence * jawOpen * NULL_PHANTOM_SMILE_OUTWARD_PULL +
-                    fromCenter * clownSmileInfluence * jawOpen * 5.2 +
-                    fromCenter * mouthCornerInfluence * jawOpen * 5.4 +
-                    fromCenter * cheekInfluence * layout.chuckleAmount * 0.95,
-                y:
-                    verticalField * NULL_PHANTOM_SWAY_Y * (0.4 + (1 - absCenter) * 0.32) * lowerFaceWobbleFade +
-                    lowerMouthInfluence * layout.laughAmount * NULL_PHANTOM_JAW_DROP * (0.68 + (1 - absCenter) * 0.32) -
-                    cheekInfluence * layout.laughAmount * NULL_PHANTOM_CHEEK_LIFT -
-                    upperFaceInfluence * layout.laughAmount * NULL_PHANTOM_BROW_LIFT * 0.6 -
-                    smileArcInfluence * jawOpen * NULL_PHANTOM_SMILE_CORNER_LIFT -
-                    clownSmileInfluence * jawOpen * 4.8 -
-                    mouthCenterInfluence * jawOpen * NULL_PHANTOM_MOUTH_RAISE +
-                    lowerMouthInfluence * jawOpen * NULL_PHANTOM_MOUTH_DROP_EXTRA +
-                    mouthCenterInfluence * jawOpen * NULL_PHANTOM_SMILE_CENTER_DROP * 1.12 +
-                    chinInfluence * jawOpen * NULL_PHANTOM_CHIN_STRETCH -
-                    mouthCenterInfluence * jawClose * 1.8
+                x: x * motionScale,
+                y: y * motionScale
             };
         }
 
@@ -994,6 +1003,116 @@
             }
             ctx.fillText(char, 0, 0);
             ctx.restore();
+        }
+
+        const ENEMY_SHIP_SPRITE_CACHE = new Map();
+        const ENEMY_SHIP_SPRITE_CACHE_MAX = 192;
+        const ENEMY_SHIP_CACHE_PULSE_FRAMES = 4;
+
+        function trimEnemyShipSpriteCache() {
+            while (ENEMY_SHIP_SPRITE_CACHE.size > ENEMY_SHIP_SPRITE_CACHE_MAX) {
+                const oldestKey = ENEMY_SHIP_SPRITE_CACHE.keys().next().value;
+                ENEMY_SHIP_SPRITE_CACHE.delete(oldestKey);
+            }
+        }
+
+        function drawEnemyShipGlyphToContext(targetCtx, char, x, y, fontSize, color, rotation = 0, alpha = 1, glowColor = color, glowBlur = 0) {
+            targetCtx.save();
+            targetCtx.translate(Math.round(x), Math.round(y));
+            if (rotation) targetCtx.rotate(rotation);
+            targetCtx.globalAlpha *= alpha;
+            targetCtx.fillStyle = color;
+            targetCtx.font = `bold ${fontSize}px Courier New`;
+            targetCtx.textAlign = 'center';
+            targetCtx.textBaseline = 'middle';
+            if (glowEnabled && glowBlur > 0) {
+                targetCtx.shadowColor = glowColor;
+                targetCtx.shadowBlur = glowBlur;
+                targetCtx.globalAlpha *= 0.82;
+                targetCtx.fillText(char, 0, 0);
+                targetCtx.shadowBlur = 0;
+                targetCtx.globalAlpha /= 0.82;
+            }
+            targetCtx.fillText(char, 0, 0);
+            targetCtx.restore();
+        }
+
+        function getEnemyShipSpriteCacheFrame(enemy, flashColor = null, options = {}) {
+            if (!enemy || !enemy.enemyShipSprite) return null;
+            const kind = enemy.enemyShipKind || 'base';
+            const profile = ENEMY_SHIP_VISUAL_PROFILES[kind] || ENEMY_SHIP_VISUAL_PROFILES.base;
+            const visualScale = Math.max(0.85, Math.min(1.24, enemy.enemyShipVisualScale || 1));
+            const scaleBucket = Math.round(visualScale * 100);
+            const pulseFrame = options.staticFrame
+                ? 0
+                : Math.floor(((currentFrameNow || 0) / 120) % ENEMY_SHIP_CACHE_PULSE_FRAMES);
+            const bodyColor = flashColor || enemy.enemyShipBodyColor || getSoftEnemyBaseColor(enemy.color || '#ff00ff', kind);
+            const thrusterColor = flashColor || enemy.enemyShipThrusterColor || bodyColor;
+            const highlightColor = flashColor || enemy.enemyShipHighlightColor || bodyColor;
+            const coreColor = flashColor || enemy.enemyShipCoreColor || '#ffffff';
+            const glowColor = flashColor || enemy.enemyShipGlowColor || bodyColor;
+            const key = [
+                kind,
+                scaleBucket,
+                pulseFrame,
+                glowEnabled ? 1 : 0,
+                bodyColor,
+                thrusterColor,
+                highlightColor,
+                coreColor,
+                glowColor
+            ].join('|');
+            let entry = ENEMY_SHIP_SPRITE_CACHE.get(key);
+            if (entry) {
+                ENEMY_SHIP_SPRITE_CACHE.delete(key);
+                ENEMY_SHIP_SPRITE_CACHE.set(key, entry);
+                return entry;
+            }
+
+            const bodySize = Math.round(profile.bodySize * visualScale);
+            const wingSize = Math.round(profile.wingSize * visualScale);
+            const coreSize = Math.round(profile.coreSize * visualScale);
+            const spread = (profile.tier >= 3 ? 15 : 12) * visualScale;
+            const glowBlur = glowEnabled ? profile.glowBlur * visualScale : 0;
+            const pulsePhase = (pulseFrame / ENEMY_SHIP_CACHE_PULSE_FRAMES) * Math.PI * 2;
+            const pulse = 1 + Math.sin(pulsePhase) * 0.035;
+            const pad = Math.ceil(18 + glowBlur * 2.6);
+            const halfW = Math.ceil(spread + bodySize * 0.82 + pad);
+            const halfH = Math.ceil(bodySize * 0.74 + 22 * visualScale + pad);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(32, halfW * 2);
+            canvas.height = Math.max(42, halfH * 2);
+            const cacheCtx = canvas.getContext('2d', { alpha: true });
+            if (!cacheCtx) return null;
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            cacheCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (profile.wingGlyph) {
+                drawEnemyShipGlyphToContext(cacheCtx, profile.wingGlyph, cx - spread, cy + 3 * visualScale, wingSize, highlightColor, -0.08, 0.58, glowColor, glowBlur * 0.28);
+                drawEnemyShipGlyphToContext(cacheCtx, profile.wingGlyph, cx + spread, cy + 3 * visualScale, wingSize, highlightColor, 0.08, 0.58, glowColor, glowBlur * 0.28);
+            }
+            drawEnemyShipGlyphToContext(cacheCtx, profile.bodyGlyph, cx, cy, bodySize * pulse, bodyColor, 0, 1, glowColor, glowBlur);
+            drawEnemyShipGlyphToContext(cacheCtx, '\u00b7', cx, cy + 1 * visualScale, coreSize, coreColor, 0, 0.82, '#ffffff', glowBlur * 0.22);
+            drawEnemyShipGlyphToContext(cacheCtx, profile.tier >= 2 ? '\u2219' : '.', cx, cy + 16 * visualScale, Math.round(11 * visualScale), thrusterColor, 0, 0.42, glowColor, glowBlur * 0.22);
+
+            entry = {
+                canvas,
+                offsetX: cx,
+                offsetY: cy
+            };
+            ENEMY_SHIP_SPRITE_CACHE.set(key, entry);
+            trimEnemyShipSpriteCache();
+            return entry;
+        }
+
+        function drawCachedEnemyShipSprite(enemy, flashColor = null, options = {}) {
+            const entry = getEnemyShipSpriteCacheFrame(enemy, flashColor, options);
+            if (!entry) return false;
+            const x = snapSpriteCoord(enemy.x) - entry.offsetX;
+            const y = snapSpriteCoord(enemy.y) - entry.offsetY;
+            ctx.drawImage(entry.canvas, x, y);
+            return true;
         }
 
         function drawEnemyShipSprite(enemy, flashColor = null) {

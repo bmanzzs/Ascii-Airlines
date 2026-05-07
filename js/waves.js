@@ -27,6 +27,7 @@
                 glyphs: ['1', '0'],
                 coreGlyph: '0',
                 coreVoidGlyph: '1',
+                visualStyle: 'binaryQuasar',
                 arms: 3,
                 tilt: 0.48,
                 twist: 2.8,
@@ -38,11 +39,12 @@
                 name: 'MATRIX NEBULA',
                 desc: 'A green code-cloud route through corrupted math, synthetic dark matter, and falling command rain.',
                 available: true,
-                colors: ['#009f46', '#38d86f', '#f2fff6'],
+                colors: ['#007a3a', '#25b85b', '#f2fff6'],
                 coreColor: '#f2fff6',
                 glyphs: ['0', '1', '|', ':', ';', '.', '/', '\\'],
                 coreGlyph: '1',
                 coreVoidGlyph: '0',
+                visualStyle: 'matrixNebula',
                 arms: 2,
                 tilt: 0.38,
                 twist: 3.55,
@@ -50,8 +52,8 @@
             },
             {
                 id: 'rose-quasar',
-                title: 'MANDELBROT HALO',
-                name: 'MANDELBROT HALO',
+                title: 'FRACTAL HALO',
+                name: 'FRACTAL HALO',
                 desc: 'Locked sector. Recursive arms fold into an impossible fractal orbit.',
                 available: false,
                 colors: ['#ff7ab8', '#8fb8ff', '#fff0fa'],
@@ -59,6 +61,7 @@
                 glyphs: ['{', '}', '(', ')', '∞', '∂', '∑', '.'],
                 coreGlyph: '∞',
                 coreVoidGlyph: '∂',
+                visualStyle: 'fractalHalo',
                 arms: 4,
                 tilt: 0.58,
                 twist: 2.35,
@@ -75,6 +78,7 @@
                 glyphs: ['#', '/', '\\', '|', '[', ']', '{', '}'],
                 coreGlyph: '#',
                 coreVoidGlyph: '|',
+                visualStyle: 'kernelEye',
                 arms: 2,
                 tilt: 0.52,
                 twist: 2.95,
@@ -107,6 +111,7 @@
                 glyphs: ['<', '>', '^', 'v', '/', '\\', '0', '1'],
                 coreGlyph: '>',
                 coreVoidGlyph: '<',
+                visualStyle: 'bitshiftSphere',
                 arms: 3,
                 tilt: 0.62,
                 twist: 3.2,
@@ -2053,7 +2058,7 @@
                         boss.eclipseRingAngle = 0;
                     }
                     if (w.name === 'BATTLE STARSHIP') {
-                        startBattleStarshipMusic();
+                        startRoseBossMusic();
                         boss.isBattleStarship = true;
                         boss.color = '#7ed4ff';
                         boss.renderScale = 0.55;

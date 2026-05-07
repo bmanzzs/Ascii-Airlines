@@ -71,6 +71,11 @@
         }
         
         window.addEventListener('keydown', e => { 
+            if (typeof musicPlayerOpen !== 'undefined' && musicPlayerOpen && (e.key === '`' || e.key === '~')) {
+                if (typeof handleMusicPlayerKey === 'function') handleMusicPlayerKey(e.key.toLowerCase());
+                e.preventDefault();
+                return;
+            }
             if ((e.key === '`' || e.key === '~') && typeof isBossIntroActive === 'function' && isBossIntroActive()) {
                 e.preventDefault();
                 return;
@@ -138,12 +143,19 @@
                 return;
             }
 
+            const k = e.key.toLowerCase();
+            if (typeof musicPlayerOpen !== 'undefined' && musicPlayerOpen) {
+                e.preventDefault();
+                if (typeof handleMusicPlayerKey === 'function') handleMusicPlayerKey(k);
+                clearGameplayKeys();
+                return;
+            }
+
             if (bossCinematic && bossCinematic.paused) {
                 e.preventDefault();
                 return;
             }
             
-            const k = e.key.toLowerCase();
             if (typeof isRunCompleteTransitionActive === 'function' && isRunCompleteTransitionActive()) {
                 if ((k === 'enter' || k === ' ') && typeof completeRunToScoreScreen === 'function') {
                     completeRunToScoreScreen();
@@ -155,7 +167,9 @@
                 keys[k] = true;
                 const survivorMode = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
                 const survivorEightWayAim = typeof survivorEightWayAimEnabled === 'undefined' || survivorEightWayAimEnabled;
-                const shouldDetonate = survivorMode ? (k === 'b' || (!survivorEightWayAim && k === 'arrowdown')) : k === 'arrowdown';
+                const shouldDetonate = survivorMode
+                    ? (k === ' ' || k === 'b' || (!survivorEightWayAim && k === 'arrowdown'))
+                    : k === ' ';
                 if (gameState === 'PLAYING' && shouldDetonate && !e.repeat && bombProjectiles.length > 0) {
                     for (let bi = 0; bi < bombProjectiles.length; bi++) bombProjectiles[bi].forceDetonate = true;
                 }

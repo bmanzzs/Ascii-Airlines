@@ -1327,7 +1327,7 @@
             }
             
             if (player.bombTimer > 0) player.bombTimer -= dt;
-            if (postResumeBombLockTimer <= 0 && keys.arrowdown && player.bombTimer <= 0) fireBomb();
+            if (postResumeBombLockTimer <= 0 && keys[' '] && player.bombTimer <= 0) fireBomb();
             for (let i = bombProjectiles.length - 1; i >= 0; i--) {
                 const bomb = bombProjectiles[i];
                 if (bomb.justFired) {
@@ -1499,6 +1499,13 @@
                     continue;
                 }
 
+                if (b.isDissolvingProjectile) {
+                    if (typeof updateProjectileLifetimeDissolve === 'function' && updateProjectileLifetimeDissolve(b, hostileDt)) {
+                        enemyBullets.splice(i, 1);
+                    }
+                    continue;
+                }
+
                 if (b.isTrinityGrenade) {
                     b.age = (b.age || 0) + hostileDt;
                     b.fuse -= hostileDt;
@@ -1589,7 +1596,13 @@
                         releaseGhostSignalMachineRelay(b);
                     }
                     if (b.age >= (b.relayLife || 1.45) || b.x < -70 || b.x > width + 70) {
-                        enemyBullets.splice(i, 1);
+                        const dissolving = typeof beginProjectileLifetimeDissolve === 'function' && beginProjectileLifetimeDissolve(b, {
+                            char: b.char || '[ ]',
+                            color: b.color || '#bffcff',
+                            scale: 1.0,
+                            velocityScale: 0.08
+                        });
+                        if (!dissolving) enemyBullets.splice(i, 1);
                     }
                     continue;
                 }
@@ -1640,7 +1653,18 @@
                 
                 if (b.decay) {
                     b.life -= b.decay * hostileDt;
-                    if (b.life <= 0) { enemyBullets.splice(i, 1); continue; }
+                    if (b.life <= 0) {
+                        const dissolving = typeof beginProjectileLifetimeDissolve === 'function' && beginProjectileLifetimeDissolve(b, {
+                                char: b.char || 'o',
+                                color: b.color || '#ffffff',
+                                scale: b.isHuge ? 0.42 : 0.86,
+                                velocityScale: 0.1
+                            });
+                        if (!dissolving) {
+                            enemyBullets.splice(i, 1);
+                        }
+                        continue;
+                    }
                 }
 
                 const dx = b.x - player.x, dy = b.y - player.y;
@@ -2385,9 +2409,14 @@
                         } else if (boss.attackPattern === 2 && bossNow - boss.lastFire > 750) {
                             const dx = player.x - boss.x;
                             const dy = player.y - boss.y;
-                            for (let i = -2; i <= 2; i++) {
-                                const a = Math.atan2(dy, dx) + i * 0.22;
-                                fire(Math.cos(a) * 600, Math.sin(a) * 600);
+                            const aim = Math.atan2(dy, dx);
+                            const count = 7;
+                            const half = (count - 1) / 2;
+                            for (let i = 0; i < count; i++) {
+                                const offset = i - half;
+                                const a = aim + offset * 0.18;
+                                const speed = 560 - Math.abs(offset) * 24;
+                                fire(Math.cos(a) * speed, Math.sin(a) * speed);
                             }
                             boss.lastFire = bossNow;
                         } else if (boss.attackPattern === 3 && boss.name === 'GHOST SIGNAL' && bossNow - boss.lastFire > 3000) {
@@ -2451,6 +2480,12 @@
             // Projectiles
             for (let i = comboProjectiles.length - 1; i >= 0; i--) {
                 const p = comboProjectiles[i];
+                if (p.isDissolvingProjectile) {
+                    if (typeof updateProjectileLifetimeDissolve === 'function' && updateProjectileLifetimeDissolve(p, dt)) {
+                        comboProjectiles.splice(i, 1);
+                    }
+                    continue;
+                }
                 if ((p.releaseDelay || 0) > 0) {
                     p.releaseDelay = Math.max(0, p.releaseDelay - dt);
                     continue;
@@ -2460,6 +2495,19 @@
                 p.prevX = p.x;
                 p.prevY = p.y;
                 if (((p.stats && p.stats.prismSplitDelay) || 0) <= p.age) spawnPrismSplitProjectiles(p);
+                const projectileStats = p.stats || createBaseWeaponStats();
+                if (p.life <= 0 && !p.isChainLightning && !projectileStats.miniTorpedo && projectileStats.pathFunction !== 'parabolic') {
+                    const dissolving = typeof beginProjectileLifetimeDissolve === 'function' && beginProjectileLifetimeDissolve(p, {
+                            char: p.sprite || (projectileStats.plasmaCloud ? '~' : (projectileStats.lightningBall ? '*' : '|')),
+                            color: p.color || '#ffffff',
+                            scale: (projectileStats.sizeMult || 1) * (projectileStats.plasmaCloud ? getPlasmaCloudGrowthFactor(p) : 1),
+                            velocityScale: 0.13
+                        });
+                    if (!dissolving) {
+                        comboProjectiles.splice(i, 1);
+                    }
+                    continue;
+                }
                 
                 if (p.orbitTime > 0) {
                     p.orbitTime -= dt;
@@ -2578,7 +2626,6 @@
                 }
                 
                 let hit = false;
-                const projectileStats = p.stats || createBaseWeaponStats();
                 const hitboxRadius = getComboProjectileHitboxRadius(p);
                 const targetMaskRadius = Math.max(4, hitboxRadius * (projectileStats.plasmaCloud ? 0.95 : (projectileStats.miniTorpedo ? 0.86 : 0.82)));
                 const torpedoRange = projectileStats.torpedoRange || 0;

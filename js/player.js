@@ -1509,6 +1509,7 @@
         function buildConsoleWaveHelpLines() {
             const bossWaves = [];
             const runWaveLimit = getConsoleRunWaveLimit();
+            const survivorWaveLimit = getConsoleSurvivorWaveLimit();
             for (let i = 1; i <= runWaveLimit; i++) {
                 const waveDef = typeof WaveManager.getWaveDefinitionForWave === 'function'
                     ? WaveManager.getWaveDefinitionForWave(i)
@@ -1519,7 +1520,18 @@
                 `wave/w <target> : jump to run wave 1-${runWaveLimit}`,
                 'Galaxy target is optional: g1, g2, etc.',
                 `Boss waves: ${bossWaves.join(', ')}`,
+                `sw/ws <n> : jump Prism Wake survivor wave 1-${survivorWaveLimit}`,
                 'Examples: wave 15 | wave g1w13 | w w12g2 | g2 w10'
+            ];
+        }
+
+        function buildConsoleSurvivorWaveHelpLines() {
+            const limit = getConsoleSurvivorWaveLimit();
+            return [
+                `sw/ws <n> : jump Prism Wake survivor wave 1-${limit}`,
+                'Boss slots are every 5 waves: sw 5, ws 10, sw 15...',
+                'sw 5 or ws 5 starts the first survivor boss immediately',
+                'Examples: sw 1 | ws 5 | sw30 | ws30'
             ];
         }
 
@@ -1535,17 +1547,24 @@
         function buildConsoleGeneralHelpLines() {
             return [
                 'Commands:',
-                'help [wave|lvl|wep|remwep]',
+                'help [wave|sw|ws|lvl|wep|remwep]',
                 'wave/w <n|g1w13|w12g2> or bare g2 w10',
+                'sw/ws <n> : Prism Wake survivor wave',
+                'mu/music : open mini music player',
                 'lvl [n]',
                 'wep <n|weapon name>',
                 'remwep/rwep <active slot|weapon name>',
                 'gm [on|off]',
+                'mu or music',
                 'Try: help wep'
             ];
         }
 
         function getConsoleRunWaveLimit() {
+            const activeGalaxy = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : 0;
+            if (typeof isSurvivorGalaxy === 'function' && isSurvivorGalaxy(activeGalaxy)) {
+                return getConsoleRunWaveLimitForGalaxy(0);
+            }
             if (typeof WaveManager !== 'undefined' && typeof WaveManager.getRunWaveLimit === 'function') {
                 return WaveManager.getRunWaveLimit();
             }
@@ -1560,6 +1579,13 @@
                 return getGalaxyRunWaveLimit(galaxyIndex);
             }
             return getConsoleRunWaveLimit();
+        }
+
+        function getConsoleSurvivorWaveLimit() {
+            if (typeof getSurvivorConsoleWaveLimit === 'function') {
+                return getSurvivorConsoleWaveLimit();
+            }
+            return 40;
         }
 
         function getLastConsoleRegexInt(text, regex) {
@@ -1613,6 +1639,9 @@
             }
 
             let galaxyIndex = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : 0;
+            if (typeof isSurvivorGalaxy === 'function' && isSurvivorGalaxy(galaxyIndex)) {
+                galaxyIndex = 0;
+            }
             let galaxySpecified = false;
             if (galaxyNumber !== null) {
                 galaxySpecified = true;
@@ -1632,6 +1661,17 @@
             }
 
             return { ok: true, waveNumber, galaxyIndex, galaxySpecified };
+        }
+
+        function parseConsoleSurvivorWaveTarget(argString) {
+            const limit = getConsoleSurvivorWaveLimit();
+            const raw = (argString || '').trim().toLowerCase();
+            const match = raw.match(/\b([1-9]\d*)\b/);
+            const waveNumber = match ? parseInt(match[1], 10) : NaN;
+            if (!Number.isFinite(waveNumber) || waveNumber < 1 || waveNumber > limit) {
+                return { ok: false, message: `Usage: sw 1-${limit}` };
+            }
+            return { ok: true, waveNumber };
         }
 
         function removePlayerWeapon(argString) {
@@ -1734,6 +1774,32 @@
 
             if (command !== 'help') clearConsoleReference();
 
+            const inlineSurvivorWave = command.match(/^(?:sw|ws)([1-9]\d*)$/);
+            if (command === 'mu' || command === 'music') {
+                if (typeof openMusicPlayer === 'function') {
+                    openMusicPlayer();
+                    pushConsoleNotification('Music player opened.', 'success');
+                    return true;
+                }
+                pushConsoleNotification('Music player is unavailable.', 'error');
+                return false;
+            }
+
+            if (command === 'sw' || command === 'ws' || inlineSurvivorWave) {
+                const parsedTarget = parseConsoleSurvivorWaveTarget(inlineSurvivorWave ? inlineSurvivorWave[1] : argString);
+                if (!parsedTarget.ok) {
+                    pushConsoleNotification(parsedTarget.message, 'error');
+                    return false;
+                }
+                if (typeof jumpToSurvivorWave !== 'function') {
+                    pushConsoleNotification('Survivor mode is unavailable.', 'error');
+                    return false;
+                }
+                const result = jumpToSurvivorWave(parsedTarget.waveNumber);
+                pushConsoleNotification(result.message, result.ok ? 'success' : 'error');
+                return result.ok;
+            }
+
             const isWaveCommand = command === 'wave' || command === 'w';
             if (isWaveCommand || isBareConsoleWaveTarget(commandLine)) {
                 const parsedTarget = parseConsoleWaveTarget(isWaveCommand ? argString : commandLine);
@@ -1760,6 +1826,12 @@
                 if (!targetWaveDef) {
                     pushConsoleNotification(`Wave ${targetWave} is unavailable.`, 'error');
                     return false;
+                }
+                if (typeof isSurvivorModeActive === 'function' && isSurvivorModeActive()) {
+                    if (typeof endSurvivorRun === 'function') endSurvivorRun();
+                    else if (typeof setActiveGameMode === 'function') setActiveGameMode('campaign');
+                } else if (typeof setActiveGameMode === 'function') {
+                    setActiveGameMode('campaign');
                 }
                 teardownBossCinematic();
                 queuedConsoleLevels = 0;
@@ -1896,9 +1968,23 @@
                     pushConsoleNotification('Showing wave command help.', 'info');
                     return false;
                 }
+                if (topic === 'sw' || topic === 'ws' || topic === 'survivor' || topic === 'survivorwave' || topic === 'survivorwaves') {
+                    setConsoleReference(buildConsoleSurvivorWaveHelpLines());
+                    pushConsoleNotification('Showing survivor wave command help.', 'info');
+                    return false;
+                }
                 if (topic === 'lvl' || topic === 'level' || topic === 'levels') {
                     setConsoleReference(buildConsoleLevelHelpLines());
                     pushConsoleNotification('Showing level command help.', 'info');
+                    return false;
+                }
+                if (topic === 'mu' || topic === 'music' || topic === 'player') {
+                    setConsoleReference([
+                        'mu/music : open mini music player',
+                        'Plays gameplay tracks with the same intro-to-loop structure',
+                        'Use menu controls to seek, change tracks, pause, and adjust volume'
+                    ]);
+                    pushConsoleNotification('Showing music player help.', 'info');
                     return false;
                 }
                 pushConsoleNotification(`Unknown help topic: ${argString}`, 'error');

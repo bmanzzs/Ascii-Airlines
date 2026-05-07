@@ -66,47 +66,49 @@
         }
 
         function ensureHudStructure() {
-            if (document.querySelector('#hud-wave-panel #hud-score-value') && document.getElementById('hud-combo-value') && document.getElementById('hud-focus-bar')) return;
-            hud.innerHTML = `
-                <div class="hud-left">
-                    <div class="hud-meters">
-                        <div class="hud-meter">
-                            <span class="hud-meter-label">HP</span>
-                            <span id="hud-hp-bar" class="hud-meter-bar"></span>
-                        </div>
-                        <div class="hud-meter">
-                            <span class="hud-meter-label">XP</span>
-                            <span id="hud-xp-bar" class="hud-meter-bar"></span>
-                        </div>
-                        <div class="hud-meter">
-                            <span class="hud-meter-label">BOMB</span>
-                            <span id="hud-bomb-bar" class="hud-meter-bar"></span>
-                        </div>
-                        <div class="hud-meter">
-                            <span class="hud-meter-label">FOCUS</span>
-                            <span id="hud-focus-bar" class="hud-meter-bar"></span>
+            const hasHudStructure = document.querySelector('#hud-wave-panel #hud-score-value') && document.getElementById('hud-combo-value') && document.getElementById('hud-focus-bar');
+            if (!hasHudStructure) {
+                hud.innerHTML = `
+                    <div class="hud-left">
+                        <div class="hud-meters">
+                            <div class="hud-meter">
+                                <span class="hud-meter-label">HP</span>
+                                <span id="hud-hp-bar" class="hud-meter-bar"></span>
+                            </div>
+                            <div class="hud-meter">
+                                <span class="hud-meter-label">XP</span>
+                                <span id="hud-xp-bar" class="hud-meter-bar"></span>
+                            </div>
+                            <div class="hud-meter">
+                                <span class="hud-meter-label">BOMB</span>
+                                <span id="hud-bomb-bar" class="hud-meter-bar"></span>
+                            </div>
+                            <div class="hud-meter">
+                                <span class="hud-meter-label">FOCUS</span>
+                                <span id="hud-focus-bar" class="hud-meter-bar"></span>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class="hud-right">
-                    <div class="hud-weapon-wrap">
-                        <div id="hud-weapon-grid" class="hud-weapon-grid"></div>
-                    </div>
-                    <div class="hud-status">
-                        <span id="hud-wave-panel" class="hud-wave-panel is-standard">
-                            <span class="hud-level-chip">
-                                <span id="hud-level-text" class="hud-level-main">LVL 1</span>
-                                <span id="hud-score-value" class="hud-level-score">000000</span>
+                    <div class="hud-right">
+                        <div class="hud-weapon-wrap">
+                            <div id="hud-weapon-grid" class="hud-weapon-grid"></div>
+                        </div>
+                        <div class="hud-status">
+                            <span id="hud-wave-panel" class="hud-wave-panel is-standard">
+                                <span class="hud-level-chip">
+                                    <span id="hud-level-text" class="hud-level-main">LVL 1</span>
+                                    <span id="hud-score-value" class="hud-level-score">000000</span>
+                                </span>
+                                <span id="hud-combo-chip" class="hud-combo-chip">
+                                    <span class="hud-combo-label">COMBO</span>
+                                    <span id="hud-combo-value" class="hud-combo-main">000</span>
+                                </span>
+                                <span id="hud-wave-text" class="hud-wave-main">WAVE 1</span>
+                                <span id="hud-wave-mod-text" class="hud-wave-mod">STANDARD ROUTE</span>
                             </span>
-                            <span id="hud-combo-chip" class="hud-combo-chip">
-                                <span class="hud-combo-label">COMBO</span>
-                                <span id="hud-combo-value" class="hud-combo-main">000</span>
-                            </span>
-                            <span id="hud-wave-text" class="hud-wave-main">WAVE 1</span>
-                            <span id="hud-wave-mod-text" class="hud-wave-mod">STANDARD ROUTE</span>
-                        </span>
-                    </div>
-                </div>`;
+                        </div>
+                    </div>`;
+            }
             hudRefs.scoreValue = document.getElementById('hud-score-value');
             hudRefs.hpBar = document.getElementById('hud-hp-bar');
             hudRefs.xpBar = document.getElementById('hud-xp-bar');
@@ -120,6 +122,13 @@
             hudRefs.wavePanel = document.getElementById('hud-wave-panel');
             hudRefs.waveText = document.getElementById('hud-wave-text');
             hudRefs.waveModText = document.getElementById('hud-wave-mod-text');
+            hudRefs.comboBurstPopup = document.getElementById('combo-burst-popup');
+            if (!hudRefs.comboBurstPopup) {
+                hudRefs.comboBurstPopup = document.createElement('div');
+                hudRefs.comboBurstPopup.id = 'combo-burst-popup';
+                hudRefs.comboBurstPopup.innerHTML = '<span class="combo-burst-label">MULTI KILL</span><span class="combo-burst-main">x5</span>';
+                if (hud.parentElement) hud.parentElement.appendChild(hudRefs.comboBurstPopup);
+            }
         }
 
         function syncMeterBar(container, filledBlocks, totalBlocks, fillStart, fillEnd = fillStart, emptyColor = '#1a1a1a', options = {}) {
@@ -258,11 +267,15 @@
 
         function getHudWaveModifierInfo(waveNumber) {
             if (typeof isSurvivorModeActive === 'function' && isSurvivorModeActive()) {
+                const style = typeof getSurvivorWaveStyle === 'function' ? getSurvivorWaveStyle() : null;
+                const styleColor = style && style.colors && style.colors.length
+                    ? style.colors[0]
+                    : '#ffe66d';
                 return {
-                    id: 'survivor',
-                    label: 'PRISM WAKE',
-                    desc: 'HORDE SURVIVAL',
-                    color: '#ffe66d',
+                    id: `survivor-${style && style.id ? style.id : 'wave'}`,
+                    label: style && style.label ? style.label : 'SURVIVAL',
+                    desc: '',
+                    color: styleColor,
                     standard: false
                 };
             }
@@ -339,10 +352,76 @@
             }
         }
 
+        function hideHudComboBurstPopup() {
+            const popup = hudRefs.comboBurstPopup || document.getElementById('combo-burst-popup');
+            if (popup) popup.style.display = 'none';
+        }
+
+        function easeHudComboBurst(t) {
+            const x = Math.max(0, Math.min(1, t));
+            return 1 - Math.pow(1 - x, 3);
+        }
+
+        function syncHudComboBurstPopup(now = currentFrameNow || performance.now()) {
+            const popup = hudRefs.comboBurstPopup;
+            const chip = hudRefs.comboChip;
+            if (!popup || !chip || typeof comboBurstPhase === 'undefined' || typeof comboBurstCount === 'undefined') return;
+            const popupMin = typeof COMBO_BURST_POPUP_MIN === 'number' ? COMBO_BURST_POPUP_MIN : 5;
+            if (comboBurstPhase === 'idle' || comboBurstCount < popupMin) {
+                popup.style.display = 'none';
+                lastHudComboBurstSignature = '';
+                return;
+            }
+
+            const container = hud.parentElement;
+            if (!container) return;
+            const containerRect = container.getBoundingClientRect();
+            const chipRect = chip.getBoundingClientRect();
+            const chipX = chipRect.left - containerRect.left + chipRect.width / 2;
+            const chipY = chipRect.top - containerRect.top + chipRect.height / 2;
+            const uiScale = Math.max(0.72, parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hud-ui-scale')) || 1);
+            const startY = chipRect.top - containerRect.top - 54 * uiScale;
+            const startX = chipX;
+            const color = currentThemeColor || '#ffe66d';
+            const absorbMs = typeof COMBO_BURST_ABSORB_MS === 'number' ? COMBO_BURST_ABSORB_MS : 360;
+
+            let x = startX;
+            let y = startY;
+            let opacity = 1;
+            let scale = 1;
+            if (comboBurstPhase === 'absorbing') {
+                const raw = Math.max(0, Math.min(1, (now - comboBurstAbsorbAt) / absorbMs));
+                const t = easeHudComboBurst(raw);
+                x = startX + (chipX - startX) * t;
+                y = startY + (chipY - startY) * t;
+                opacity = Math.max(0, 1 - Math.max(0, raw - 0.66) / 0.34);
+                scale = 1.05 - t * 0.46;
+            } else {
+                const age = Math.max(0, now - comboBurstStartAt);
+                const pop = easeHudComboBurst(Math.min(1, age / 170));
+                y += Math.sin(now * 0.015) * 2;
+                opacity = Math.min(1, pop * 1.18);
+                scale = 0.74 + pop * 0.34;
+            }
+
+            const label = comboBurstCount >= 10 ? 'CHAIN BURST' : 'MULTI KILL';
+            const text = `x${comboBurstCount}`;
+            const signature = `${comboBurstSerial}|${comboBurstPhase}|${label}|${text}|${color}|${glowEnabled ? 1 : 0}`;
+            if (signature !== lastHudComboBurstSignature) {
+                popup.style.setProperty('--combo-burst-color', color);
+                popup.innerHTML = `<span class="combo-burst-label">${escapeHudText(label)}</span><span class="combo-burst-main">${escapeHudText(text)}</span>`;
+                lastHudComboBurstSignature = signature;
+            }
+            popup.style.display = 'block';
+            popup.style.opacity = opacity.toFixed(3);
+            popup.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -50%) scale(${Math.max(0.18, scale).toFixed(3)})`;
+        }
+
         let hudUpdateTimer = 0;
         let lastHudScoreText = '';
         let lastHudComboSignature = '';
         let lastHudComboEventSerial = -1;
+        let lastHudComboBurstSignature = '';
         let lastHudHpSignature = '';
         let lastHudXpSignature = '';
         let lastHudBombSignature = '';
@@ -363,6 +442,7 @@
             comboChip: null,
             comboValue: null,
             comboMult: null,
+            comboBurstPopup: null,
             wavePanel: null,
             waveText: null,
             waveModText: null
@@ -567,6 +647,7 @@
                 hud.style.display = 'none';
                 hud.style.opacity = 0;
                 hud.style.transform = 'translateY(calc(100% + 6px))';
+                hideHudComboBurstPopup();
                 syncStatsPanel(true);
                 return;
             }
@@ -574,6 +655,7 @@
                 hud.style.display = 'none';
                 hud.style.opacity = 0;
                 hud.style.transform = 'translateY(calc(100% + 6px))';
+                hideHudComboBurstPopup();
                 syncStatsPanel(true);
                 return;
             }
@@ -598,8 +680,11 @@
                 lastHudScoreText = scoreText;
             }
 
-            const comboText = comboCount >= 1000 ? comboCount.toString() : comboCount.toString().padStart(3, '0');
-            const comboEventAge = (currentFrameNow || performance.now()) - comboEventAt;
+            const hudNow = currentFrameNow || performance.now();
+            const displayComboCount = typeof getComboHudDisplayCount === 'function' ? getComboHudDisplayCount(hudNow) : comboCount;
+            const comboText = displayComboCount >= 1000 ? displayComboCount.toString() : displayComboCount.toString().padStart(3, '0');
+            syncHudComboBurstPopup(hudNow);
+            const comboEventAge = hudNow - comboEventAt;
             const showComboEvent = comboEventType === 'boss'
                 ? comboEventAge < 2200
                 : (comboEventType === 'break' && comboEventAge < 900);
@@ -607,6 +692,8 @@
                 comboText,
                 comboEventType,
                 showComboEvent ? 1 : 0,
+                typeof comboBurstPhase !== 'undefined' ? comboBurstPhase : 'idle',
+                typeof comboBurstSerial !== 'undefined' ? comboBurstSerial : 0,
                 currentThemeColor,
                 glowEnabled ? 1 : 0
             ].join('~');
@@ -659,21 +746,26 @@
             const focusActive = driveVisual > 0.08 || specterVisual > 0.08;
             const focusLocked = typeof focusLockoutTimer === 'number' && focusLockoutTimer > 0;
             
-            const waveNumber = Math.max(1, WaveManager.currentWave);
             const survivorHud = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
             const survivorSeconds = survivorHud && typeof survivorState !== 'undefined'
                 ? Math.floor(survivorState.elapsed || 0)
                 : 0;
             const survivorTimeText = `${Math.floor(survivorSeconds / 60).toString().padStart(2, '0')}:${(survivorSeconds % 60).toString().padStart(2, '0')}`;
-            const waveText = survivorHud ? survivorTimeText : (boss ? 'BOSS' : waveNumber);
-            const waveMainText = survivorHud ? `SURVIVE ${survivorTimeText}` : (boss ? 'BOSS' : `WAVE ${waveNumber}`);
+            const waveNumber = survivorHud && typeof getSurvivorWaveNumber === 'function'
+                ? getSurvivorWaveNumber()
+                : Math.max(1, WaveManager.currentWave);
+            const waveText = survivorHud ? `${survivorTimeText}|${waveNumber}` : (boss ? 'BOSS' : waveNumber);
+            const waveMainText = survivorHud ? `${survivorTimeText}  WAVE ${waveNumber}` : (boss ? 'BOSS' : `WAVE ${waveNumber}`);
             const waveInfo = getHudWaveModifierInfo(waveNumber);
-            const noticeFresh = !!(
-                waveSignalNotice &&
+            const survivorWaveAge = survivorHud && typeof SURVIVOR_WAVE_STYLE_DURATION === 'number'
+                ? (survivorState.elapsed || 0) % SURVIVOR_WAVE_STYLE_DURATION
+                : 999;
+            const noticeFresh = survivorHud
+                ? survivorWaveAge < 1.4
+                : !!(waveSignalNotice &&
                 waveSignalNotice.waveNumber === waveNumber &&
                 typeof currentFrameNow === 'number' &&
-                currentFrameNow - waveSignalNotice.startTime < waveSignalNotice.duration
-            );
+                currentFrameNow - waveSignalNotice.startTime < waveSignalNotice.duration);
             const weaponSignature = player.weapons.map(w => `${w.name}:${w.color}:${w.glyph}:${w.icon || ''}`).join('|');
 
             const hpSignature = [
@@ -684,7 +776,7 @@
                 glowEnabled ? 1 : 0
             ].join('~');
             if (hpSignature !== lastHudHpSignature) {
-                syncMeterBar(hudRefs.hpBar, hpBlocks, HUD_BAR_BLOCKS, hpColor, hpColor, '#31413a', {
+                syncMeterBar(hudRefs.hpBar, hpBlocks, HUD_BAR_BLOCKS, hpColor, hpColor, '#46544d', {
                     effectClass: hpFull ? 'is-hp is-full' : 'is-hp',
                     glowAlpha: hpRatio * 0.8,
                     glowBlur: 8
@@ -699,7 +791,7 @@
                 glowEnabled ? 1 : 0
             ].join('~');
             if (xpSignature !== lastHudXpSignature) {
-                syncMeterBar(hudRefs.xpBar, xpPerc, HUD_BAR_BLOCKS, '#d2d2d2', '#8f8f8f', '#565868', {
+                syncMeterBar(hudRefs.xpBar, xpPerc, HUD_BAR_BLOCKS, '#d2d2d2', '#8f8f8f', '#686b7c', {
                     effectClass: xpFull ? 'is-xp is-full' : 'is-xp',
                     glowAlpha: xpRatio * 0.8,
                     glowBlur: 8
@@ -717,7 +809,7 @@
                 const bombTone = Math.pow(bombRatio, 0.72);
                 const bombStart = mixHexColor('#32213f', '#f08d92', bombTone);
                 const bombEnd = mixHexColor('#4c2b55', '#ffaaa2', bombTone);
-                syncMeterBar(hudRefs.bombBar, bombBlocks, HUD_BAR_BLOCKS, bombStart, bombEnd, '#211827', {
+                syncMeterBar(hudRefs.bombBar, bombBlocks, HUD_BAR_BLOCKS, bombStart, bombEnd, '#34233a', {
                     effectClass: bombReady ? 'is-bomb is-bomb-ready is-full' : 'is-bomb',
                     glowAlpha: bombReady ? 0.88 : bombRatio * 0.8,
                     glowBlur: bombReady ? 9 : 8
@@ -736,10 +828,11 @@
             if (focusSignature !== lastHudFocusSignature) {
                 const focusStart = focusLocked ? '#5e5a46' : '#ffe680';
                 const focusEnd = focusLocked ? '#302d24' : '#ffc94a';
-                syncMeterBar(hudRefs.focusBar, focusBlocks, HUD_BAR_BLOCKS, focusStart, focusEnd, '#2b2618', {
-                    effectClass: `is-focus${focusActive ? ' is-focus-active' : ''}${focusLocked ? ' is-focus-locked' : ''}${focusRatio >= 0.999 ? ' is-full' : ''}`,
-                    glowAlpha: focusLocked ? 0.18 : (focusActive ? 0.88 : focusRatio * 0.56),
-                    glowBlur: focusActive ? 10 : 7
+                const focusFull = focusRatio >= 0.999;
+                syncMeterBar(hudRefs.focusBar, focusBlocks, HUD_BAR_BLOCKS, focusStart, focusEnd, '#40381f', {
+                    effectClass: `is-focus${focusActive ? ' is-focus-active' : ''}${focusLocked ? ' is-focus-locked' : ''}${focusFull ? ' is-full' : ''}`,
+                    glowAlpha: focusLocked ? 0.18 : (focusActive || focusFull ? 0.88 : focusRatio * 0.56),
+                    glowBlur: focusActive || focusFull ? 10 : 7
                 });
                 lastHudFocusSignature = focusSignature;
             }

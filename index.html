@@ -174,11 +174,23 @@
             width: 100%;
             min-width: 0;
             overflow: hidden;
+            box-sizing: border-box;
+            padding: calc(1px * var(--hud-ui-scale)) calc(2px * var(--hud-ui-scale));
+            border: 1px solid color-mix(in srgb, var(--theme-color) 30%, rgba(198, 226, 255, 0.32));
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 48%, rgba(0, 0, 0, 0.12)),
+                rgba(5, 12, 24, 0.32);
+            box-shadow:
+                inset 0 0 calc(5px * var(--hud-ui-scale)) rgba(126, 184, 255, 0.055),
+                0 0 calc(4px * var(--hud-ui-scale)) rgba(104, 166, 255, 0.055);
             --fill-alpha: 0.4;
         }
         .hud-bar-block {
             display: inline-block;
-            opacity: 0.86;
+            opacity: 0.88;
+        }
+        .hud-bar-block:not(.hud-bar-block-filled) {
+            opacity: 0.72;
         }
         .hud-bar-block-filled {
             opacity: calc(0.38 + var(--fill-alpha) * 0.62);
@@ -459,6 +471,60 @@
         .hud-combo-chip.is-boss-break {
             animation: hud-combo-boss-break 1.15s cubic-bezier(0.16, 1, 0.3, 1);
         }
+        #combo-burst-popup {
+            --combo-burst-color: var(--theme-color);
+            position: absolute;
+            left: 0;
+            top: 0;
+            z-index: 4;
+            display: none;
+            min-width: calc(86px * var(--hud-ui-scale));
+            padding: calc(4px * var(--hud-ui-scale)) calc(10px * var(--hud-ui-scale));
+            box-sizing: border-box;
+            pointer-events: none;
+            font-family: 'Electrolize', 'Courier New', sans-serif;
+            font-weight: bold;
+            text-align: center;
+            color: #ffffff;
+            border: 1px solid color-mix(in srgb, var(--combo-burst-color) 72%, transparent);
+            background:
+                linear-gradient(90deg, color-mix(in srgb, var(--combo-burst-color) 22%, transparent), rgba(0, 0, 0, 0.54) 48%, rgba(0, 0, 0, 0.16)),
+                rgba(2, 8, 14, 0.64);
+            box-shadow:
+                inset 0 0 calc(10px * var(--hud-ui-scale)) color-mix(in srgb, var(--combo-burst-color) 18%, transparent),
+                0 0 calc(16px * var(--hud-ui-scale)) color-mix(in srgb, var(--combo-burst-color) 30%, transparent);
+            text-shadow:
+                0 0 calc(5px * var(--hud-ui-scale)) var(--combo-burst-color),
+                0 0 calc(12px * var(--hud-ui-scale)) color-mix(in srgb, var(--combo-burst-color) 72%, transparent);
+            opacity: 0;
+            transform-origin: center center;
+            will-change: opacity, transform;
+        }
+        #combo-burst-popup::before {
+            content: "";
+            position: absolute;
+            left: calc(4px * var(--hud-ui-scale));
+            right: calc(4px * var(--hud-ui-scale));
+            top: calc(3px * var(--hud-ui-scale));
+            height: 1px;
+            background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--combo-burst-color) 68%, #ffffff), transparent);
+            opacity: 0.7;
+        }
+        .combo-burst-label {
+            display: block;
+            color: color-mix(in srgb, var(--combo-burst-color) 72%, #ffffff);
+            font-size: calc(7px * var(--hud-ui-scale));
+            line-height: 1;
+            letter-spacing: 0.08em;
+            opacity: 0.82;
+        }
+        .combo-burst-main {
+            display: block;
+            margin-top: calc(1px * var(--hud-ui-scale));
+            font-size: calc(26px * var(--hud-ui-scale));
+            line-height: 0.95;
+            letter-spacing: 0.02em;
+        }
         .hud-wave-main,
         .hud-wave-mod {
             grid-column: 3;
@@ -559,12 +625,6 @@
             display: flex;
             flex-direction: column;
             align-items: flex-end;
-        }
-        #fps-low-perf {
-            display: none;
-            color: #ff0000;
-            font-weight: bold;
-            margin-bottom: -2px;
         }
         #stats-panel {
             position: absolute;
@@ -687,7 +747,6 @@
 <body>
     <div id="game-container">
         <div id="fps">
-            <div id="fps-low-perf">L</div>
             <span id="fps-val">FPS 00</span>
         </div>
         <div id="stats-panel"></div>

@@ -1,6 +1,59 @@
         // Explosions, projectiles, resize/reset, spatial utilities, and combat helpers.
         const ENEMY_EXPLOSION_DEBRIS_SOFT_CAP = 520;
         const BOSS_MINION_EXPLOSION_DEBRIS_CAP = 64;
+        const PROJECTILE_LIFETIME_DISSOLVE_DURATION = 0.44;
+
+        function beginProjectileLifetimeDissolve(projectile, options = {}) {
+            if (!projectile || projectile.isDissolvingProjectile || projectile.noLifetimeDissolve) return false;
+            const vx = Number.isFinite(options.vx)
+                ? options.vx
+                : (Number.isFinite(projectile.baseVx) ? projectile.baseVx : (Number.isFinite(projectile.vx) ? projectile.vx : 0));
+            const vy = Number.isFinite(options.vy)
+                ? options.vy
+                : (Number.isFinite(projectile.baseVy) ? projectile.baseVy : (Number.isFinite(projectile.vy) ? projectile.vy : 0));
+            const velocityScale = Number.isFinite(options.velocityScale) ? options.velocityScale : 0.18;
+            projectile.isDissolvingProjectile = true;
+            projectile.nonDamaging = true;
+            projectile.dissolveAge = 0;
+            projectile.dissolveDuration = Math.max(0.05, options.duration || projectile.dissolveDuration || PROJECTILE_LIFETIME_DISSOLVE_DURATION);
+            projectile.dissolveVx = vx * velocityScale;
+            projectile.dissolveVy = vy * velocityScale;
+            projectile.dissolveBaseScale = Math.max(0.05, options.scale || projectile.dissolveBaseScale || 1);
+            projectile.dissolveColor = options.color || projectile.color || '#ffffff';
+            projectile.dissolveChar = options.char || projectile.sprite || projectile.char || '.';
+            projectile.life = 0;
+            return true;
+        }
+
+        function updateProjectileLifetimeDissolve(projectile, dt) {
+            if (!projectile || !projectile.isDissolvingProjectile) return false;
+            const step = Math.max(0, dt || 0);
+            projectile.dissolveAge = (projectile.dissolveAge || 0) + step;
+            projectile.x += (projectile.dissolveVx || 0) * step;
+            projectile.y += (projectile.dissolveVy || 0) * step;
+            const duration = Math.max(0.05, projectile.dissolveDuration || PROJECTILE_LIFETIME_DISSOLVE_DURATION);
+            const damp = Math.pow(0.06, step / duration);
+            projectile.dissolveVx *= damp;
+            projectile.dissolveVy *= damp;
+            return projectile.dissolveAge >= duration;
+        }
+
+        function getProjectileLifetimeDissolveVisual(projectile) {
+            const duration = Math.max(0.05, (projectile && projectile.dissolveDuration) || PROJECTILE_LIFETIME_DISSOLVE_DURATION);
+            const progress = Math.max(0, Math.min(1, ((projectile && projectile.dissolveAge) || 0) / duration));
+            const remain = 1 - progress;
+            const collapse = Math.pow(remain, 1.12);
+            const pop = Math.sin(progress * Math.PI);
+            const terminal = Math.max(0, Math.min(1, (progress - 0.64) / 0.36));
+            return {
+                progress,
+                alpha: Math.pow(remain, 1.05),
+                scale: Math.max(0.035, ((projectile && projectile.dissolveBaseScale) || 1) * (0.08 + collapse * 0.92)),
+                pop,
+                terminal,
+                terminalAlpha: Math.pow(remain, 0.32) * terminal
+            };
+        }
 
         function isEnemyDamageable(enemy) {
             return !(enemy && enemy.invulnerable);
@@ -167,7 +220,8 @@
             if (!cached || cached.metrics.width <= 0 || cached.metrics.height <= 0) return null;
 
             if (target.name === 'NULL PHANTOM' && typeof getNullPhantomRenderLayout === 'function') {
-                const layout = getNullPhantomRenderLayout(target);
+                const phantomScale = target.isSurvivorBoss ? (target.nullPhantomScale || target.renderScale || 1) : 1;
+                const layout = getNullPhantomRenderLayout(target, phantomScale);
                 return {
                     mode: 'customGrid',
                     sprite,
@@ -182,15 +236,41 @@
 
             if (target.name === 'GHOST SIGNAL' && typeof getGhostSignalRenderLayout === 'function') {
                 const layout = getGhostSignalRenderLayout(target);
+                const signalScale = target.isSurvivorBoss ? (target.renderScale || 1) : 1;
                 return {
                     mode: 'customGrid',
                     sprite,
                     metrics: cached.metrics,
-                    cellW: layout.cellW,
-                    cellH: layout.cellH,
-                    startX: layout.startX,
-                    startY: layout.startY,
-                    getCellPosition: (row, col) => getGhostSignalGlyphPosition(layout, row, col)
+                    cellW: layout.cellW * signalScale,
+                    cellH: layout.cellH * signalScale,
+                    startX: target.x + (layout.startX - target.x) * signalScale,
+                    startY: target.y + (layout.startY - target.y) * signalScale,
+                    getCellPosition: (row, col) => {
+                        const pos = getGhostSignalGlyphPosition(layout, row, col);
+                        return {
+                            x: target.x + (pos.x - target.x) * signalScale,
+                            y: target.y + (pos.y - target.y) * signalScale
+                        };
+                    }
+                };
+            }
+
+            if (target.name === 'OVERHEATING FIREWALL') {
+                const firewallBaseScale = typeof FIREWALL_BOSS_RENDER_SCALE === 'number' ? FIREWALL_BOSS_RENDER_SCALE : 0.6;
+                const renderScale = (target.renderScale || 1) * firewallBaseScale;
+                const cellW = charW * renderScale;
+                const cellH = charH * renderScale;
+                return {
+                    mode: 'grid',
+                    sprite,
+                    metrics: cached.metrics,
+                    cellW,
+                    cellH,
+                    startX: target.x - (cached.width * cellW) / 2,
+                    startY: target.y - (cached.height * cellH) / 2,
+                    extraBoxes: target.isVulnerable
+                        ? [{ x: target.x, y: target.y + FIREWALL_BOSS_CORE_OFFSET_Y, halfW: 40, halfH: 40 }]
+                        : null
                 };
             }
 
@@ -1025,6 +1105,7 @@
             comboEventType = 'idle';
             comboEventText = '';
             comboEventAt = 0;
+            if (typeof resetComboBurstState === 'function') resetComboBurstState();
             comboFocusNoticeText = '';
             comboFocusNoticeAt = 0;
             comboFocusNoticeX = 0;

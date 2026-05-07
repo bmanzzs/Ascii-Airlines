@@ -20,7 +20,7 @@
                 return;
             }
 
-            if (fpsCapped || userFpsCap) {
+            if (userFpsCap) {
                 if (now - lastRafTime < 16.6) {
                     requestAnimationFrame(gameLoop);
                     return;
@@ -30,17 +30,6 @@
             
             let dt = Math.min((now - lastTime) / 1000, 0.05); 
             lastTime = now;
-            
-            if ((gameState === 'PLAYING' || gameState === 'LAUNCHING') && benchFrames < 120) {
-                if (benchFrames === 0) benchStartTime = now;
-                benchFrames++;
-                if (benchFrames === 120) {
-                    if ((120 / (now - benchStartTime)) * 1000 < 58) {
-                        fpsCapped = true;
-                        fpsLowPerf.style.display = 'block';
-                    }
-                }
-            }
 
             // FPS Counter update
             if (boss && boss.name === 'OVERHEATING FIREWALL') {
