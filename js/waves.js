@@ -11,7 +11,7 @@
         function getGalaxyRunWaveLimit(galaxyIndex = 0) {
             if (typeof GALAXY_DEFINITIONS !== 'undefined') {
                 const galaxy = GALAXY_DEFINITIONS[galaxyIndex];
-                if (galaxy && galaxy.mode === 'survivor') return 0;
+                if (galaxy && (galaxy.mode === 'survivor' || galaxy.mode === 'shipHub')) return 0;
             }
             return galaxyIndex === 1 ? GALAXY_TWO_RUN_WAVE_LIMIT : GALAXY_ONE_RUN_WAVE_LIMIT;
         }
@@ -134,6 +134,24 @@
                 tilt: 0.72,
                 twist: 4.4,
                 seed: 211
+            },
+            {
+                id: 'vector-terminal',
+                title: 'VECTOR TERMINAL',
+                name: 'VECTOR TERMINAL',
+                desc: 'ASCII Airlines orbital hub: a circuit-lit fleet terminal for choosing your active ship frame.',
+                available: true,
+                mode: 'shipHub',
+                visualStyle: 'shipHub',
+                colors: ['#8ff7ff', '#6aa8ff', '#ffe66d', '#ffffff'],
+                coreColor: '#f6fbff',
+                glyphs: ['[', ']', '=', '|', '+', 'A', 'I', 'R'],
+                coreGlyph: 'A',
+                coreVoidGlyph: '+',
+                arms: 2,
+                tilt: 0.34,
+                twist: 1.2,
+                seed: 307
             }
         ]);
         const MATRIX_HYDRA_SPRITE = [

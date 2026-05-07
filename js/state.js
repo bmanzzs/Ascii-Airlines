@@ -131,6 +131,7 @@
         let pauseState = 'MAIN'; // 'MAIN' or 'SETTINGS'
         let pauseSelection = 0;
         let pauseReturnState = 'PLAYING';
+        let shipSelectReturnState = 'LAUNCH';
         let pausePowerupSelection = 0;
         let pausePowerupBarAnim = {
             mode: 'idle',
@@ -627,6 +628,17 @@
                 galaxySelectNotice = `${galaxy.title || galaxy.name} LOCKED`;
                 galaxySelectNoticeTimer = 1.4;
                 return false;
+            }
+            if (galaxy.mode === 'shipHub') {
+                shipSelectReturnState = 'GALAXY_SELECT';
+                shipSelectIndex = selectedShipIndex;
+                galaxySelectNotice = '';
+                galaxySelectNoticeTimer = 0;
+                clearGameplayKeys();
+                resetPauseMenuShipCursor();
+                gameState = 'SHIP_SELECT';
+                titleAlpha = 1;
+                return true;
             }
             currentGalaxyIndex = selectedGalaxyIndex;
             galaxySelectNotice = '';

@@ -1859,7 +1859,7 @@
             PAUSE_CURSOR_SHIP.y = 0;
             PAUSE_CURSOR_SHIP.vx = 0;
             PAUSE_CURSOR_SHIP.vy = 0;
-            PAUSE_CURSOR_SHIP.shipId = 'arrowhead';
+            PAUSE_CURSOR_SHIP.shipId = typeof getSelectedShipConfig === 'function' ? getSelectedShipConfig().id : 'arrowhead';
             PAUSE_CURSOR_SHIP._renderLayoutCache = null;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -2782,6 +2782,7 @@
 
         function drawShipSelectionScreen(now) {
             const selectedShip = getShipSelectConfig();
+            const hubMode = typeof shipSelectReturnState !== 'undefined' && shipSelectReturnState === 'GALAXY_SELECT';
             const alpha = Math.max(0.85, titleAlpha);
             const centerY = height * 0.42;
             const slotXs = [width * 0.25, width * 0.5, width * 0.75];
@@ -2796,12 +2797,12 @@
             ctx.fillStyle = '#ffffff';
             ctx.shadowColor = selectedShip.previewColor;
             ctx.shadowBlur = glowEnabled ? 16 + headerPulse * 8 : 0;
-            ctx.fillText('HANGAR SELECT', width / 2, height * 0.12);
+            ctx.fillText(hubMode ? 'VECTOR TERMINAL' : 'HANGAR SELECT', width / 2, height * 0.12);
 
             ctx.font = `bold 12px 'Electrolize', sans-serif`;
             ctx.fillStyle = '#8fb9c8';
             ctx.shadowBlur = 0;
-            ctx.fillText('RUN FRAME ONLINE', width / 2, height * 0.155);
+            ctx.fillText(hubMode ? 'ASCII AIRLINES FLEET HUB' : 'RUN FRAME ONLINE', width / 2, height * 0.155);
 
             for (let i = 0; i < PLAYER_SHIP_TYPES.length; i++) {
                 const ship = PLAYER_SHIP_TYPES[i];
@@ -2938,7 +2939,8 @@
             { x: 0.39, y: 0.70, scale: 1.12, axis: 0.62, tilt: 0.36, spinDir: -1, spinSpeed: 1.02, cursorAngle: 2.38 },
             { x: 0.86, y: 0.69, scale: 1.25, axis: -0.72, tilt: 0.40, spinDir: 1, spinSpeed: 0.78, cursorAngle: 1.64 },
             { x: 0.62, y: 0.52, scale: 0.96, axis: 0.30, tilt: 0.60, spinDir: -1, spinSpeed: 1.22, cursorAngle: 0.96 },
-            { x: 0.17, y: 0.30, scale: 0.96, axis: 1.04, tilt: 0.72, spinDir: 1, spinSpeed: 1.42, cursorAngle: 2.36, prism: true }
+            { x: 0.17, y: 0.30, scale: 0.96, axis: 1.04, tilt: 0.72, spinDir: 1, spinSpeed: 1.42, cursorAngle: 2.36, prism: true },
+            { x: 0.17, y: 0.63, scale: 0.90, axis: -0.22, tilt: 0.42, spinDir: -1, spinSpeed: 0.88, cursorAngle: 2.18, hub: true }
         ];
         const GALAXY_SELECT_CURSOR_REST_SEED = Math.random() * 10000;
         const GALAXY_WARP_STREAK_COUNT = 42;
@@ -3108,7 +3110,8 @@
             const galaxy = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS[index] : null;
             const baseRadius = Math.max(46, Math.min(82, Math.min(width, height) * 0.073));
             const survivorScale = galaxy && galaxy.mode === 'survivor' ? 0.94 : 1;
-            return baseRadius * profile.scale * survivorScale * (selected ? 1.14 : 0.94);
+            const hubScale = galaxy && galaxy.mode === 'shipHub' ? 0.92 : 1;
+            return baseRadius * profile.scale * survivorScale * hubScale * (selected ? 1.14 : 0.94);
         }
 
         function drawGalaxySelectCircuitSubstrate(now) {
@@ -3767,8 +3770,142 @@
             galaxyCtx.shadowBlur = 0;
         }
 
+        function drawShipHubGalaxySprite(galaxy, x, y, radius, selected, now, index, options = {}) {
+            const colors = galaxy.colors || ['#8ff7ff', '#6aa8ff', '#ffe66d', '#ffffff'];
+            const profile = getGalaxyVisualProfile(index);
+            const axis = options.axisOverride ?? (profile.axis + Math.sin(now * 0.00011 + index) * 0.035);
+            const spin = now * 0.00013 * (profile.spinDir || 1) * (profile.spinSpeed || 1);
+            const pulse = 0.5 + Math.sin(now * 0.0032 + index) * 0.5;
+            const shimmer = 0.72 + pulse * 0.28;
+            const fontScale = options.fontScale || 1;
+            const detail = options.detail || 1;
+            const warpMode = !!options.warp;
+
+            galaxyCtx.save();
+            galaxyCtx.translate(x, y);
+            galaxyCtx.rotate(axis);
+            galaxyCtx.textAlign = 'center';
+            galaxyCtx.textBaseline = 'middle';
+            galaxyCtx.globalCompositeOperation = 'screen';
+            drawGalaxySoftAura(colors, radius, selected, 0.92);
+
+            const ringCount = Math.max(24, Math.round((selected ? 58 : 44) * detail));
+            galaxyCtx.lineCap = 'round';
+            for (let ring = 0; ring < 2; ring++) {
+                galaxyCtx.globalAlpha = (selected ? 0.34 : 0.19) * (ring ? 0.72 : 1);
+                galaxyCtx.strokeStyle = colorWithAlpha(ring ? colors[1] : colors[0], selected ? 0.72 : 0.46);
+                galaxyCtx.lineWidth = Math.max(1, radius * (ring ? 0.014 : 0.02));
+                galaxyCtx.beginPath();
+                galaxyCtx.ellipse(0, 0, radius * (0.94 + ring * 0.16), radius * (0.34 + ring * 0.06), spin * (ring ? -0.7 : 1), 0, Math.PI * 2);
+                galaxyCtx.stroke();
+            }
+
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(6, radius * 0.10 * fontScale), options)}px Courier New`;
+            for (let i = 0; i < ringCount; i++) {
+                const a = (i / ringCount) * Math.PI * 2 + spin * 1.7;
+                const lanePulse = 1 + Math.sin(a * 6 + now * 0.002) * 0.045;
+                const px = Math.cos(a) * radius * 1.04 * lanePulse;
+                const py = Math.sin(a) * radius * 0.38 * lanePulse;
+                galaxyCtx.globalAlpha = (selected ? 0.55 : 0.32) * (0.72 + Math.sin(a * 3 + now * 0.001) * 0.18);
+                galaxyCtx.fillStyle = i % 7 === 0 ? '#ffffff' : (i % 2 ? colors[0] : colors[1]);
+                galaxyCtx.fillText(i % 4 === 0 ? '+' : (i % 4 === 1 ? '=' : (i % 4 === 2 ? '[' : ']')), px, py);
+            }
+
+            galaxyCtx.globalCompositeOperation = 'source-over';
+            const availableAlpha = galaxy.available ? 1 : 0.34;
+            galaxyCtx.globalAlpha = (selected ? 0.96 : 0.74) * availableAlpha;
+            if (glowEnabled && !warpMode) {
+                galaxyCtx.shadowColor = colors[0];
+                galaxyCtx.shadowBlur = selected ? 16 + pulse * 8 : 8;
+            }
+
+            galaxyCtx.strokeStyle = colorWithAlpha(colors[0], selected ? 0.84 : 0.58);
+            galaxyCtx.lineWidth = Math.max(2, radius * 0.034);
+            galaxyCtx.beginPath();
+            galaxyCtx.moveTo(-radius * 0.86, 0);
+            galaxyCtx.lineTo(radius * 0.86, 0);
+            galaxyCtx.moveTo(0, -radius * 0.38);
+            galaxyCtx.lineTo(0, radius * 0.38);
+            galaxyCtx.stroke();
+
+            galaxyCtx.fillStyle = colorWithAlpha('#071326', 0.88);
+            galaxyCtx.strokeStyle = colorWithAlpha('#f6fbff', selected ? 0.88 : 0.62);
+            galaxyCtx.lineWidth = Math.max(1, radius * 0.018);
+            galaxyCtx.beginPath();
+            galaxyCtx.rect(-radius * 0.34, -radius * 0.22, radius * 0.68, radius * 0.44);
+            galaxyCtx.fill();
+            galaxyCtx.stroke();
+
+            const moduleCount = 4;
+            for (let side = -1; side <= 1; side += 2) {
+                for (let i = 0; i < moduleCount; i++) {
+                    const px = side * radius * (0.47 + i * 0.13);
+                    const py = Math.sin(now * 0.002 + i + side) * radius * 0.018;
+                    galaxyCtx.fillStyle = i % 2 ? colorWithAlpha(colors[1], 0.42) : colorWithAlpha('#0b2444', 0.88);
+                    galaxyCtx.strokeStyle = colorWithAlpha(i % 2 ? colors[0] : colors[2], selected ? 0.72 : 0.46);
+                    galaxyCtx.beginPath();
+                    galaxyCtx.rect(px - radius * 0.045, py - radius * 0.14, radius * 0.09, radius * 0.28);
+                    galaxyCtx.fill();
+                    galaxyCtx.stroke();
+                }
+            }
+
+            for (let side = -1; side <= 1; side += 2) {
+                const panelX = side * radius * 0.62;
+                const panelY = -radius * 0.37;
+                const panelW = radius * 0.36;
+                const panelH = radius * 0.17;
+                for (let row = -1; row <= 1; row += 2) {
+                    galaxyCtx.fillStyle = colorWithAlpha(row < 0 ? colors[1] : colors[0], selected ? 0.22 : 0.13);
+                    galaxyCtx.strokeStyle = colorWithAlpha('#8ff7ff', selected ? 0.62 : 0.35);
+                    const left = side < 0 ? panelX - panelW : panelX;
+                    galaxyCtx.beginPath();
+                    galaxyCtx.rect(left, row * panelY - panelH / 2, panelW, panelH);
+                    galaxyCtx.fill();
+                    galaxyCtx.stroke();
+                    galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(5, radius * 0.065 * fontScale), options)}px Courier New`;
+                    galaxyCtx.fillStyle = colorWithAlpha('#ffffff', selected ? 0.58 : 0.34);
+                    galaxyCtx.fillText(row < 0 ? 'AI' : 'RL', panelX + side * panelW * 0.52, row * panelY);
+                }
+            }
+
+            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (selected ? 18 : 8) : 0;
+            galaxyCtx.fillStyle = '#f6fbff';
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(12, radius * 0.26 * fontScale), options)}px Courier New`;
+            galaxyCtx.fillText('A', 0, -radius * 0.01);
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, radius * 0.13 * fontScale), options)}px Courier New`;
+            galaxyCtx.fillStyle = colors[2] || '#ffe66d';
+            galaxyCtx.fillText('+', 0, radius * 0.13);
+
+            const selectedShip = typeof getSelectedShipConfig === 'function' ? getSelectedShipConfig() : null;
+            if (selectedShip && !warpMode) {
+                const dockAngle = -spin * 2.2 + Math.PI * 0.62;
+                const dockX = Math.cos(dockAngle) * radius * 0.58;
+                const dockY = Math.sin(dockAngle) * radius * 0.28 + radius * 0.52;
+                const shipGlyph = selectedShip.id === 'glasswing' ? '^' : (selectedShip.id === 'ionManta' ? 'M' : 'A');
+                galaxyCtx.save();
+                galaxyCtx.translate(dockX, dockY);
+                galaxyCtx.rotate(dockAngle + Math.PI / 2);
+                galaxyCtx.fillStyle = selectedShip.previewColor || '#ffffff';
+                galaxyCtx.shadowColor = selectedShip.previewColor || colors[0];
+                galaxyCtx.shadowBlur = glowEnabled ? 10 * shimmer : 0;
+                galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, radius * 0.13 * fontScale), options)}px Courier New`;
+                galaxyCtx.fillText(shipGlyph, 0, 0);
+                galaxyCtx.restore();
+            }
+
+            galaxyCtx.restore();
+            galaxyCtx.globalAlpha = 1;
+            galaxyCtx.shadowBlur = 0;
+            galaxyCtx.globalCompositeOperation = 'source-over';
+        }
+
         function drawGalaxyGlyphSpriteDirect(galaxy, x, y, radius, selected, now, index, options = {}) {
             const style = getGalaxyRenderStyle(galaxy);
+            if (galaxy && (galaxy.mode === 'shipHub' || style === 'shipHub')) {
+                drawShipHubGalaxySprite(galaxy, x, y, radius, selected, now, index, options);
+                return;
+            }
             if (galaxy && (galaxy.mode === 'survivor' || style === 'prismWake')) {
                 drawPrismWakeGalaxySprite(galaxy, x, y, radius, selected, now, index, options);
                 return;
@@ -3833,7 +3970,10 @@
                     glowEnabled ? 1 : 0,
                     radiusKey,
                     detailKey,
-                    fontKey
+                    fontKey,
+                    galaxy && galaxy.mode === 'shipHub' && typeof getSelectedShipConfig === 'function'
+                        ? getSelectedShipConfig().id
+                        : ''
                 ].join('|'),
                 bucket,
                 bucketNow: bucket * frameMs - phaseOffset
@@ -3970,7 +4110,7 @@
             PAUSE_CURSOR_SHIP.y = 0;
             PAUSE_CURSOR_SHIP.vx = 0;
             PAUSE_CURSOR_SHIP.vy = 0;
-            PAUSE_CURSOR_SHIP.shipId = 'arrowhead';
+            PAUSE_CURSOR_SHIP.shipId = typeof getSelectedShipConfig === 'function' ? getSelectedShipConfig().id : 'arrowhead';
             PAUSE_CURSOR_SHIP._renderLayoutCache = null;
             galaxyCtx.textAlign = 'center';
             galaxyCtx.textBaseline = 'middle';
@@ -4047,7 +4187,7 @@
             galaxyCtx.shadowBlur = 0;
             galaxyCtx.font = `12px 'Electrolize', sans-serif`;
             galaxyCtx.fillStyle = 'rgba(202, 229, 255, 0.72)';
-            galaxyCtx.fillText('CHOOSE A GALAXY ROUTE', width / 2, height * 0.123);
+            galaxyCtx.fillText('CHOOSE A GALAXY ROUTE OR FLEET HUB', width / 2, height * 0.123);
 
             for (let i = 0; i < galaxies.length; i++) {
                 const galaxy = galaxies[i];
@@ -4056,7 +4196,8 @@
                 const radius = getGalaxySelectRenderRadius(i, selected);
 
                 const survivorRoute = galaxy && galaxy.mode === 'survivor';
-                const labelY = survivorRoute ? slot.y - radius - 30 : slot.y + radius + 42;
+                const hubRoute = galaxy && galaxy.mode === 'shipHub';
+                const labelY = survivorRoute ? slot.y - radius - 30 : slot.y + radius + (hubRoute ? 34 : 42);
                 galaxyCtx.font = `bold ${selected ? 18 : 14}px 'Electrolize', sans-serif`;
                 galaxyCtx.fillStyle = selected
                     ? (galaxy.available ? '#ffffff' : 'rgba(210,220,235,0.58)')
@@ -4067,7 +4208,7 @@
                 galaxyCtx.shadowBlur = 0;
                 galaxyCtx.font = `bold 11px 'Electrolize', sans-serif`;
                 galaxyCtx.fillStyle = galaxy.available ? colorWithAlpha(galaxy.colors[1] || currentThemeColor, selected ? 0.9 : 0.56) : 'rgba(170,178,190,0.46)';
-                galaxyCtx.fillText(galaxy.available ? (survivorRoute ? 'SURVIVAL MODE' : 'AVAILABLE') : 'LOCKED', slot.x, labelY + 20);
+                galaxyCtx.fillText(galaxy.available ? (hubRoute ? 'SHIP HUB' : (survivorRoute ? 'SURVIVAL MODE' : 'AVAILABLE')) : 'LOCKED', slot.x, labelY + 20);
 
             }
 
@@ -4598,7 +4739,7 @@
             PAUSE_CURSOR_SHIP.y = 0;
             PAUSE_CURSOR_SHIP.vx = 0;
             PAUSE_CURSOR_SHIP.vy = 0;
-            PAUSE_CURSOR_SHIP.shipId = 'arrowhead';
+            PAUSE_CURSOR_SHIP.shipId = typeof getSelectedShipConfig === 'function' ? getSelectedShipConfig().id : 'arrowhead';
             PAUSE_CURSOR_SHIP._renderLayoutCache = null;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';

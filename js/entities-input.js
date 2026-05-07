@@ -192,6 +192,7 @@
                     }
                 } else if (gameState === 'SHIP_SELECT') {
                     shipSelectIndex = selectedShipIndex;
+                    shipSelectReturnState = 'LAUNCH';
                     gameState = 'GALAXY_SELECT';
                     resetPauseMenuShipCursor();
                 }
@@ -277,6 +278,7 @@
             if (gameState === 'START') {
                 if (k === 'arrowleft' || k === 'arrowright') {
                     setShipSelectIndex(selectedShipIndex + (k === 'arrowright' ? 1 : -1));
+                    shipSelectReturnState = 'LAUNCH';
                     gameState = 'SHIP_SELECT';
                     titleAlpha = 1;
                     e.preventDefault();
@@ -301,7 +303,13 @@
                 }
                 if (k === 'enter' || k === ' ') {
                     selectShip(shipSelectIndex, true);
-                    beginLaunchSequence();
+                    if (shipSelectReturnState === 'GALAXY_SELECT') {
+                        shipSelectReturnState = 'LAUNCH';
+                        gameState = 'GALAXY_SELECT';
+                        resetPauseMenuShipCursor();
+                    } else {
+                        beginLaunchSequence();
+                    }
                     e.preventDefault();
                     return;
                 }
