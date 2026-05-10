@@ -821,9 +821,10 @@
 
         function getPlayerBombIndicatorOrigin(ship = player, facing = getPlayerFacing(ship)) {
             const layout = getPlayerRenderLayout(ship, facing);
+            const cueSize = Math.max(46, Math.round(layout.body.fontSize * 0.54));
             return {
-                x: layout.body.x,
-                y: layout.body.y - layout.body.fontSize * 0.04,
+                x: layout.rearOrigin.x,
+                y: layout.rearOrigin.y - cueSize * 0.31,
                 layout
             };
         }
@@ -853,13 +854,12 @@
         }
 
         function drawPlayerBombReadyCue(layout, ship, renderOrigin = null) {
-            if (ship !== player || gameState !== 'PLAYING') return;
+            if (ship !== player || (gameState !== 'PLAYING' && gameState !== 'MATRIX_CRAWLER')) return;
             const now = typeof currentFrameNow === 'number' ? currentFrameNow : performance.now();
             const visual = getPlayerBombIndicatorVisual(now);
-            const cueSize = Math.max(16, Math.round(layout.body.fontSize * 0.22));
-            const coreSize = Math.max(8, Math.round(cueSize * 0.48));
-            const cueX = layout.body.x;
-            const cueY = layout.body.y - layout.body.fontSize * 0.04;
+            const cueSize = Math.max(46, Math.round(layout.body.fontSize * 0.54));
+            const cueX = layout.rearOrigin.x;
+            const cueY = layout.rearOrigin.y - cueSize * 0.31;
             const renderCueX = renderOrigin ? cueX - renderOrigin.x : cueX;
             const renderCueY = renderOrigin ? cueY - renderOrigin.y : cueY;
 
@@ -873,21 +873,7 @@
                 ctx.shadowColor = visual.glowColor;
                 ctx.shadowBlur = visual.glow;
             }
-            ctx.fillText(
-                '◉',
-                snapSpriteCoord(renderCueX),
-                snapSpriteCoord(renderCueY)
-            );
-
-            ctx.globalAlpha = visual.alpha * (visual.ready ? 0.9 : 0.54 + visual.charge * 0.3);
-            ctx.shadowBlur = glowEnabled ? Math.max(3, visual.glow * 0.42) : 0;
-            ctx.font = `bold ${coreSize}px Courier New`;
-            ctx.fillStyle = visual.ready ? '#fff5f3' : blendPlayerCueHex('#85617f', '#ffd6d4', visual.charge);
-            ctx.fillText(
-                '*',
-                snapSpriteCoord(renderCueX),
-                snapSpriteCoord(renderCueY)
-            );
+            ctx.fillText('\u25c9', snapSpriteCoord(renderCueX), snapSpriteCoord(renderCueY));
             ctx.restore();
         }
 
@@ -954,6 +940,7 @@
                 if (bankRotation) ctx.rotate(bankRotation);
                 if (specterVisualScale !== 1) ctx.scale(specterVisualScale, specterVisualScale * (1 - 0.08 * specterIntensity));
             }
+            drawPlayerBombReadyCue(layout, ship, renderOrigin);
             if (specterIntensity > 0.02) {
                 const echoX = -(ship.vx || 0) * 0.016 * specterIntensity;
                 const echoY = -(ship.vy || 0) * 0.016 * specterIntensity;
@@ -1002,7 +989,6 @@
                 drawPlayerPart(layout.body, renderOrigin, { color: PLAYER_SPECTER_TINT_COLOR, amount: 1 });
                 ctx.restore();
             }
-            drawPlayerBombReadyCue(layout, ship, renderOrigin);
             if (hasRenderTransform) ctx.restore();
             return layout;
         }
@@ -1882,6 +1868,7 @@
             wobble = 0;
             postResumeBombLockTimer = 0;
             if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
+            if (typeof resetCampaignControlDecal === 'function') resetCampaignControlDecal();
 
             if (player) {
                 if (!Number.isFinite(player.x) || player.x < 40 || player.x > width - 40) {

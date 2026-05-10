@@ -1183,6 +1183,8 @@
                 return;
             }
 
+            if (typeof updateCampaignControlDecal === 'function') updateCampaignControlDecal(dt);
+
             const hostileDt = typeof getHostileDt === 'function' ? getHostileDt(dt) : dt;
             const hostileScale = dt > 0 ? Math.max(0, Math.min(1, hostileDt / dt)) : 1;
             const hostileNow = typeof hostileTimeMs === 'number' ? hostileTimeMs : currentFrameNow;

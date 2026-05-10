@@ -131,7 +131,7 @@
         const MATRIX_GLITCH_CHARGE_SPEED = 360;
         const MATRIX_GLITCH_STAGE_ONE_SPEED = 96;
         const MATRIX_GLITCH_STAGE_TWO_SPEED = 132;
-        const MATRIX_GLITCH_RENDER_SCALE = 1.199;
+        const MATRIX_GLITCH_RENDER_SCALE = 0.62;
         const MATRIX_GLITCH_MATRIX_CHARS = 'ﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         const MATRIX_GLITCH_BULLET_CAP = 180;
         const MATRIX_PORT_SENTRY_RANGE = 760;
@@ -141,6 +141,9 @@
         const MATRIX_CRASH_BUG_DASH_TIME = 0.48;
         const MATRIX_FIREWALL_HOST_RANGE = 560;
         const MATRIX_FIREWALL_HOST_OPEN_TIME = 1.35;
+        const MATRIX_CRAWLER_NAV_CELL = 46;
+        const MATRIX_CRAWLER_NAV_REFRESH = 0.18;
+        const MATRIX_CRAWLER_NAV_MAX_EXPANSIONS = 2200;
         const MATRIX_CRAWLER_PLAYER_TURN_RESPONSE = 8.82;
         const MATRIX_CRAWLER_PLAYER_RENDER_SCALE = 0.663;
         const MATRIX_CRAWLER_PLAYER_ACCEL_RESPONSE = 18;
@@ -149,7 +152,8 @@
         const MATRIX_CRAWLER_TURN_AFTERIMAGE_LIFE = 0.18;
         const MATRIX_CRAWLER_TURN_AFTERIMAGE_MAX = 4;
         const MATRIX_CRAWLER_HOVER_RIPPLE_LIFE = 0.58;
-        const MATRIX_CRAWLER_HOVER_RIPPLE_MAX = 34;
+        const MATRIX_CRAWLER_HOVER_RIPPLE_MAX = 44;
+        const MATRIX_CRAWLER_HOVER_THRUSTER_MAX = 22;
         const MATRIX_CRAWLER_HOVER_CHARS = ['^', '*', '.', 'v'];
         const MATRIX_CRAWLER_LASER_SPEED_MULT = 0.58;
         const MATRIX_CRAWLER_FIRE_RATE_MULT = 0.70;
@@ -159,8 +163,12 @@
         const MATRIX_CRAWLER_BOMB_RANGE_MULT = 0.74;
         const MATRIX_CRAWLER_BOMB_SPEED_MULT = 0.76;
         const MATRIX_CRAWLER_BOMB_SHRAPNEL_COUNT = 10;
-        const MATRIX_CRAWLER_VIEWPORT_TOP_MARGIN = 178;
-        const MATRIX_CRAWLER_VIEWPORT_BOTTOM_MARGIN = 156;
+        const MATRIX_CRAWLER_BOMB_PICKUP_COLOR = '#ffb347';
+        const MATRIX_CRAWLER_MINIMAP_ROOM_STRIDE = 1;
+        const MATRIX_CRAWLER_MINIMAP_CELL_SPREAD = 1;
+        const MATRIX_CRAWLER_VIEWPORT_TOP_MARGIN = 156;
+        const MATRIX_CRAWLER_VIEWPORT_BOTTOM_MARGIN = 96;
+        const MATRIX_CRAWLER_CONTROL_DECAL_DURATION = 22;
 
         function createMatrixCrawlerState() {
             return {
@@ -195,6 +203,10 @@
                 turnAfterimageCooldown: 0,
                 hoverRipples: [],
                 hoverEmitter: 0,
+                hoverThrusters: [],
+                hoverThrusterEmitter: 0,
+                controlDecalTimer: MATRIX_CRAWLER_CONTROL_DECAL_DURATION,
+                controlDecal: null,
                 bossMusicActive: false,
                 bossStopMusic: null,
                 lastBossName: 'NULL PHANTOM',
@@ -249,6 +261,9 @@
             matrixCrawlerState.breakables = [];
             matrixCrawlerState.particles = [];
             matrixCrawlerState.hoverRipples = [];
+            matrixCrawlerState.hoverEmitter = 0;
+            matrixCrawlerState.hoverThrusters = [];
+            matrixCrawlerState.hoverThrusterEmitter = 0;
             matrixCrawlerState.playerTurnAfterimages = [];
             bombProjectiles = [];
             bombBlastRings = [];
@@ -465,6 +480,45 @@
                 : clampMatrixCrawlerPoint(room, x, y, margin);
         }
 
+        function markMatrixCrawlerRoomNavDirty(room = null) {
+            const targetRoom = room || (typeof getMatrixCrawlerRoom === 'function' ? getMatrixCrawlerRoom() : null);
+            if (!targetRoom) return;
+            targetRoom.navGrids = {};
+            targetRoom.navObstacleVersion = (targetRoom.navObstacleVersion || 0) + 1;
+        }
+
+        function isMatrixCrawlerBreakableBlockingPoint(room, x, y, margin = 24) {
+            const breakables = (room && room.breakables) || [];
+            for (const object of breakables) {
+                if (!object || object.destroyed) continue;
+                if (Math.hypot(object.x - x, object.y - y) < (object.radius || 16) + margin) return true;
+            }
+            return false;
+        }
+
+        function isMatrixCrawlerEnemyPointClear(room, x, y, margin = 24) {
+            return isPointInMatrixCrawlerRoom(room, x, y, margin)
+                && !isMatrixCrawlerBreakableBlockingPoint(room, x, y, margin);
+        }
+
+        function getMatrixCrawlerEnemySafePoint(room, x, y, margin = 24) {
+            const rect = getMatrixCrawlerRoomRect(room);
+            const clamped = clampMatrixCrawlerPoint(room, x, y, margin);
+            if (isMatrixCrawlerEnemyPointClear(room, clamped.x, clamped.y, margin)) return clamped;
+
+            const angleCount = 16;
+            for (let radius = 12; radius <= 132; radius += 12) {
+                for (let i = 0; i < angleCount; i++) {
+                    const angle = (i / angleCount) * Math.PI * 2;
+                    const px = Math.max(rect.x + margin, Math.min(rect.right - margin, clamped.x + Math.cos(angle) * radius));
+                    const py = Math.max(rect.y + margin, Math.min(rect.bottom - margin, clamped.y + Math.sin(angle) * radius));
+                    if (isMatrixCrawlerEnemyPointClear(room, px, py, margin)) return { x: px, y: py };
+                }
+            }
+
+            return clamped;
+        }
+
         function moveMatrixCrawlerBodyInRoom(room, x, y, nextX, nextY, margin = 24) {
             const rect = getMatrixCrawlerRoomRect(room);
             let outX = x;
@@ -475,6 +529,274 @@
             if (isPointInMatrixCrawlerRoom(room, outX, boundedY, margin)) outY = boundedY;
             if (isPointInMatrixCrawlerRoom(room, outX, outY, margin)) return { x: outX, y: outY };
             return getMatrixCrawlerSafePoint(room, x, y, margin);
+        }
+
+        function moveMatrixCrawlerEnemyBodyInRoom(room, x, y, nextX, nextY, margin = 24) {
+            const rect = getMatrixCrawlerRoomRect(room);
+            let outX = x;
+            let outY = y;
+            const boundedX = Math.max(rect.x + margin, Math.min(rect.right - margin, nextX));
+            if (isMatrixCrawlerEnemyPointClear(room, boundedX, outY, margin)) outX = boundedX;
+            const boundedY = Math.max(rect.y + margin, Math.min(rect.bottom - margin, nextY));
+            if (isMatrixCrawlerEnemyPointClear(room, outX, boundedY, margin)) outY = boundedY;
+            if (isMatrixCrawlerEnemyPointClear(room, outX, outY, margin)) return { x: outX, y: outY };
+            return getMatrixCrawlerEnemySafePoint(room, x, y, margin);
+        }
+
+        function hasMatrixCrawlerPathLine(room, x1, y1, x2, y2, margin = 24, step = MATRIX_CRAWLER_NAV_CELL * 0.55, includeBreakables = false) {
+            const distance = Math.hypot(x2 - x1, y2 - y1);
+            const steps = Math.max(1, Math.ceil(distance / Math.max(12, step)));
+            for (let i = 1; i <= steps; i++) {
+                const t = i / steps;
+                const x = x1 + (x2 - x1) * t;
+                const y = y1 + (y2 - y1) * t;
+                const clear = includeBreakables
+                    ? isMatrixCrawlerEnemyPointClear(room, x, y, margin)
+                    : isPointInMatrixCrawlerRoom(room, x, y, margin);
+                if (!clear) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function getMatrixCrawlerNavGrid(room, margin = 24, includeBreakables = false) {
+            const rect = getMatrixCrawlerRoomRect(room);
+            const cell = MATRIX_CRAWLER_NAV_CELL;
+            const marginKey = Math.round(margin / 4) * 4;
+            const obstacleKey = includeBreakables ? (room && room.navObstacleVersion) || 0 : 'static';
+            const cacheKey = `${Math.round(rect.w)}:${Math.round(rect.h)}:${marginKey}:${includeBreakables ? 'enemy' : 'room'}:${obstacleKey}`;
+            if (room && room.navGrids && room.navGrids[cacheKey]) return room.navGrids[cacheKey];
+
+            const cols = Math.max(1, Math.ceil(rect.w / cell));
+            const rows = Math.max(1, Math.ceil(rect.h / cell));
+            const valid = new Uint8Array(cols * rows);
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const px = Math.max(rect.x + margin, Math.min(rect.right - margin, rect.x + (x + 0.5) * cell));
+                    const py = Math.max(rect.y + margin, Math.min(rect.bottom - margin, rect.y + (y + 0.5) * cell));
+                    valid[y * cols + x] = (includeBreakables
+                        ? isMatrixCrawlerEnemyPointClear(room, px, py, margin)
+                        : isPointInMatrixCrawlerRoom(room, px, py, margin)) ? 1 : 0;
+                }
+            }
+
+            const grid = { key: cacheKey, rect, cell, cols, rows, margin: marginKey, valid };
+            if (room) {
+                if (!room.navGrids) room.navGrids = {};
+                room.navGrids[cacheKey] = grid;
+            }
+            return grid;
+        }
+
+        function getMatrixCrawlerNavCell(grid, x, y) {
+            return {
+                x: Math.max(0, Math.min(grid.cols - 1, Math.floor((x - grid.rect.x) / grid.cell))),
+                y: Math.max(0, Math.min(grid.rows - 1, Math.floor((y - grid.rect.y) / grid.cell)))
+            };
+        }
+
+        function getMatrixCrawlerNavCellPoint(grid, index) {
+            const x = index % grid.cols;
+            const y = Math.floor(index / grid.cols);
+            return {
+                x: Math.max(grid.rect.x + grid.margin, Math.min(grid.rect.right - grid.margin, grid.rect.x + (x + 0.5) * grid.cell)),
+                y: Math.max(grid.rect.y + grid.margin, Math.min(grid.rect.bottom - grid.margin, grid.rect.y + (y + 0.5) * grid.cell))
+            };
+        }
+
+        function findNearestMatrixCrawlerNavIndex(grid, x, y) {
+            const cell = getMatrixCrawlerNavCell(grid, x, y);
+            const startIndex = cell.y * grid.cols + cell.x;
+            if (grid.valid[startIndex]) return startIndex;
+
+            let best = -1;
+            let bestDist = Infinity;
+            const maxRadius = Math.max(grid.cols, grid.rows);
+            for (let radius = 1; radius <= maxRadius && best < 0; radius++) {
+                const minX = Math.max(0, cell.x - radius);
+                const maxX = Math.min(grid.cols - 1, cell.x + radius);
+                const minY = Math.max(0, cell.y - radius);
+                const maxY = Math.min(grid.rows - 1, cell.y + radius);
+                for (let yy = minY; yy <= maxY; yy++) {
+                    for (let xx = minX; xx <= maxX; xx++) {
+                        if (xx !== minX && xx !== maxX && yy !== minY && yy !== maxY) continue;
+                        const index = yy * grid.cols + xx;
+                        if (!grid.valid[index]) continue;
+                        const p = getMatrixCrawlerNavCellPoint(grid, index);
+                        const distSq = (p.x - x) ** 2 + (p.y - y) ** 2;
+                        if (distSq < bestDist) {
+                            bestDist = distSq;
+                            best = index;
+                        }
+                    }
+                }
+            }
+            return best;
+        }
+
+        function findMatrixCrawlerNavPath(room, fromX, fromY, toX, toY, margin = 24, includeBreakables = false) {
+            if (hasMatrixCrawlerPathLine(room, fromX, fromY, toX, toY, margin, MATRIX_CRAWLER_NAV_CELL * 0.55, includeBreakables)) return [];
+            const grid = getMatrixCrawlerNavGrid(room, margin, includeBreakables);
+            const start = findNearestMatrixCrawlerNavIndex(grid, fromX, fromY);
+            const goal = findNearestMatrixCrawlerNavIndex(grid, toX, toY);
+            if (start < 0 || goal < 0 || start === goal) return [];
+
+            const total = grid.cols * grid.rows;
+            const gScore = new Float32Array(total);
+            gScore.fill(Infinity);
+            const cameFrom = new Int32Array(total);
+            cameFrom.fill(-1);
+            const closed = new Uint8Array(total);
+            const open = [start];
+            const inOpen = new Uint8Array(total);
+            inOpen[start] = 1;
+            gScore[start] = 0;
+
+            const goalX = goal % grid.cols;
+            const goalY = Math.floor(goal / grid.cols);
+            const heuristic = index => {
+                const x = index % grid.cols;
+                const y = Math.floor(index / grid.cols);
+                const dx = Math.abs(x - goalX);
+                const dy = Math.abs(y - goalY);
+                return Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy);
+            };
+
+            let expansions = 0;
+            let reached = -1;
+            while (open.length && expansions++ < MATRIX_CRAWLER_NAV_MAX_EXPANSIONS) {
+                let bestOpen = 0;
+                let bestScore = Infinity;
+                for (let i = 0; i < open.length; i++) {
+                    const index = open[i];
+                    const score = gScore[index] + heuristic(index);
+                    if (score < bestScore) {
+                        bestScore = score;
+                        bestOpen = i;
+                    }
+                }
+
+                const current = open[bestOpen];
+                open[bestOpen] = open[open.length - 1];
+                open.pop();
+                inOpen[current] = 0;
+                if (current === goal) {
+                    reached = current;
+                    break;
+                }
+                closed[current] = 1;
+
+                const cx = current % grid.cols;
+                const cy = Math.floor(current / grid.cols);
+                for (let oy = -1; oy <= 1; oy++) {
+                    for (let ox = -1; ox <= 1; ox++) {
+                        if (ox === 0 && oy === 0) continue;
+                        const nx = cx + ox;
+                        const ny = cy + oy;
+                        if (nx < 0 || nx >= grid.cols || ny < 0 || ny >= grid.rows) continue;
+                        const next = ny * grid.cols + nx;
+                        if (!grid.valid[next] || closed[next]) continue;
+                        if (ox !== 0 && oy !== 0) {
+                            if (!grid.valid[cy * grid.cols + nx] || !grid.valid[ny * grid.cols + cx]) continue;
+                        }
+                        const cost = gScore[current] + (ox !== 0 && oy !== 0 ? Math.SQRT2 : 1);
+                        if (cost >= gScore[next]) continue;
+                        cameFrom[next] = current;
+                        gScore[next] = cost;
+                        if (!inOpen[next]) {
+                            open.push(next);
+                            inOpen[next] = 1;
+                        }
+                    }
+                }
+            }
+            if (reached < 0) return [];
+
+            const raw = [];
+            for (let current = reached; current >= 0 && current !== start; current = cameFrom[current]) {
+                raw.push(getMatrixCrawlerNavCellPoint(grid, current));
+            }
+            raw.reverse();
+            if (!raw.length) return [];
+
+            const smoothed = [];
+            let anchor = { x: fromX, y: fromY };
+            for (let i = 0; i < raw.length; i++) {
+                if (!hasMatrixCrawlerPathLine(room, anchor.x, anchor.y, raw[i].x, raw[i].y, margin, MATRIX_CRAWLER_NAV_CELL * 0.55, includeBreakables)) {
+                    const previous = raw[Math.max(0, i - 1)];
+                    smoothed.push(previous);
+                    anchor = previous;
+                }
+            }
+            const finalTarget = (includeBreakables ? isMatrixCrawlerEnemyPointClear(room, toX, toY, margin) : isPointInMatrixCrawlerRoom(room, toX, toY, margin))
+                ? { x: toX, y: toY }
+                : raw[raw.length - 1];
+            if (!hasMatrixCrawlerPathLine(room, anchor.x, anchor.y, finalTarget.x, finalTarget.y, margin, MATRIX_CRAWLER_NAV_CELL * 0.55, includeBreakables)) {
+                smoothed.push(raw[raw.length - 1]);
+            } else {
+                smoothed.push(finalTarget);
+            }
+            return smoothed;
+        }
+
+        function getMatrixCrawlerEnemySteerTarget(enemy, room, targetX, targetY, dt, margin = 24) {
+            const direct = hasMatrixCrawlerPathLine(room, enemy.x, enemy.y, targetX, targetY, margin, MATRIX_CRAWLER_NAV_CELL * 0.55, true);
+            if (direct) {
+                enemy.navPath = null;
+                enemy.navTimer = MATRIX_CRAWLER_NAV_REFRESH;
+                enemy.navGoalX = targetX;
+                enemy.navGoalY = targetY;
+                return { x: targetX, y: targetY, usingPath: false };
+            }
+
+            enemy.navTimer = (enemy.navTimer || 0) - dt;
+            const goalMoved = Math.hypot((enemy.navGoalX ?? targetX) - targetX, (enemy.navGoalY ?? targetY) - targetY) > MATRIX_CRAWLER_NAV_CELL * 0.7;
+            const stalePath = !enemy.navPath || !enemy.navPath.length || !hasMatrixCrawlerPathLine(room, enemy.x, enemy.y, enemy.navPath[0].x, enemy.navPath[0].y, margin, MATRIX_CRAWLER_NAV_CELL * 0.55, true);
+            if (enemy.navTimer <= 0 || goalMoved || stalePath) {
+                enemy.navPath = findMatrixCrawlerNavPath(room, enemy.x, enemy.y, targetX, targetY, margin, true);
+                enemy.navTimer = MATRIX_CRAWLER_NAV_REFRESH + Math.random() * 0.08;
+                enemy.navGoalX = targetX;
+                enemy.navGoalY = targetY;
+            }
+
+            while (enemy.navPath && enemy.navPath.length > 1 && Math.hypot(enemy.navPath[0].x - enemy.x, enemy.navPath[0].y - enemy.y) < MATRIX_CRAWLER_NAV_CELL * 0.42) {
+                enemy.navPath.shift();
+            }
+            if (enemy.navPath && enemy.navPath.length) {
+                return { x: enemy.navPath[0].x, y: enemy.navPath[0].y, usingPath: true };
+            }
+            return { x: targetX, y: targetY, usingPath: true };
+        }
+
+        function getMatrixCrawlerEnemySeekVector(enemy, room, targetX, targetY, dt, margin = 24) {
+            const target = getMatrixCrawlerEnemySteerTarget(enemy, room, targetX, targetY, dt, margin);
+            let dx = target.x - enemy.x;
+            let dy = target.y - enemy.y;
+            let dist = Math.hypot(dx, dy);
+            if (dist < 0.001) {
+                dx = targetX - enemy.x;
+                dy = targetY - enemy.y;
+                dist = Math.max(1, Math.hypot(dx, dy));
+            }
+            return { x: dx / dist, y: dy / dist, usingPath: target.usingPath };
+        }
+
+        function applyMatrixCrawlerEnemyMove(enemy, room, vx, vy, dt, margin = 24) {
+            const nextX = enemy.x + vx * dt;
+            const nextY = enemy.y + vy * dt;
+            const moved = moveMatrixCrawlerEnemyBodyInRoom(room, enemy.x, enemy.y, nextX, nextY, margin);
+            const desired = Math.hypot(nextX - enemy.x, nextY - enemy.y);
+            const actual = Math.hypot(moved.x - enemy.x, moved.y - enemy.y);
+            enemy.x = moved.x;
+            enemy.y = moved.y;
+            if (desired > 0.5 && actual < desired * 0.28) {
+                enemy.navStuckTimer = (enemy.navStuckTimer || 0) + dt;
+                if (enemy.navStuckTimer > 0.12) enemy.navTimer = 0;
+            } else {
+                enemy.navStuckTimer = Math.max(0, (enemy.navStuckTimer || 0) - dt * 2.5);
+            }
+            return moved;
         }
 
         function setMatrixCrawlerCameraToPlayer(immediate = false) {
@@ -631,6 +953,8 @@
             state.turnAfterimageCooldown = 0;
             state.hoverRipples = [];
             state.hoverEmitter = 0;
+            state.hoverThrusters = [];
+            state.hoverThrusterEmitter = 0;
             player.matrixCrawlerAimAngle = PLAYER_FIRE_FORWARD_ANGLE;
             player.matrixCrawlerTurning = false;
             player.survivorAimAngle = PLAYER_FIRE_FORWARD_ANGLE;
@@ -1000,16 +1324,31 @@
         }
 
         function spawnMatrixPickup(x, y, kind, options = {}) {
+            const defaultRadius = kind === 'item' ? 20 : (kind === 'bomb' ? 16 : 13);
+            const defaultChar = kind === 'coin'
+                ? '$'
+                : kind === 'heart'
+                    ? '+'
+                    : kind === 'exit'
+                        ? '>>'
+                        : kind === 'bomb'
+                            ? 'B'
+                            : '?';
+            const defaultColor = kind === 'coin'
+                ? MATRIX_CRAWLER_COLORS.coin
+                : kind === 'bomb'
+                    ? MATRIX_CRAWLER_BOMB_PICKUP_COLOR
+                    : MATRIX_CRAWLER_COLORS.white;
             matrixCrawlerState.pickups.push({
                 x,
                 y,
                 kind,
-                radius: options.radius || (kind === 'item' ? 20 : 13),
+                radius: options.radius || defaultRadius,
                 reward: options.reward || null,
                 cost: options.cost || 0,
                 amount: options.amount || 1,
-                char: options.char || (kind === 'coin' ? '$' : kind === 'heart' ? '+' : kind === 'exit' ? '>>' : '?'),
-                color: options.color || (kind === 'coin' ? MATRIX_CRAWLER_COLORS.coin : MATRIX_CRAWLER_COLORS.white),
+                char: options.char || defaultChar,
+                color: options.color || defaultColor,
                 pulse: Math.random() * Math.PI * 2
             });
         }
@@ -1094,6 +1433,7 @@
                     destroyed: false
                 });
             }
+            markMatrixCrawlerRoomNavDirty(room);
         }
 
         function syncMatrixCrawlerRoomBreakables(room = getMatrixCrawlerRoom()) {
@@ -1103,6 +1443,7 @@
         function breakMatrixCrawlerObject(object) {
             if (!object || object.destroyed) return;
             object.destroyed = true;
+            markMatrixCrawlerRoomNavDirty();
             const rect = getMatrixCrawlerRoomRect();
             for (let i = 0; i < 9; i++) {
                 emitMatrixCrawlerParticle(object.x, object.y, i % 2 ? object.color : MATRIX_CRAWLER_COLORS.glow, rect);
@@ -1328,13 +1669,56 @@
             return { x: Math.cos(nextAim), y: Math.sin(nextAim), angle: nextAim };
         }
 
+        function getMatrixCrawlerTransformedPlayerPoint(point, angle = getMatrixCrawlerPlayerAimAngle()) {
+            const localX = (point.x - player.x) * MATRIX_CRAWLER_PLAYER_RENDER_SCALE;
+            const localY = (point.y - player.y) * MATRIX_CRAWLER_PLAYER_RENDER_SCALE;
+            const rotation = angle + Math.PI / 2;
+            const cos = Math.cos(rotation);
+            const sin = Math.sin(rotation);
+            return {
+                x: player.x + localX * cos - localY * sin,
+                y: player.y + localX * sin + localY * cos
+            };
+        }
+
+        function getMatrixCrawlerHoverDriveOrigin(angle = getMatrixCrawlerPlayerAimAngle()) {
+            const layout = getPlayerRenderLayout(player, 'center');
+            const rear = getMatrixCrawlerTransformedPlayerPoint(layout.rearOrigin, angle);
+            const aftPush = 5;
+            return {
+                x: rear.x + Math.cos(angle + Math.PI) * aftPush,
+                y: rear.y + Math.sin(angle + Math.PI) * aftPush
+            };
+        }
+
+        function getMatrixCrawlerHoverThrusterAnchors(angle = getMatrixCrawlerPlayerAimAngle()) {
+            const layout = getPlayerRenderLayout(player, 'center');
+            const anchors = getPlayerThrusterAnchors(layout);
+            return anchors.map(anchor => {
+                const p = getMatrixCrawlerTransformedPlayerPoint(anchor, angle);
+                return {
+                    x: p.x + Math.cos(angle + Math.PI) * 4,
+                    y: p.y + Math.sin(angle + Math.PI) * 4
+                };
+            });
+        }
+
+        function getMatrixCrawlerHoverDriveColor(hoverActivation = 0, hot = false) {
+            const activation = Math.max(0, Math.min(1, hoverActivation || 0));
+            if (hot) return activation > 0.55 ? '#ffffff' : '#dffcff';
+            if (activation > 0.68) return '#bffcff';
+            if (activation > 0.28) return '#8ff7ff';
+            return '#58c9ff';
+        }
+
         function emitMatrixCrawlerHoverRipple(activity = 0, hoverActivation = 0) {
             const state = matrixCrawlerState;
             if (!state.hoverRipples) state.hoverRipples = [];
             const aimAngle = getMatrixCrawlerPlayerAimAngle();
+            const origin = getMatrixCrawlerHoverDriveOrigin(aimAngle);
             const angle = Math.random() * Math.PI * 2;
             const activation = Math.max(0, Math.min(1, hoverActivation || 0));
-            const ring = 12 + Math.random() * 8 + activity * 4;
+            const ring = 11 + Math.random() * 8 + activity * 4;
             const outwardSpeed = 22 + Math.random() * 30 + activity * 18;
             const swirl = (Math.random() - 0.5) * (18 + activity * 18);
             const drift = 0.035 + activity * 0.035;
@@ -1342,8 +1726,8 @@
             const vy = Math.sin(angle) * outwardSpeed + Math.sin(angle + Math.PI / 2) * swirl + (player.vy || 0) * drift;
             const life = MATRIX_CRAWLER_HOVER_RIPPLE_LIFE + Math.random() * 0.14;
             state.hoverRipples.push({
-                x: player.x + Math.cos(angle) * ring + (Math.random() - 0.5) * 2,
-                y: player.y + Math.sin(angle) * ring * 0.68 + (Math.random() - 0.5) * 2,
+                x: origin.x + Math.cos(angle) * ring + (Math.random() - 0.5) * 2,
+                y: origin.y + Math.sin(angle) * ring * 0.68 + (Math.random() - 0.5) * 2,
                 vx,
                 vy: vy * 0.72,
                 char: MATRIX_CRAWLER_HOVER_CHARS[Math.floor(Math.random() * MATRIX_CRAWLER_HOVER_CHARS.length)],
@@ -1360,6 +1744,38 @@
             }
         }
 
+        function emitMatrixCrawlerHoverThruster(activity = 0, hoverActivation = 0) {
+            const state = matrixCrawlerState;
+            if (!state.hoverThrusters) state.hoverThrusters = [];
+            const aimAngle = getMatrixCrawlerPlayerAimAngle();
+            const anchors = getMatrixCrawlerHoverThrusterAnchors(aimAngle);
+            const exhaustAngle = aimAngle + Math.PI;
+            const activation = Math.max(0, Math.min(1, hoverActivation || 0));
+            const chars = typeof EXHAUST_PARTICLE_CHARS !== 'undefined' ? EXHAUST_PARTICLE_CHARS : MATRIX_CRAWLER_HOVER_CHARS;
+            for (let i = 0; i < anchors.length; i++) {
+                if (i > 0 && Math.random() > 0.62 + activity * 0.20) continue;
+                const anchor = anchors[i];
+                const spread = (Math.random() - 0.5) * (0.46 - activity * 0.12);
+                const speed = 38 + Math.random() * 44 + activity * 28;
+                const life = 0.22 + Math.random() * 0.12 + activity * 0.04;
+                state.hoverThrusters.push({
+                    x: anchor.x + (Math.random() - 0.5) * 2.8,
+                    y: anchor.y + (Math.random() - 0.5) * 2.8,
+                    vx: Math.cos(exhaustAngle + spread) * speed + (player.vx || 0) * 0.045,
+                    vy: Math.sin(exhaustAngle + spread) * speed + (player.vy || 0) * 0.045,
+                    char: chars[Math.floor(Math.random() * chars.length)],
+                    life,
+                    maxLife: life,
+                    size: 6.5 + Math.random() * 3 + activity * 1.5,
+                    activation,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+            if (state.hoverThrusters.length > MATRIX_CRAWLER_HOVER_THRUSTER_MAX) {
+                state.hoverThrusters.splice(0, state.hoverThrusters.length - MATRIX_CRAWLER_HOVER_THRUSTER_MAX);
+            }
+        }
+
         function updateMatrixCrawlerHoverRipples(dt) {
             const state = matrixCrawlerState;
             const speed = Math.hypot(player.vx || 0, player.vy || 0);
@@ -1367,7 +1783,7 @@
             const hoverActivation = Math.max(0, Math.min(1, (speed - 28) / 210));
             const turning = player.matrixCrawlerTurning ? 0.45 : 0;
             const activity = Math.min(1, 0.22 + moving * 0.42 + turning);
-            const interval = 0.074 - activity * 0.020;
+            const interval = 0.060 - activity * 0.016;
             state.hoverEmitter = (state.hoverEmitter || 0) + dt;
             let emitted = 0;
             const burstCount = moving > 0.3 || turning > 0 ? 2 : 1;
@@ -1387,20 +1803,32 @@
                 r.life -= dt;
                 if (r.life <= 0) ripples.splice(i, 1);
             }
+
+            state.hoverThrusterEmitter = (state.hoverThrusterEmitter || 0) + dt;
+            const thrusterInterval = 0.070 - activity * 0.024;
+            let thrusterEmitted = 0;
+            while (state.hoverThrusterEmitter >= thrusterInterval && thrusterEmitted < 2) {
+                state.hoverThrusterEmitter -= thrusterInterval;
+                emitMatrixCrawlerHoverThruster(activity, hoverActivation);
+                thrusterEmitted++;
+            }
+
+            const thrusters = state.hoverThrusters || [];
+            for (let i = thrusters.length - 1; i >= 0; i--) {
+                const t = thrusters[i];
+                t.x += (t.vx || 0) * dt;
+                t.y += (t.vy || 0) * dt;
+                t.vx *= Math.pow(0.20, dt);
+                t.vy *= Math.pow(0.20, dt);
+                t.life -= dt * (2.25 + (t.activation || 0) * 0.45);
+                if (t.life <= 0) thrusters.splice(i, 1);
+            }
         }
 
         function getMatrixCrawlerWeaponOrigin(angle, isRear = false) {
             const layout = getPlayerRenderLayout(player, 'center');
             const origin = isRear ? layout.rearOrigin : layout.weaponOrigin;
-            const localX = (origin.x - player.x) * MATRIX_CRAWLER_PLAYER_RENDER_SCALE;
-            const localY = (origin.y - player.y) * MATRIX_CRAWLER_PLAYER_RENDER_SCALE;
-            const rotation = angle + Math.PI / 2;
-            const cos = Math.cos(rotation);
-            const sin = Math.sin(rotation);
-            return {
-                x: player.x + localX * cos - localY * sin,
-                y: player.y + localX * sin + localY * cos
-            };
+            return getMatrixCrawlerTransformedPlayerPoint(origin, angle);
         }
 
         function getMatrixCrawlerPlayerHitboxRadius() {
@@ -1601,16 +2029,28 @@
             }
         }
 
+        function getMatrixCrawlerBombCooldownTotal() {
+            return typeof getPlayerBombCooldownTotal === 'function'
+                ? getPlayerBombCooldownTotal()
+                : (player.bombCooldown || BOMB_BASE_COOLDOWN);
+        }
+
+        function hasActiveMatrixCrawlerBomb() {
+            return bombProjectiles.some(bomb => bomb && bomb.isMatrixCrawlerBomb);
+        }
+
+        function setMatrixCrawlerBombLoaded(loaded) {
+            player.bombTimer = loaded ? 0 : getMatrixCrawlerBombCooldownTotal();
+        }
+
         function fireMatrixCrawlerBomb() {
-            if (player.bombTimer > 0 || postResumeBombLockTimer > 0) return;
+            if (player.bombTimer > 0 || postResumeBombLockTimer > 0 || hasActiveMatrixCrawlerBomb()) return;
             const angle = getMatrixCrawlerPlayerAimAngle();
             const origin = getMatrixCrawlerWeaponOrigin(angle, false);
             const indicatorVisual = typeof getPlayerBombIndicatorVisual === 'function'
                 ? getPlayerBombIndicatorVisual()
                 : { color: '#8ff7ff' };
-            player.bombTimer = typeof getPlayerBombCooldownTotal === 'function'
-                ? getPlayerBombCooldownTotal()
-                : (player.bombCooldown || BOMB_BASE_COOLDOWN);
+            setMatrixCrawlerBombLoaded(false);
             if (typeof recordRunBombUsed === 'function') recordRunBombUsed();
             const speed = BOMB_GRENADE_SPEED * MATRIX_CRAWLER_BOMB_SPEED_MULT;
             bombProjectiles.push({
@@ -1673,6 +2113,39 @@
             if (enemy.hp <= 0) killMatrixEnemy(enemy);
         }
 
+        function getMatrixCrawlerBombDropChance(enemy) {
+            if (!enemy || enemy.type === 'nullPhantom' || enemy.type === 'distortedGlitch') return 0;
+            let chance = 0.045;
+            if (enemy.type === 'miniboss' || enemy.visualKind === 'elite') {
+                chance = 0.42;
+            } else if (enemy.type === 'firewallHost') {
+                chance = 0.18;
+            } else if (enemy.type === 'crashBug' || enemy.type === 'portSentry') {
+                chance = 0.13;
+            } else if (enemy.type === 'orbit' || enemy.type === 'turret') {
+                chance = 0.10;
+            } else if (enemy.type === 'bug') {
+                chance = 0.055;
+            }
+            const bombIsLoaded = player.bombTimer <= 0;
+            return Math.max(0.015, chance * (bombIsLoaded ? 0.42 : 1.35));
+        }
+
+        function maybeDropMatrixCrawlerBombPickup(enemy, rect) {
+            const chance = getMatrixCrawlerBombDropChance(enemy);
+            if (chance <= 0 || Math.random() >= chance) return false;
+            const jitterX = (Math.random() - 0.5) * 28;
+            const jitterY = -14 + (Math.random() - 0.5) * 18;
+            spawnMatrixPickup(enemy.x + jitterX, enemy.y + jitterY, 'bomb', {
+                char: 'B',
+                color: MATRIX_CRAWLER_BOMB_PICKUP_COLOR
+            });
+            for (let i = 0; i < 6; i++) {
+                emitMatrixCrawlerParticle(enemy.x, enemy.y, MATRIX_CRAWLER_BOMB_PICKUP_COLOR, rect);
+            }
+            return true;
+        }
+
         function killMatrixEnemy(enemy) {
             if (!enemy || enemy.dead) return;
             enemy.dead = true;
@@ -1696,6 +2169,7 @@
             if (Math.random() < (enemy.type === 'hydra' ? 1 : enemy.type === 'miniboss' ? 0.75 : 0.20)) {
                 spawnMatrixPickup(enemy.x, enemy.y, 'coin', { amount: enemy.type === 'hydra' ? 5 : enemy.type === 'miniboss' ? 3 : 1 });
             }
+            maybeDropMatrixCrawlerBombPickup(enemy, rect);
         }
 
         function emitMatrixCrawlerParticle(x, y, color, rect = getMatrixCrawlerRoomRect()) {
@@ -2176,8 +2650,31 @@
             }
         }
 
+        function getMatrixDistortedGlitchBoundsMargin(source) {
+            const sprite = source && source.sprite ? source.sprite : [];
+            const columns = sprite.reduce((best, row) => Math.max(best, String(row || '').length), 1);
+            const rows = Math.max(1, sprite.length || 1);
+            const scale = Math.max(0.55, source && source.renderScale ? source.renderScale : MATRIX_GLITCH_RENDER_SCALE);
+            const halfW = columns * charW * scale * 0.5;
+            const halfH = rows * charH * scale * 0.5;
+            return Math.ceil(Math.max(source && source.radius ? source.radius : 50, halfW, halfH) + 18);
+        }
+
+        function clampMatrixDistortedGlitchToRoom(source, room) {
+            if (!source || !room) return;
+            const rect = getMatrixCrawlerRoomRect(room);
+            const margin = getMatrixDistortedGlitchBoundsMargin(source);
+            const minX = rect.x + margin;
+            const maxX = rect.right - margin;
+            const minY = rect.y + margin;
+            const maxY = rect.bottom - margin;
+            if (maxX >= minX) source.x = Math.max(minX, Math.min(maxX, source.x));
+            if (maxY >= minY) source.y = Math.max(minY, Math.min(maxY, source.y));
+        }
+
         function updateMatrixDistortedGlitchDrift(source, hostileDt, room) {
             const rect = getMatrixCrawlerRoomRect(room);
+            const boundsMargin = getMatrixDistortedGlitchBoundsMargin(source);
             source.dirChangeTimer = (source.dirChangeTimer || 0) - hostileDt;
             if (source.dirChangeTimer <= 0) {
                 source.dirChangeTimer = (source.stage || 1) >= 2
@@ -2197,7 +2694,7 @@
                     source.y,
                     source.x + (source.glitchVx || 0) * hostileDt,
                     source.y + (source.glitchVy || 0) * hostileDt,
-                    source.radius + 8
+                    boundsMargin
                 );
                 if (Math.abs(moved.x - (source.x + (source.glitchVx || 0) * hostileDt)) > 0.1) source.glitchVx *= -0.72;
                 if (Math.abs(moved.y - (source.y + (source.glitchVy || 0) * hostileDt)) > 0.1) source.glitchVy *= -0.72;
@@ -2205,27 +2702,48 @@
                 source.y = moved.y;
             }
 
-            const minX = Math.max(rect.x + source.radius + 20, player.x - Math.min(560, rect.w * 0.42));
-            const maxX = Math.min(rect.right - source.radius - 20, player.x + Math.min(560, rect.w * 0.42));
-            const minY = Math.max(rect.y + source.radius + 20, player.y - Math.min(430, rect.h * 0.46));
-            const maxY = Math.min(rect.bottom - source.radius - 20, player.y - 120);
+            const roomMinX = rect.x + boundsMargin;
+            const roomMaxX = rect.right - boundsMargin;
+            const roomMinY = rect.y + boundsMargin;
+            const roomMaxY = rect.bottom - boundsMargin;
+            let minX = Math.max(roomMinX, player.x - Math.min(560, rect.w * 0.42));
+            let maxX = Math.min(roomMaxX, player.x + Math.min(560, rect.w * 0.42));
+            let minY = Math.max(roomMinY, player.y - Math.min(430, rect.h * 0.46));
+            let maxY = Math.min(roomMaxY, player.y - 120);
+            if (maxX < minX) {
+                minX = roomMinX;
+                maxX = roomMaxX;
+            }
+            if (maxY < minY) {
+                const fallbackY = Math.max(roomMinY, Math.min(roomMaxY, player.y - 160));
+                const fallbackSpan = Math.min(280, Math.max(0, roomMaxY - roomMinY));
+                minY = Math.max(roomMinY, fallbackY - fallbackSpan * 0.5);
+                maxY = Math.min(roomMaxY, fallbackY + fallbackSpan * 0.5);
+                if (maxY < minY) {
+                    minY = roomMinY;
+                    maxY = roomMaxY;
+                }
+            }
             if (source.x < minX) { source.x = minX; source.glitchVx = Math.abs(source.glitchVx || 0); }
             if (source.x > maxX) { source.x = maxX; source.glitchVx = -Math.abs(source.glitchVx || 0); }
             if (source.y < minY) { source.y = minY; source.glitchVy = Math.abs(source.glitchVy || 0); }
             if (source.y > maxY) { source.y = maxY; source.glitchVy = -Math.abs(source.glitchVy || 0); }
+            clampMatrixDistortedGlitchToRoom(source, room);
 
             source.sprite = (source.stage || 1) >= 2
                 ? (Math.random() > 0.7 && typeof GLITCH_SPRITE_2B !== 'undefined' ? GLITCH_SPRITE_2B : (typeof GLITCH_SPRITE_2 !== 'undefined' ? GLITCH_SPRITE_2 : source.sprite))
                 : (Math.random() > 0.7 && typeof GLITCH_SPRITE_1B !== 'undefined' ? GLITCH_SPRITE_1B : (typeof GLITCH_SPRITE_1 !== 'undefined' ? GLITCH_SPRITE_1 : source.sprite));
+            clampMatrixDistortedGlitchToRoom(source, room);
 
             const blinkChance = ((source.stage || 1) >= 2 ? 0.045 : 0.026) * hostileDt * 60;
             if (Math.random() < blinkChance) {
                 const mega = Math.random() > 0.86;
                 const d = mega ? 120 + Math.random() * 130 : 28 + Math.random() * 54;
                 const a = Math.random() * Math.PI * 2;
-                const safe = getMatrixCrawlerSafePoint(room, source.x + Math.cos(a) * d, source.y + Math.sin(a) * d, source.radius + 8);
+                const safe = getMatrixCrawlerSafePoint(room, source.x + Math.cos(a) * d, source.y + Math.sin(a) * d, boundsMargin);
                 source.x = safe.x;
                 source.y = safe.y;
+                clampMatrixDistortedGlitchToRoom(source, room);
                 if (mega) {
                     emitMatrixBossBurst(source, source.color, 14, getMatrixGlitchChars());
                     addShake(5);
@@ -2449,7 +2967,7 @@
                 enemy.dashTimer = Math.max(0, (enemy.dashTimer || 0) - dt);
                 const nextX = enemy.x + (enemy.dashVx || 0) * dt;
                 const nextY = enemy.y + (enemy.dashVy || 0) * dt;
-                const moved = moveMatrixCrawlerBodyInRoom(room, enemy.x, enemy.y, nextX, nextY, enemy.radius + 4);
+                const moved = moveMatrixCrawlerEnemyBodyInRoom(room, enemy.x, enemy.y, nextX, nextY, enemy.radius + 4);
                 const hitX = Math.abs(moved.x - nextX) > 0.1;
                 const hitY = Math.abs(moved.y - nextY) > 0.1;
                 enemy.x = moved.x;
@@ -2478,18 +2996,21 @@
 
             enemy.dashCooldown = Math.max(0, (enemy.dashCooldown || 0) - dt);
             enemy.wanderAngle = (enemy.wanderAngle || 0) + Math.sin(enemy.phase * 0.7) * dt * 0.55;
-            const chaseWeight = dist < 520 ? 0.42 : 0.18;
             const aim = Math.atan2(dy, dx);
-            const crawlAngle = enemy.wanderAngle * (1 - chaseWeight) + aim * chaseWeight;
+            const steer = getMatrixCrawlerEnemySeekVector(enemy, room, player.x, player.y, dt, enemy.radius + 4);
+            const chaseWeight = dist < 520 ? (steer.usingPath ? 0.74 : 0.42) : (steer.usingPath ? 0.55 : 0.18);
+            const wanderX = Math.cos(enemy.wanderAngle);
+            const wanderY = Math.sin(enemy.wanderAngle);
+            let crawlX = wanderX * (1 - chaseWeight) + steer.x * chaseWeight;
+            let crawlY = wanderY * (1 - chaseWeight) + steer.y * chaseWeight;
+            const crawlLength = Math.max(1, Math.hypot(crawlX, crawlY));
+            crawlX /= crawlLength;
+            crawlY /= crawlLength;
             enemy.aimAngle = aim;
             const speed = enemy.speed || 48;
-            const nextX = enemy.x + Math.cos(crawlAngle) * speed * dt;
-            const nextY = enemy.y + Math.sin(crawlAngle) * speed * dt;
-            const moved = moveMatrixCrawlerBodyInRoom(room, enemy.x, enemy.y, nextX, nextY, enemy.radius + 4);
-            enemy.x = moved.x;
-            enemy.y = moved.y;
+            applyMatrixCrawlerEnemyMove(enemy, room, crawlX * speed, crawlY * speed, dt, enemy.radius + 4);
 
-            if (enemy.dashCooldown <= 0 && dist < 620) {
+            if (enemy.dashCooldown <= 0 && dist < 620 && hasMatrixCrawlerPathLine(room, enemy.x, enemy.y, player.x, player.y, enemy.radius + 4, MATRIX_CRAWLER_NAV_CELL * 0.55, true)) {
                 enemy.crashState = 'windup';
                 enemy.dashWindup = MATRIX_CRASH_BUG_WINDUP;
                 enemy.dashAngle = aim;
@@ -2661,7 +3182,6 @@
             const aim = updateMatrixCrawlerAim(dt, rawAim);
             player.isFiring = !!aim;
             if (aim) fireMatrixCrawlerShot(aim);
-            if (player.bombTimer > 0) player.bombTimer = Math.max(0, player.bombTimer - dt);
             if (postResumeBombLockTimer > 0) postResumeBombLockTimer = Math.max(0, postResumeBombLockTimer - dt);
             if ((keys[' '] || keys.b) && player.bombTimer <= 0 && postResumeBombLockTimer <= 0) {
                 fireMatrixCrawlerBomb();
@@ -2888,15 +3408,20 @@
                     continue;
                 }
                 if (enemy.speed > 0) {
-                    let moveScale = enemy.type === 'orbit' ? Math.sin(enemy.phase) * 0.45 : 1;
-                    const tangent = enemy.type === 'orbit' ? 0.85 : 0;
-                    const vx = (dx / dist + -dy / dist * tangent) * enemy.speed * moveScale;
-                    const vy = (dy / dist + dx / dist * tangent) * enemy.speed * moveScale;
-                    const nextX = enemy.x + vx * dt;
-                    const nextY = enemy.y + vy * dt;
-                    const moved = moveMatrixCrawlerBodyInRoom(room, enemy.x, enemy.y, nextX, nextY, enemy.radius + 4);
-                    enemy.x = moved.x;
-                    enemy.y = moved.y;
+                    const steer = getMatrixCrawlerEnemySeekVector(enemy, room, player.x, player.y, dt, enemy.radius + 4);
+                    let dirX = steer.x;
+                    let dirY = steer.y;
+                    let moveScale = 1;
+                    if (enemy.type === 'orbit') {
+                        const tangentWeight = steer.usingPath ? 0.26 : 0.85;
+                        dirX = steer.x + -dy / dist * tangentWeight;
+                        dirY = steer.y + dx / dist * tangentWeight;
+                        const dirLength = Math.max(1, Math.hypot(dirX, dirY));
+                        dirX /= dirLength;
+                        dirY /= dirLength;
+                        moveScale = steer.usingPath ? 0.78 : Math.sin(enemy.phase) * 0.45;
+                    }
+                    applyMatrixCrawlerEnemyMove(enemy, room, dirX * enemy.speed * moveScale, dirY * enemy.speed * moveScale, dt, enemy.radius + 4);
                 }
                 enemy.fireTimer -= dt;
                 const fireInterval = enemy.type === 'hydra' ? 1.15 : enemy.type === 'miniboss' ? 1.25 : enemy.type === 'turret' ? 1.45 : enemy.type === 'orbit' ? 1.8 : 2.4;
@@ -2984,6 +3509,19 @@
                 } else if (p.kind === 'heart') {
                     player.hp = Math.min(player.maxHp, player.hp + 10 * (p.amount || 1));
                     state.pickups.splice(i, 1);
+                } else if (p.kind === 'bomb') {
+                    if (player.bombTimer <= 0) {
+                        state.message = 'BOMB ALREADY LOADED';
+                        state.messageTimer = 0.55;
+                        continue;
+                    }
+                    setMatrixCrawlerBombLoaded(true);
+                    state.message = 'BOMB RELOADED';
+                    state.messageTimer = 0.85;
+                    for (let burst = 0; burst < 10; burst++) {
+                        emitMatrixCrawlerParticle(p.x, p.y, burst % 2 ? MATRIX_CRAWLER_BOMB_PICKUP_COLOR : MATRIX_CRAWLER_COLORS.white);
+                    }
+                    state.pickups.splice(i, 1);
                 } else if (p.kind === 'exit') {
                     if (typeof beginRunVictoryFlow === 'function') {
                         beginRunVictoryFlow({ name: state.lastBossName || 'NULL PHANTOM', color: MATRIX_CRAWLER_COLORS.glow });
@@ -3067,6 +3605,9 @@
             } else {
                 if (Math.random() < 0.38) spawnMatrixPickup(player.x, player.y - 22, 'coin', { amount: 1 + (Math.random() < 0.18 ? 1 : 0) });
                 if (Math.random() < 0.10) spawnMatrixPickup(player.x + 26, player.y, 'heart', { amount: 1, color: '#ff8fb5' });
+                if (Math.random() < (player.bombTimer > 0 ? 0.16 : 0.035)) {
+                    spawnMatrixPickup(player.x - 26, player.y + 4, 'bomb', { color: MATRIX_CRAWLER_BOMB_PICKUP_COLOR });
+                }
             }
             spawnMatrixRoomPickups(room);
         }
@@ -3098,6 +3639,10 @@
             const state = matrixCrawlerState;
             if (state.messageTimer > 0) state.messageTimer = Math.max(0, state.messageTimer - safeDt);
             if (state.roomFlash > 0) state.roomFlash = Math.max(0, state.roomFlash - safeDt);
+            if (state.controlDecalTimer > 0) {
+                state.controlDecalTimer = Math.max(0, state.controlDecalTimer - safeDt);
+                if (state.controlDecalTimer <= 0) state.controlDecal = null;
+            }
             if (typeof shake === 'number' && shake > 0) {
                 shake *= Math.pow(0.88, safeDt * 60);
                 if (shake < 0.35) shake = 0;
@@ -3134,6 +3679,182 @@
                 roomsCleared: matrixCrawlerState.roomsCleared || 0,
                 totalCombatRooms: matrixCrawlerState.totalCombatRooms || 1
             };
+        }
+
+        function matrixCrawlerControlEaseOutCubic(t) {
+            const clamped = Math.max(0, Math.min(1, t || 0));
+            return 1 - Math.pow(1 - clamped, 3);
+        }
+
+        function getMatrixCrawlerControlDecal(rect) {
+            const state = matrixCrawlerState;
+            if (!state.controlDecal) {
+                state.controlDecal = {
+                    x: rect.x + rect.w / 2,
+                    y: rect.y + Math.max(92, Math.min(rect.h - 68, rect.h * 0.72)),
+                    seed: (state.floor || 1) * 977 + 421
+                };
+            }
+            return state.controlDecal;
+        }
+
+        function drawMatrixCrawlerControlPairDecal(pair, x, y, alpha, fontSize) {
+            const keyFont = `bold ${fontSize}px 'Electrolize', sans-serif`;
+            const actionFont = `bold ${Math.max(9, fontSize - 1)}px 'Electrolize', sans-serif`;
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'left';
+
+            ctx.font = keyFont;
+            const keyPadX = Math.round(fontSize * 0.58);
+            const keyW = Math.ceil(ctx.measureText(pair.key).width + keyPadX * 2);
+            const keyH = Math.max(18, Math.round(fontSize * 1.62));
+            const keyY = y - keyH / 2;
+
+            ctx.globalAlpha = alpha * 0.12;
+            ctx.fillStyle = colorWithAlpha('#00180d', 0.78);
+            ctx.fillRect(x, keyY, keyW, keyH);
+            ctx.globalAlpha = alpha * 0.26;
+            ctx.strokeStyle = colorWithAlpha(pair.color || MATRIX_CRAWLER_COLORS.glow, 0.72);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x + 0.5, keyY + 0.5, keyW, keyH);
+
+            ctx.globalAlpha = alpha * 0.76;
+            ctx.fillStyle = '#d9fff1';
+            if (glowEnabled) {
+                ctx.shadowColor = pair.color || MATRIX_CRAWLER_COLORS.glow;
+                ctx.shadowBlur = 3 * alpha;
+            }
+            ctx.fillText(pair.key, x + keyPadX, y + 1);
+            ctx.shadowBlur = 0;
+
+            const actionX = x + keyW + Math.round(fontSize * 0.52);
+            ctx.font = actionFont;
+            ctx.globalAlpha = alpha * 0.62;
+            ctx.fillStyle = pair.color || MATRIX_CRAWLER_COLORS.glow;
+            ctx.fillText(pair.action, actionX, y + 1);
+            ctx.globalAlpha = 1;
+            return actionX + ctx.measureText(pair.action).width - x;
+        }
+
+        function drawMatrixCrawlerControlDecal(rect, now) {
+            const state = matrixCrawlerState;
+            const room = getMatrixCrawlerRoom();
+            if (!state || !room || room.type !== 'start') return;
+            const timer = state.controlDecalTimer || 0;
+            if (timer <= 0.01) return;
+            const decal = getMatrixCrawlerControlDecal(rect);
+            const life = Math.max(0, Math.min(1, timer / MATRIX_CRAWLER_CONTROL_DECAL_DURATION));
+            const age = MATRIX_CRAWLER_CONTROL_DECAL_DURATION - timer;
+            const introAlpha = matrixCrawlerControlEaseOutCubic(Math.max(0, Math.min(1, age / 0.72)));
+            const fadeAlpha = life > 0.52 ? 1 : matrixCrawlerControlEaseOutCubic(Math.max(0, Math.min(1, life / 0.52)));
+            const fizzle = 1 - Math.max(0, Math.min(1, life / 0.58));
+            const baseAlpha = 0.50 * introAlpha * fadeAlpha;
+            if (baseAlpha <= 0.01) return;
+
+            const pairs = [
+                { key: 'WASD', action: 'MOVE', color: '#8ff7ff' },
+                { key: 'ARROWS', action: 'AIM', color: '#9fb8ff' },
+                { key: 'SPACE', action: 'BOMB', color: MATRIX_CRAWLER_BOMB_PICKUP_COLOR },
+                { key: 'SHIFT', action: 'FOCUS', color: '#b7ffcf' }
+            ];
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            const maxW = Math.min(rect.w * 0.72, 680);
+            let fontSize = width < 900 ? 10 : 12;
+            let gap = Math.round(fontSize * 1.08);
+            const sep = '::';
+            const measurePair = (pair) => {
+                ctx.font = `bold ${fontSize}px 'Electrolize', sans-serif`;
+                const keyW = ctx.measureText(pair.key).width + Math.round(fontSize * 0.58) * 2;
+                ctx.font = `bold ${Math.max(9, fontSize - 1)}px 'Electrolize', sans-serif`;
+                return keyW + Math.round(fontSize * 0.52) + ctx.measureText(pair.action).width;
+            };
+            let totalW = 0;
+            for (let i = 0; i < pairs.length; i++) {
+                totalW += measurePair(pairs[i]);
+                if (i < pairs.length - 1) {
+                    ctx.font = `bold ${fontSize}px Courier New`;
+                    totalW += gap * 2 + ctx.measureText(sep).width;
+                }
+            }
+            if (totalW > maxW) {
+                fontSize = Math.max(9, Math.floor(fontSize * maxW / totalW));
+                gap = Math.round(fontSize * 1.08);
+                totalW = 0;
+                for (let i = 0; i < pairs.length; i++) {
+                    totalW += measurePair(pairs[i]);
+                    if (i < pairs.length - 1) {
+                        ctx.font = `bold ${fontSize}px Courier New`;
+                        totalW += gap * 2 + ctx.measureText(sep).width;
+                    }
+                }
+            }
+
+            const y = decal.y + Math.sin(now * 0.00042 + decal.seed) * 1.5;
+            const x = decal.x;
+            const panelH = Math.max(26, Math.round(fontSize * 2.12));
+            const panelX = x - totalW / 2 - 18;
+            const panelY = y - panelH / 2;
+            const panelW = totalW + 36;
+
+            ctx.globalAlpha = baseAlpha * 0.10;
+            ctx.fillStyle = MATRIX_CRAWLER_COLORS.glow;
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.globalAlpha = baseAlpha * 0.20;
+            ctx.strokeStyle = colorWithAlpha(MATRIX_CRAWLER_COLORS.grid, 0.62);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(panelX + 10, panelY + 3);
+            ctx.lineTo(panelX + panelW - 10, panelY + 3);
+            ctx.moveTo(panelX + 10, panelY + panelH - 3);
+            ctx.lineTo(panelX + panelW - 10, panelY + panelH - 3);
+            for (let i = 1; i < 5; i++) {
+                const tx = panelX + panelW * i / 5;
+                ctx.moveTo(tx, panelY + 4);
+                ctx.lineTo(tx + 8, panelY + panelH - 4);
+            }
+            ctx.stroke();
+
+            let cursorX = x - totalW / 2;
+            for (let i = 0; i < pairs.length; i++) {
+                const pairW = drawMatrixCrawlerControlPairDecal(pairs[i], cursorX, y, baseAlpha, fontSize);
+                cursorX += pairW;
+                if (i < pairs.length - 1) {
+                    cursorX += gap;
+                    ctx.font = `bold ${fontSize}px Courier New`;
+                    ctx.globalAlpha = baseAlpha * 0.34;
+                    ctx.fillStyle = colorWithAlpha(MATRIX_CRAWLER_COLORS.glow, 0.74);
+                    ctx.fillText(sep, cursorX, y + 1);
+                    cursorX += ctx.measureText(sep).width + gap;
+                }
+            }
+
+            if (fizzle > 0.02) {
+                const glyphs = ['0', '1', '.', ':'];
+                ctx.font = `bold ${Math.max(7, fontSize - 4)}px Courier New`;
+                for (let i = 0; i < 18; i++) {
+                    const n1 = Math.sin(decal.seed + i * 19.11) * 43758.5453;
+                    const n2 = Math.sin(decal.seed + i * 29.77 + 6.2) * 33731.331;
+                    const n3 = Math.sin(decal.seed + i * 37.41 + 2.1) * 27181.13;
+                    const a = n1 - Math.floor(n1);
+                    const b = n2 - Math.floor(n2);
+                    const c = n3 - Math.floor(n3);
+                    ctx.globalAlpha = baseAlpha * fizzle * (0.07 + c * 0.16);
+                    ctx.fillStyle = c > 0.72 ? '#d9fff1' : MATRIX_CRAWLER_COLORS.glow;
+                    ctx.fillText(
+                        glyphs[i % glyphs.length],
+                        panelX + a * panelW + Math.sin(now * 0.0013 + i) * fizzle * 16,
+                        panelY + b * panelH + fizzle * (6 + a * 18)
+                    );
+                }
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = 'source-over';
         }
 
         function drawMatrixCrawlerGrid(rect, now) {
@@ -3175,7 +3896,94 @@
                 const y = rect.y + ((i * 53 + now * 0.026) % rect.h);
                 ctx.fillText(i % 3 === 0 ? '01' : (i % 3 === 1 ? 'ptr' : 'sys'), x, y);
             }
+            drawMatrixCrawlerControlDecal(rect, now);
             ctx.restore();
+        }
+
+        function getMatrixCrawlerFocusVisualIntensity() {
+            const drive = typeof getFocusDriveRenderIntensity === 'function' ? getFocusDriveRenderIntensity() : 0;
+            const specter = typeof getSpecterRenderIntensity === 'function' ? getSpecterRenderIntensity() : 0;
+            return Math.max(0, Math.min(1, Math.max(drive, specter * 0.72)));
+        }
+
+        function getMatrixCrawlerFocusTrailOffset(obj, layer, amount = 0.026) {
+            if (typeof getFocusTrailOffset === 'function') return getFocusTrailOffset(obj, layer, amount);
+            const intensity = getMatrixCrawlerFocusVisualIntensity();
+            return {
+                x: -((obj && obj.vx) || 0) * amount * layer * intensity,
+                y: -((obj && obj.vy) || 0) * amount * layer * intensity
+            };
+        }
+
+        function drawMatrixCrawlerFocusFloorWarp(rect, now) {
+            const intensity = getMatrixCrawlerFocusVisualIntensity();
+            if (intensity <= 0.025) return;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(rect.x, rect.y, rect.w, rect.h);
+            ctx.clip();
+            ctx.globalCompositeOperation = 'screen';
+
+            ctx.globalAlpha = 0.055 * intensity;
+            ctx.fillStyle = '#68ff9a';
+            ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+            ctx.lineWidth = 1;
+            const sweep = ((now || 0) * 0.072) % 54;
+            ctx.strokeStyle = colorWithAlpha('#caffda', 0.72);
+            for (let y = rect.y + sweep - 54; y < rect.bottom + 54; y += 54) {
+                const wobble = Math.sin((now || 0) * 0.004 + y * 0.018) * 10 * intensity;
+                ctx.globalAlpha = 0.075 * intensity;
+                ctx.beginPath();
+                ctx.moveTo(rect.x, y);
+                ctx.lineTo(rect.x + rect.w * 0.34 + wobble, y + 2);
+                ctx.lineTo(rect.x + rect.w * 0.68 - wobble, y - 2);
+                ctx.lineTo(rect.right, y);
+                ctx.stroke();
+            }
+
+            ctx.globalAlpha = 0.05 * intensity;
+            ctx.strokeStyle = '#8ff7ff';
+            const diagonalDrift = ((now || 0) * 0.038) % 90;
+            for (let x = rect.x - rect.h + diagonalDrift; x < rect.right + rect.h; x += 90) {
+                ctx.beginPath();
+                ctx.moveTo(x, rect.bottom);
+                ctx.lineTo(x + rect.h, rect.y);
+                ctx.stroke();
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        function drawMatrixCrawlerFocusViewportOverlay(viewport, now) {
+            const intensity = getMatrixCrawlerFocusVisualIntensity();
+            if (intensity <= 0.025) return;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(viewport.x, viewport.y, viewport.w, viewport.h);
+            ctx.clip();
+            if (typeof drawFocusTimeWarpOverlay === 'function') drawFocusTimeWarpOverlay(now, true);
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = 0.10 * intensity;
+            ctx.strokeStyle = colorWithAlpha('#caffda', 0.8);
+            ctx.lineWidth = 1;
+            const xStart = viewport.x + (((now || 0) * 0.032) % 86) - 86;
+            for (let x = xStart; x < viewport.right + 86; x += 86) {
+                const drift = Math.sin((now || 0) * 0.003 + x * 0.04) * 18 * intensity;
+                ctx.beginPath();
+                ctx.moveTo(x + drift, viewport.y);
+                ctx.lineTo(x - drift * 0.6, viewport.bottom);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 0.12 * intensity;
+            ctx.strokeStyle = colorWithAlpha('#8ff7ff', 0.58);
+            ctx.strokeRect(viewport.x + 4.5, viewport.y + 4.5, viewport.w - 9, viewport.h - 9);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = 'source-over';
         }
 
         function drawMatrixCrawlerBlockedArea(room, rect, now) {
@@ -3258,24 +4066,76 @@
             ctx.restore();
         }
 
-        function drawMatrixCrawlerDoors(room, rect) {
+        function drawMatrixCrawlerDoors(room, rect, now = 0) {
             const open = room && room.clear;
-            for (const dir of MATRIX_CRAWLER_DIRS) {
+            for (let dirIndex = 0; dirIndex < MATRIX_CRAWLER_DIRS.length; dirIndex++) {
+                const dir = MATRIX_CRAWLER_DIRS[dirIndex];
                 if (!room.neighbors[dir.id]) continue;
                 const d = getMatrixCrawlerDoorRect(room, dir.id);
+                const horizontal = dir.id === 'N' || dir.id === 'S';
+                const seed = (room.index || 0) * 1.73 + dirIndex * 2.37;
+                const pulse = 0.5 + Math.sin(now * 0.0042 + seed) * 0.5;
+                const quietFlicker = 0.5 + Math.sin(now * 0.017 + seed * 1.9) * 0.5;
+                const goodColor = colorWithAlpha(MATRIX_CRAWLER_COLORS.glow, 0.62 + pulse * 0.13);
+                const lockColor = colorWithAlpha('#a8b0bb', 0.36 + quietFlicker * 0.12);
                 ctx.save();
-                ctx.fillStyle = open ? 'rgba(4, 26, 13, 0.94)' : 'rgba(18, 8, 15, 0.92)';
-                ctx.strokeStyle = open ? MATRIX_CRAWLER_COLORS.glow : MATRIX_CRAWLER_COLORS.danger;
+                ctx.fillStyle = open ? 'rgba(4, 26, 13, 0.90)' : 'rgba(10, 13, 17, 0.88)';
+                ctx.strokeStyle = open ? goodColor : lockColor;
                 ctx.shadowColor = ctx.strokeStyle;
-                ctx.shadowBlur = glowEnabled ? (open ? 10 : 5) : 0;
+                ctx.shadowBlur = glowEnabled ? (open ? 8 + pulse * 3 : 3 + quietFlicker * 2) : 0;
                 ctx.lineWidth = 2;
                 ctx.fillRect(d.x, d.y, d.w, d.h);
-                ctx.strokeRect(d.x + 0.5, d.y + 0.5, d.w, d.h);
-                ctx.font = `bold ${dir.id === 'N' || dir.id === 'S' ? 11 : 10}px 'Electrolize', sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = open ? MATRIX_CRAWLER_COLORS.white : '#ff9bb8';
-                ctx.fillText(open ? 'OPEN' : 'LOCK', d.x + d.w / 2, d.y + d.h / 2);
+                ctx.strokeRect(d.x + 0.5, d.y + 0.5, d.w - 1, d.h - 1);
+
+                ctx.globalCompositeOperation = 'screen';
+                if (open) {
+                    const scan = (0.18 + ((now * 0.00018 + seed) % 0.64));
+                    ctx.globalAlpha = 0.14 + pulse * 0.08;
+                    ctx.fillStyle = colorWithAlpha('#e6fff1', 0.30);
+                    if (horizontal) {
+                        ctx.fillRect(d.x + 8, d.y + d.h * 0.5 - 1, d.w - 16, 2);
+                        ctx.fillStyle = colorWithAlpha('#8ff7ff', 0.26);
+                        ctx.fillRect(d.x + d.w * scan, d.y + 4, 2, d.h - 8);
+                    } else {
+                        ctx.fillRect(d.x + d.w * 0.5 - 1, d.y + 8, 2, d.h - 16);
+                        ctx.fillStyle = colorWithAlpha('#8ff7ff', 0.26);
+                        ctx.fillRect(d.x + 4, d.y + d.h * scan, d.w - 8, 2);
+                    }
+                    ctx.globalAlpha = 0.16 + pulse * 0.05;
+                    ctx.strokeStyle = colorWithAlpha('#ffffff', 0.22);
+                    ctx.strokeRect(d.x + 5.5, d.y + 5.5, d.w - 11, d.h - 11);
+                } else {
+                    ctx.globalAlpha = 0.16 + quietFlicker * 0.07;
+                    ctx.strokeStyle = colorWithAlpha('#d6dbe2', 0.20);
+                    ctx.lineWidth = 1;
+                    for (let i = 0; i < 3; i++) {
+                        const offset = Math.sin(now * (0.012 + i * 0.002) + seed + i * 2.1) * 3;
+                        const lane = (i + 1) / 4;
+                        ctx.beginPath();
+                        if (horizontal) {
+                            const y = d.y + d.h * lane + offset * 0.25;
+                            ctx.moveTo(d.x + 9 + offset, y);
+                            ctx.lineTo(d.x + d.w - 9 + offset * 0.35, y);
+                        } else {
+                            const x = d.x + d.w * lane + offset * 0.25;
+                            ctx.moveTo(x, d.y + 9 + offset);
+                            ctx.lineTo(x, d.y + d.h - 9 + offset * 0.35);
+                        }
+                        ctx.stroke();
+                    }
+                    const glitchKick = Math.max(0, Math.sin(now * 0.024 + seed * 3.3) - 0.88) * 8.33;
+                    if (glitchKick > 0) {
+                        ctx.globalAlpha = glitchKick * 0.18;
+                        ctx.fillStyle = colorWithAlpha('#d6dbe2', 0.42);
+                        if (horizontal) {
+                            ctx.fillRect(d.x + 12 + Math.sin(seed) * 7, d.y + 6, d.w * 0.34, 2);
+                            ctx.fillRect(d.x + d.w * 0.52, d.y + d.h - 8, d.w * 0.24, 2);
+                        } else {
+                            ctx.fillRect(d.x + 6, d.y + 12 + Math.cos(seed) * 7, 2, d.h * 0.34);
+                            ctx.fillRect(d.x + d.w - 8, d.y + d.h * 0.52, 2, d.h * 0.24);
+                        }
+                    }
+                }
                 ctx.restore();
             }
         }
@@ -3293,14 +4153,14 @@
             ctx.strokeRect(rect.x + 8.5, rect.y + 8.5, rect.w - 17, rect.h - 17);
             ctx.globalCompositeOperation = 'screen';
             ctx.globalAlpha = 0.24;
-            ctx.strokeStyle = room && room.clear ? MATRIX_CRAWLER_COLORS.glow : MATRIX_CRAWLER_COLORS.danger;
+            ctx.strokeStyle = room && room.clear ? MATRIX_CRAWLER_COLORS.glow : colorWithAlpha('#a8b0bb', 0.38);
             const scanX = rect.x + ((now * 0.045) % rect.w);
             ctx.beginPath();
             ctx.moveTo(scanX, rect.y + 11);
             ctx.lineTo(scanX, rect.bottom - 11);
             ctx.stroke();
             ctx.restore();
-            drawMatrixCrawlerDoors(room, rect);
+            drawMatrixCrawlerDoors(room, rect, now);
         }
 
         function drawMatrixCrawlerHoverAura(now) {
@@ -3312,12 +4172,13 @@
             const hoverActivation = Math.max(0, Math.min(1, (Math.hypot(player.vx || 0, player.vy || 0) - 28) / 210));
             const basePulse = 0.5 + Math.sin(now * 0.006) * 0.5;
             const baseRadius = 16 + basePulse * 4 + speed * 4 + hoverActivation * 4;
-            const aura = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, baseRadius * 1.8);
+            const auraOrigin = getMatrixCrawlerHoverDriveOrigin();
+            const aura = ctx.createRadialGradient(auraOrigin.x, auraOrigin.y, 0, auraOrigin.x, auraOrigin.y, baseRadius * 1.8);
             aura.addColorStop(0, colorWithAlpha('#effcff', 0.055 + hoverActivation * 0.050));
             aura.addColorStop(0.42, colorWithAlpha('#9fefff', 0.040 + hoverActivation * 0.034));
             aura.addColorStop(1, colorWithAlpha('#58c9ff', 0));
             ctx.fillStyle = aura;
-            ctx.fillRect(player.x - baseRadius * 2, player.y - baseRadius * 2, baseRadius * 4, baseRadius * 4);
+            ctx.fillRect(auraOrigin.x - baseRadius * 2, auraOrigin.y - baseRadius * 2, baseRadius * 4, baseRadius * 4);
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -3344,6 +4205,34 @@
                 ctx.restore();
             }
             ctx.restore();
+        }
+
+        function drawMatrixCrawlerHoverThrusters(now) {
+            const state = matrixCrawlerState;
+            const thrusters = state.hoverThrusters || [];
+            if (!thrusters.length) return;
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i < thrusters.length; i++) {
+                const t = thrusters[i];
+                const lifeRatio = Math.max(0, Math.min(1, t.life / Math.max(0.001, t.maxLife || 0.25)));
+                if (lifeRatio <= 0.01) continue;
+                const activation = Math.max(0, Math.min(1, t.activation || 0));
+                const flicker = 0.82 + Math.sin((now || 0) * 0.035 + (t.phase || 0)) * 0.18;
+                const alpha = lifeRatio * (0.24 + activation * 0.22) * flicker;
+                const color = getMatrixCrawlerHoverDriveColor(activation, lifeRatio > 0.72);
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = color;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = glowEnabled ? 3 + activation * 7 + lifeRatio * 4 : 0;
+                ctx.font = `bold ${Math.max(6, Math.round((t.size || 8) * (0.75 + lifeRatio * 0.32)))}px Courier New`;
+                ctx.fillText(t.char || '.', t.x, t.y);
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
         }
 
         function drawMatrixCrawlerPlayerLayoutTint(layout, tint) {
@@ -3422,6 +4311,7 @@
 
         function drawMatrixCrawlerRobot(now) {
             drawMatrixCrawlerHoverAura(now);
+            drawMatrixCrawlerHoverThrusters(now);
             drawMatrixCrawlerPlayerAfterimages(now);
             drawMatrixCrawlerShip(now);
         }
@@ -3761,6 +4651,74 @@
             ctx.restore();
         }
 
+        function drawMatrixCrawlerFocusEntityTrail(entity, now) {
+            const intensity = getMatrixCrawlerFocusVisualIntensity();
+            if (intensity <= 0.04 || !entity) return;
+            const flashColor = entity.flashTimer > 0 ? '#ffffff' : null;
+            if (entity.enemyShipSprite && typeof drawFocusEnemyTrail === 'function') {
+                drawFocusEnemyTrail(entity, flashColor);
+                return;
+            }
+
+            for (let layer = 2; layer >= 1; layer--) {
+                const offset = getMatrixCrawlerFocusTrailOffset(entity, layer, 0.024);
+                ctx.save();
+                ctx.globalCompositeOperation = 'screen';
+                ctx.globalAlpha *= intensity * (layer === 2 ? 0.08 : 0.13);
+                ctx.translate(offset.x, offset.y);
+                ctx.shadowBlur = 0;
+                if (entity.type === 'nullPhantom') {
+                    drawMatrixNullPhantomBoss(entity, now);
+                } else if (entity.type === 'distortedGlitch') {
+                    drawMatrixDistortedGlitchBoss(entity, now);
+                } else if (entity.type === 'portSentry') {
+                    drawMatrixCrawlerPortSentry(entity, now);
+                } else if (entity.type === 'crashBug') {
+                    drawMatrixCrawlerCrashBug(entity, now);
+                } else if (entity.type === 'firewallHost') {
+                    drawMatrixCrawlerFirewallHost(entity, now);
+                } else {
+                    drawMatrixCrawlerEntityFallback(entity, now);
+                }
+                ctx.restore();
+            }
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        function drawMatrixCrawlerFocusEntityOverlay(entity, now) {
+            const intensity = getMatrixCrawlerFocusVisualIntensity();
+            if (intensity <= 0.05 || !entity) return;
+            const radius = Math.max(16, entity.radius || (entity.type === 'miniboss' ? 34 : 20));
+            const yScan = Math.sin((now || 0) * 0.013 + (entity.indexOffset || 0)) * radius * 0.34;
+            const color = entity.flashTimer > 0 ? '#ffffff' : (entity.color || entity.enemyShipGlowColor || MATRIX_CRAWLER_COLORS.glow);
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = colorWithAlpha('#caffda', 0.72);
+            ctx.globalAlpha = 0.16 * intensity;
+            ctx.beginPath();
+            ctx.moveTo(entity.x - radius * 1.35, entity.y + yScan);
+            ctx.lineTo(entity.x + radius * 1.35, entity.y + yScan);
+            ctx.stroke();
+
+            ctx.globalAlpha = 0.10 * intensity;
+            ctx.strokeStyle = colorWithAlpha(color, 0.78);
+            ctx.beginPath();
+            ctx.ellipse(entity.x, entity.y, radius * 1.18, radius * 0.82, (now || 0) * 0.0012, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.globalAlpha = 0.18 * intensity;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = 'bold 10px Courier New';
+            ctx.fillStyle = '#caffda';
+            ctx.fillText('::', entity.x, entity.y - radius - 8);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
         function drawMatrixCrawlerEntity(entity, now) {
             if (entity.type === 'nullPhantom') {
                 drawMatrixNullPhantomBoss(entity, now);
@@ -3871,6 +4829,35 @@
                 ctx.restore();
                 return;
             }
+            if (p.kind === 'bomb') {
+                const bob = Math.sin(p.pulse + now * 0.006) * 3;
+                const x = p.x;
+                const y = p.y + bob;
+                ctx.save();
+                ctx.globalCompositeOperation = 'screen';
+                ctx.globalAlpha = 0.68 + pulse * 0.18;
+                ctx.strokeStyle = colorWithAlpha(MATRIX_CRAWLER_BOMB_PICKUP_COLOR, 0.86);
+                ctx.fillStyle = colorWithAlpha('#1a0f08', 0.80);
+                ctx.shadowColor = MATRIX_CRAWLER_BOMB_PICKUP_COLOR;
+                ctx.shadowBlur = glowEnabled ? 10 + pulse * 8 : 0;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.rect((x - 15) | 0, (y - 15) | 0, 30, 30);
+                ctx.fill();
+                ctx.stroke();
+                ctx.globalAlpha = 0.9;
+                ctx.font = "bold 17px 'Electrolize', sans-serif";
+                ctx.fillStyle = '#fff4bc';
+                ctx.fillText('B', x | 0, y | 0);
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 0.64;
+                ctx.font = "bold 8px 'Electrolize', sans-serif";
+                ctx.fillStyle = colorWithAlpha(MATRIX_CRAWLER_BOMB_PICKUP_COLOR, 0.88);
+                ctx.fillText('BOMB', x | 0, (p.y + 28) | 0);
+                ctx.restore();
+                ctx.restore();
+                return;
+            }
             ctx.fillStyle = p.color || MATRIX_CRAWLER_COLORS.white;
             ctx.shadowColor = ctx.fillStyle;
             ctx.shadowBlur = glowEnabled ? 10 + pulse * 6 : 0;
@@ -3891,10 +4878,74 @@
             ctx.restore();
         }
 
+        function getMatrixCrawlerMinimapBaseCells(layout) {
+            const id = layout && layout.id;
+            if (id === 'compact') return [{ x: 0, y: 0, s: 0.74 }];
+            if (id === 'wide') return [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+            if (id === 'tall') return [{ x: 0, y: 0 }, { x: 0, y: 1 }];
+            if (id === 'line-h') return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }];
+            if (id === 'line-v') return [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }];
+            if (id === 'large') return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }];
+            if (id === 'l-ne') return [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }];
+            if (id === 'l-nw') return [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }];
+            if (id === 'l-se') return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }];
+            if (id === 'l-sw') return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }];
+            if (id === 't-n') return [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 1 }];
+            if (id === 't-s') return [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }];
+            if (id === 't-e') return [{ x: 0, y: 1 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 1, y: 2 }];
+            if (id === 't-w') return [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }, { x: 1, y: 1 }];
+            return [{ x: 0, y: 0 }];
+        }
+
+        function getMatrixCrawlerMinimapAnchorCell(room, cells) {
+            if (!cells || !cells.length) return { x: 0, y: 0 };
+            const minX = Math.min(...cells.map(cell => cell.x || 0));
+            const maxX = Math.max(...cells.map(cell => cell.x || 0));
+            const minY = Math.min(...cells.map(cell => cell.y || 0));
+            const maxY = Math.max(...cells.map(cell => cell.y || 0));
+            const dirs = MATRIX_CRAWLER_DIRS.filter(dir => room && room.neighbors && room.neighbors[dir.id]);
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            let candidates = cells.slice();
+
+            for (const dir of dirs) {
+                const edgeValue = dir.id === 'N'
+                    ? minY
+                    : dir.id === 'S'
+                        ? maxY
+                        : dir.id === 'W'
+                            ? minX
+                            : maxX;
+                const filtered = candidates.filter(cell => {
+                    const value = dir.id === 'N' || dir.id === 'S' ? (cell.y || 0) : (cell.x || 0);
+                    return value === edgeValue;
+                });
+                if (filtered.length) candidates = filtered;
+            }
+
+            const scoreCell = cell => {
+                let score = Math.hypot((cell.x || 0) - centerX, (cell.y || 0) - centerY) * 0.12;
+                for (const dir of dirs) {
+                    if (dir.id === 'N') score += (cell.y || 0) - minY;
+                    else if (dir.id === 'S') score += maxY - (cell.y || 0);
+                    else if (dir.id === 'W') score += (cell.x || 0) - minX;
+                    else if (dir.id === 'E') score += maxX - (cell.x || 0);
+                }
+                return score;
+            };
+            candidates.sort((a, b) => scoreCell(a) - scoreCell(b));
+            return candidates[0] || cells[0] || { x: 0, y: 0 };
+        }
+
         function getMatrixCrawlerMinimapCells(room) {
             const layout = getMatrixCrawlerRoomLayout(room);
-            if (layout && Array.isArray(layout.mapCells) && layout.mapCells.length) return layout.mapCells;
-            return [{ x: 0, y: 0 }];
+            const cells = getMatrixCrawlerMinimapBaseCells(layout);
+            const anchor = getMatrixCrawlerMinimapAnchorCell(room, cells);
+            return cells.map(cell => ({
+                x: (cell.x || 0) - (anchor.x || 0),
+                y: (cell.y || 0) - (anchor.y || 0),
+                s: cell.s || 1
+            }));
         }
 
         function getMatrixCrawlerMinimapRoomColor(room, isCurrent) {
@@ -3920,17 +4971,21 @@
             const state = matrixCrawlerState;
             const panelW = 142;
             const panelH = 104;
-            const mapAlpha = 0.6;
+            const mapAlpha = 0.42;
             const cx = width - 90;
             const cy = 76;
             const rooms = state.rooms.filter(room => state.discovered.has(room.key));
+            const toMapRoomX = room => room.x * MATRIX_CRAWLER_MINIMAP_ROOM_STRIDE;
+            const toMapRoomY = room => room.y * MATRIX_CRAWLER_MINIMAP_ROOM_STRIDE;
             const footprints = [];
             for (const room of rooms) {
+                const roomMapX = toMapRoomX(room);
+                const roomMapY = toMapRoomY(room);
                 for (const cell of getMatrixCrawlerMinimapCells(room)) {
                     footprints.push({
                         room,
-                        x: room.x + (cell.x || 0),
-                        y: room.y + (cell.y || 0),
+                        x: roomMapX + (cell.x || 0) * MATRIX_CRAWLER_MINIMAP_CELL_SPREAD,
+                        y: roomMapY + (cell.y || 0) * MATRIX_CRAWLER_MINIMAP_CELL_SPREAD,
                         scale: cell.s || 1
                     });
                 }
@@ -3942,7 +4997,7 @@
             const spanX = Math.max(1.2, maxX - minX + 1.2);
             const spanY = Math.max(1.2, maxY - minY + 1.2);
             const unit = Math.max(9, Math.min(16, (panelW - 24) / spanX, (panelH - 22) / spanY));
-            const block = Math.max(8, Math.min(14, unit * 0.82));
+            const block = Math.max(8, Math.min(12, unit * 0.72));
             const midX = (minX + maxX) / 2;
             const midY = (minY + maxY) / 2;
             const toScreen = (mx, my) => ({
@@ -3959,12 +5014,12 @@
             ctx.lineWidth = 2;
             ctx.strokeStyle = colorWithAlpha(MATRIX_CRAWLER_COLORS.glow, 0.18 * mapAlpha);
             for (const room of rooms) {
-                const from = toScreen(room.x, room.y);
+                const from = toScreen(toMapRoomX(room), toMapRoomY(room));
                 for (const dir of MATRIX_CRAWLER_DIRS) {
                     const neighbor = room.neighbors && room.neighbors[dir.id] ? state.roomMap.get(room.neighbors[dir.id]) : null;
                     if (!neighbor || !state.discovered.has(neighbor.key)) continue;
                     if (dir.id !== 'E' && dir.id !== 'S') continue;
-                    const to = toScreen(neighbor.x, neighbor.y);
+                    const to = toScreen(toMapRoomX(neighbor), toMapRoomY(neighbor));
                     ctx.beginPath();
                     ctx.moveTo(from.x, from.y);
                     ctx.lineTo(to.x, to.y);
@@ -3987,7 +5042,7 @@
             for (const room of rooms) {
                 const icon = getMatrixCrawlerMinimapRoomIcon(room);
                 if (!icon) continue;
-                const p = toScreen(room.x, room.y);
+                const p = toScreen(toMapRoomX(room), toMapRoomY(room));
                 ctx.globalAlpha = mapAlpha * 0.92;
                 ctx.font = "bold 9px 'Electrolize', sans-serif";
                 ctx.fillStyle = room.key === state.currentKey ? '#00170c' : '#00120a';
@@ -4065,6 +5120,21 @@
             return false;
         }
 
+        function drawMatrixCrawlerFocusBulletTrail(b, now) {
+            if (!b || typeof drawFocusBulletTrailGlyph !== 'function') return;
+            const intensity = getMatrixCrawlerFocusVisualIntensity();
+            if (intensity <= 0.04) return;
+            const visualRadius = b.visualRadius || b.radius || 6;
+            const fontSize = b.isMatrixRainColumn
+                ? 24
+                : b.isPhantomBullet
+                    ? 35
+                    : Math.max(11, visualRadius * 2.1);
+            const char = b.char || (b.isPhantomBullet ? '✧' : '.');
+            const color = b.color || (b.isPhantomBullet ? '#ff8fd8' : MATRIX_CRAWLER_COLORS.danger);
+            drawFocusBulletTrailGlyph(b, char, color, `bold ${Math.round(fontSize)}px Courier New`, b.isPhantomBullet ? 0.82 : 0.62);
+        }
+
         function getMatrixCrawlerProjectileGlyphRotation(p) {
             let dx = 0;
             let dy = 0;
@@ -4135,7 +5205,6 @@
             ctx.font = `bold ${Math.max(9, Math.round(10 * scale))}px Courier New`;
             ctx.fillText('.', 0, -5 * scale);
             ctx.restore();
-            if (typeof drawFocusTimeWarpOverlay === 'function') drawFocusTimeWarpOverlay(now, true);
             ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
             ctx.globalCompositeOperation = 'source-over';
@@ -4215,6 +5284,7 @@
             ctx.clip();
             ctx.translate(viewport.x - cameraX, viewport.y - cameraY);
             drawMatrixCrawlerGrid(rect, now);
+            drawMatrixCrawlerFocusFloorWarp(rect, now);
             drawMatrixCrawlerBlockedArea(room, rect, now);
             drawMatrixCrawlerRoomFrame(room, rect, now);
             for (const object of state.breakables || []) drawMatrixCrawlerBreakable(object, now);
@@ -4251,6 +5321,7 @@
             }
             for (const b of state.enemyBullets) {
                 ctx.save();
+                drawMatrixCrawlerFocusBulletTrail(b, now);
                 if (b.isDissolvingProjectile && typeof drawProjectileDissolveGlyph === 'function') {
                     const visualRadius = b.visualRadius || b.radius || 6;
                     drawProjectileDissolveGlyph(b, now, {
@@ -4277,7 +5348,11 @@
                 ctx.fillText(b.char || '.', b.x, b.y);
                 ctx.restore();
             }
-            for (const enemy of state.enemies) drawMatrixCrawlerEntity(enemy, now);
+            for (const enemy of state.enemies) {
+                drawMatrixCrawlerFocusEntityTrail(enemy, now);
+                drawMatrixCrawlerEntity(enemy, now);
+                drawMatrixCrawlerFocusEntityOverlay(enemy, now);
+            }
             for (const p of state.particles) {
                 ctx.save();
                 ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.maxLife));
@@ -4298,6 +5373,7 @@
                 ctx.globalAlpha = 1;
             }
             ctx.restore();
+            drawMatrixCrawlerFocusViewportOverlay(viewport, now);
             ctx.strokeStyle = colorWithAlpha(MATRIX_CRAWLER_COLORS.glow, 0.46);
             ctx.lineWidth = 2;
             ctx.shadowColor = MATRIX_CRAWLER_COLORS.glow;

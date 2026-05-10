@@ -243,6 +243,19 @@
         let gameState = 'GALAXY_SELECT';
         let titleAlpha = 1.0;
         let autoLaunch = false;
+        const CAMPAIGN_CONTROL_DECAL_DURATION = 22;
+        let campaignControlDecalTimer = 0;
+        let campaignControlDecal = null;
+        function resetCampaignControlDecal() {
+            campaignControlDecalTimer = CAMPAIGN_CONTROL_DECAL_DURATION;
+            campaignControlDecal = null;
+        }
+        function updateCampaignControlDecal(dt) {
+            if (campaignControlDecalTimer > 0) {
+                campaignControlDecalTimer = Math.max(0, campaignControlDecalTimer - Math.max(0, dt || 0));
+                if (campaignControlDecalTimer <= 0) campaignControlDecal = null;
+            }
+        }
         let pauseState = 'MAIN'; // 'MAIN', 'SETTINGS', or 'GRAPHICS'
         let pauseSelection = 0;
         let pauseReturnState = 'PLAYING';

@@ -166,6 +166,7 @@
             padding-left: calc(8px * var(--hud-ui-scale));
         }
         .hud-meter-bar {
+            position: relative;
             display: grid;
             grid-template-columns: repeat(var(--hud-bar-blocks, 20), minmax(0, 1fr));
             grid-auto-flow: column;
@@ -219,6 +220,33 @@
         .hud-meter-bar.is-focus-locked .hud-bar-block {
             opacity: 0.46;
         }
+        .hud-meter-bar.is-hp-hit-pulse {
+            animation: hud-meter-hit-pulse 0.42s ease-out;
+        }
+        .hud-meter-bar.is-bomb-ready-pulse {
+            animation: hud-bomb-ready-shell 0.78s ease-out;
+        }
+        .hud-meter-bar.is-bomb-ready-pulse::after {
+            content: "READY";
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255, 255, 255, 0.82);
+            font-size: calc(7px * var(--hud-ui-scale));
+            line-height: 1;
+            letter-spacing: 0.08em;
+            text-shadow:
+                0 0 calc(3px * var(--hud-ui-scale)) rgba(255, 213, 126, 0.74),
+                0 0 calc(7px * var(--hud-ui-scale)) rgba(255, 181, 86, 0.34);
+            opacity: 0;
+            pointer-events: none;
+            animation: hud-bomb-ready-text 0.78s ease-out;
+        }
+        .hud-meter-bar.is-focus-engage-pulse {
+            animation: hud-focus-engage-pulse 0.48s ease-out;
+        }
         @keyframes hud-meter-shimmer {
             0%, 100% {
                 filter: brightness(1);
@@ -260,6 +288,56 @@
                 filter: brightness(calc(1.22 + var(--fill-alpha) * 0.24));
             }
         }
+        @keyframes hud-meter-hit-pulse {
+            0% {
+                filter: brightness(1.22) saturate(1.08);
+                box-shadow:
+                    inset 0 0 calc(6px * var(--hud-ui-scale)) rgba(255, 255, 255, 0.08),
+                    0 0 calc(5px * var(--hud-ui-scale)) rgba(255, 82, 96, 0.22);
+            }
+            100% {
+                filter: brightness(1);
+                box-shadow:
+                    inset 0 0 calc(5px * var(--hud-ui-scale)) rgba(126, 184, 255, 0.055),
+                    0 0 calc(4px * var(--hud-ui-scale)) rgba(104, 166, 255, 0.055);
+            }
+        }
+        @keyframes hud-bomb-ready-shell {
+            0% {
+                filter: brightness(1.08);
+            }
+            100% {
+                filter: brightness(1);
+            }
+        }
+        @keyframes hud-bomb-ready-text {
+            0% {
+                opacity: 0;
+                transform: scale(0.94);
+            }
+            24% {
+                opacity: 0.72;
+                transform: scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: scale(1.03);
+            }
+        }
+        @keyframes hud-focus-engage-pulse {
+            0% {
+                filter: brightness(1.14);
+                box-shadow:
+                    inset 0 0 calc(6px * var(--hud-ui-scale)) rgba(255, 236, 158, 0.12),
+                    0 0 calc(6px * var(--hud-ui-scale)) rgba(255, 211, 88, 0.18);
+            }
+            100% {
+                filter: brightness(1);
+                box-shadow:
+                    inset 0 0 calc(5px * var(--hud-ui-scale)) rgba(126, 184, 255, 0.055),
+                    0 0 calc(4px * var(--hud-ui-scale)) rgba(104, 166, 255, 0.055);
+            }
+        }
         .hud-weapon-wrap {
             flex: 0 0 auto;
             display: flex;
@@ -272,21 +350,37 @@
         .hud-weapon-grid {
             display: grid;
             grid-template-columns: repeat(5, var(--hud-weapon-cell));
-            grid-template-rows: repeat(2, var(--hud-weapon-cell));
+            grid-template-rows: repeat(2, minmax(0, 1fr));
             gap: calc(2px * var(--hud-ui-scale));
-            padding: calc(4px * var(--hud-ui-scale));
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(0, 0, 0, 0.5);
-            box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.08);
+            height: calc(34px * var(--hud-ui-scale));
+            padding: calc(3px * var(--hud-ui-scale)) calc(4px * var(--hud-ui-scale));
+            box-sizing: border-box;
+            border: 1px solid rgba(198, 226, 255, 0.34);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 45%, rgba(0, 0, 0, 0.18)),
+                rgba(7, 15, 22, 0.72);
+            box-shadow:
+                inset 0 0 calc(8px * var(--hud-ui-scale)) rgba(198, 226, 255, 0.12),
+                0 0 calc(4px * var(--hud-ui-scale)) rgba(104, 166, 255, 0.08);
         }
         .hud-weapon-cell {
             width: var(--hud-weapon-cell);
-            height: var(--hud-weapon-cell);
+            height: 100%;
+            min-height: 0;
+            box-sizing: border-box;
             display: flex;
             align-items: center;
             justify-content: center;
+            border: 1px solid rgba(198, 226, 255, 0.13);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 58%),
+                rgba(198, 226, 255, 0.055);
+            box-shadow: inset 0 0 calc(3px * var(--hud-ui-scale)) rgba(198, 226, 255, 0.025);
             font-size: calc(var(--hud-weapon-cell) - 1px);
             font-family: 'Courier New', Courier, monospace;
+        }
+        .hud-weapon-cell.is-weapon-pickup-pulse {
+            animation: hud-weapon-pickup-pulse 0.72s ease-out;
         }
         .hud-weapon-icon {
             width: calc(var(--hud-weapon-cell) * 1.08);
@@ -315,6 +409,20 @@
         .hud-chain-spark {
             color: #f7feff;
             font-size: calc(var(--hud-weapon-cell) * 0.54);
+        }
+        @keyframes hud-weapon-pickup-pulse {
+            0% {
+                filter: brightness(1.32);
+                box-shadow:
+                    inset 0 0 calc(4px * var(--hud-ui-scale)) rgba(255, 255, 255, 0.10),
+                    0 0 calc(7px * var(--hud-ui-scale)) rgba(198, 226, 255, 0.32);
+                transform: scale(1.04);
+            }
+            100% {
+                filter: brightness(1);
+                box-shadow: inset 0 0 calc(3px * var(--hud-ui-scale)) rgba(198, 226, 255, 0.025);
+                transform: scale(1);
+            }
         }
         .hud-status {
             flex: 1 1 calc(246px * var(--hud-ui-scale));

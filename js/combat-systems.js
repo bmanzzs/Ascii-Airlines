@@ -1145,6 +1145,7 @@
             deathTimer = 0; launchTimer = 0; playerExploded = false;
             shake = 0; wobble = 0;
             if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
+            if (typeof resetCampaignControlDecal === 'function') resetCampaignControlDecal();
             levelUpState = 'INTRO'; offeredOptions = []; selectedOptionIndex = 0; levelUpTimer = 0;
             queuedConsoleLevels = 0;
             player.x = width / 2; player.y = Math.min(height * 0.8, getGameplayBottomLimit(150));

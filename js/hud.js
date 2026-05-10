@@ -195,6 +195,16 @@
             }
         }
 
+        function restartHudPulse(element, className, durationMs = 820) {
+            if (!element || !className) return;
+            element.classList.remove(className);
+            void element.offsetWidth;
+            element.classList.add(className);
+            window.setTimeout(() => {
+                if (element && element.classList) element.classList.remove(className);
+            }, durationMs);
+        }
+
         function buildHudChainLightningIcon(color) {
             const safeColor = /^#[0-9a-f]{6}$/i.test(color) ? color : '#00ffff';
             const glow = glowEnabled ? `text-shadow:0 0 3px ${safeColor},0 0 6px ${safeColor};` : '';
@@ -224,11 +234,12 @@
             return `<span class="hud-weapon-icon" aria-hidden="true">${parts}</span>`;
         }
 
-        function syncWeaponGrid(themeColor) {
+        function syncWeaponGrid(themeColor, weaponSignature = '') {
             const grid = hudRefs.weaponGrid;
             if (!grid) return;
             const targetCount = 10;
-            grid.style.boxShadow = `inset 0 0 10px ${themeColor}22`;
+            const gridWasReady = grid.dataset.ready === '1';
+            grid.style.boxShadow = `inset 0 0 10px rgba(198, 226, 255, 0.12), inset 0 0 14px ${themeColor}24, 0 0 5px ${themeColor}18`;
 
             while (grid.children.length < targetCount) {
                 const cell = document.createElement('div');
@@ -245,6 +256,7 @@
                     const w = player.weapons[i];
                     const glow = glowEnabled ? `0 0 5px ${w.color}` : 'none';
                     const iconSignature = `${w.name}:${w.color}:${w.glyph}:${w.icon || ''}:${glowEnabled ? 1 : 0}`;
+                    const previousIconSignature = cell.dataset.iconSignature || '';
                     if (cell.dataset.iconSignature !== iconSignature) {
                         const patternIcon = buildHudPatternWeaponIcon(w);
                         if (patternIcon) {
@@ -255,6 +267,9 @@
                             cell.textContent = w.glyph;
                         }
                         cell.dataset.iconSignature = iconSignature;
+                        if (gridWasReady && previousIconSignature !== iconSignature) {
+                            restartHudPulse(cell, 'is-weapon-pickup-pulse', 760);
+                        }
                     }
                     cell.style.color = w.color;
                     cell.style.textShadow = w.icon === 'chainLightning' ? 'none' : glow;
@@ -264,9 +279,11 @@
                     cell.dataset.iconSignature = '';
                     cell.style.color = '';
                     cell.style.textShadow = '';
-                    cell.style.background = 'rgba(255,255,255,0.1)';
+                    cell.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.045), transparent 58%), rgba(198, 226, 255, 0.07)';
                 }
             }
+            grid.dataset.weaponSignature = weaponSignature;
+            grid.dataset.ready = '1';
         }
 
         function getHudWaveModifierInfo(waveNumber) {
@@ -433,6 +450,9 @@
         let lastHudStaticSignature = '';
         let lastHudStatsSignature = '';
         let lastHudStatValues = null;
+        let lastHudHpValue = null;
+        let lastHudBombReady = null;
+        let lastHudFocusActive = null;
         let hudStatDeltaEvents = {};
         const HUD_STAT_DELTA_MS = 1550;
         const hudRefs = {
@@ -775,8 +795,8 @@
             const waveInfo = matrixHud
                 ? {
                     id: `matrix-${matrixHud.roomType || 'room'}`,
-                    label: 'MATRIX ROUTE',
-                    desc: `${matrixHud.roomsCleared || 0}/${matrixHud.totalCombatRooms || 1} chambers clear`,
+                    label: `CLEAR ${matrixHud.roomsCleared || 0}/${matrixHud.totalCombatRooms || 1}`,
+                    desc: '',
                     color: matrixHud.roomType === 'boss' ? '#ff5e8a' : (matrixHud.roomType === 'shop' ? '#8ff7ff' : '#41ff93')
                 }
                 : getHudWaveModifierInfo(waveNumber);
@@ -802,13 +822,17 @@
                 matrixHud ? matrixHpSegments : 0
             ].join('~');
             if (hpSignature !== lastHudHpSignature) {
-                syncMeterBar(hudRefs.hpBar, hpBlocks, matrixHpSegments, matrixHud ? '#ff6f9c' : hpColor, matrixHud ? '#ffd4e1' : hpColor, matrixHud ? '#341723' : '#46544d', {
+                syncMeterBar(hudRefs.hpBar, hpBlocks, matrixHpSegments, hpColor, matrixHud ? '#7dffac' : hpColor, matrixHud ? '#173423' : '#46544d', {
                     effectClass: hpFull ? 'is-hp is-full' : 'is-hp',
                     glowAlpha: hpRatio * 0.8,
                     glowBlur: 8
                 });
                 lastHudHpSignature = hpSignature;
             }
+            if (lastHudHpValue !== null && player.hp < lastHudHpValue - 0.01) {
+                restartHudPulse(hudRefs.hpBar, 'is-hp-hit-pulse', 460);
+            }
+            lastHudHpValue = player.hp;
 
             const xpSignature = [
                 xpPerc,
@@ -817,10 +841,10 @@
                 glowEnabled ? 1 : 0
             ].join('~');
             if (xpSignature !== lastHudXpSignature) {
-                syncMeterBar(hudRefs.xpBar, xpPerc, HUD_BAR_BLOCKS, '#d2d2d2', '#8f8f8f', '#686b7c', {
+                syncMeterBar(hudRefs.xpBar, xpPerc, HUD_BAR_BLOCKS, '#f0f2ee', '#c8ced0', '#2c3237', {
                     effectClass: xpFull ? 'is-xp is-full' : 'is-xp',
-                    glowAlpha: xpRatio * 0.8,
-                    glowBlur: 8
+                    glowAlpha: xpRatio * 0.48,
+                    glowBlur: 6
                 });
                 lastHudXpSignature = xpSignature;
             }
@@ -842,6 +866,10 @@
                 });
                 lastHudBombSignature = bombSignature;
             }
+            if (lastHudBombReady === false && bombReady) {
+                restartHudPulse(hudRefs.bombBar, 'is-bomb-ready-pulse', 820);
+            }
+            lastHudBombReady = bombReady;
 
             const focusSignature = [
                 focusBlocks,
@@ -862,6 +890,10 @@
                 });
                 lastHudFocusSignature = focusSignature;
             }
+            if (lastHudFocusActive === false && focusActive) {
+                restartHudPulse(hudRefs.focusBar, 'is-focus-engage-pulse', 520);
+            }
+            lastHudFocusActive = focusActive;
 
             const staticSignature = [
                 waveText,
@@ -878,7 +910,7 @@
             if (staticSignature !== lastHudStaticSignature) {
                 if (hudRefs.levelText) hudRefs.levelText.textContent = matrixHud ? `BOT ${player.level}` : `LVL ${player.level}`;
                 syncHudWavePanel(waveMainText, waveInfo, noticeFresh);
-                syncWeaponGrid(currentThemeColor);
+                syncWeaponGrid(currentThemeColor, weaponSignature);
                 lastHudStaticSignature = staticSignature;
             }
             syncStatsPanel();
