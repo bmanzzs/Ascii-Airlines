@@ -134,6 +134,13 @@
         const MATRIX_GLITCH_RENDER_SCALE = 1.199;
         const MATRIX_GLITCH_MATRIX_CHARS = 'ﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         const MATRIX_GLITCH_BULLET_CAP = 180;
+        const MATRIX_PORT_SENTRY_RANGE = 760;
+        const MATRIX_PORT_SENTRY_WINDUP = 0.42;
+        const MATRIX_CRASH_BUG_DASH_SPEED = 430;
+        const MATRIX_CRASH_BUG_WINDUP = 0.44;
+        const MATRIX_CRASH_BUG_DASH_TIME = 0.48;
+        const MATRIX_FIREWALL_HOST_RANGE = 560;
+        const MATRIX_FIREWALL_HOST_OPEN_TIME = 1.35;
         const MATRIX_CRAWLER_PLAYER_TURN_RESPONSE = 8.82;
         const MATRIX_CRAWLER_PLAYER_RENDER_SCALE = 0.663;
         const MATRIX_CRAWLER_PLAYER_ACCEL_RESPONSE = 18;
@@ -715,12 +722,59 @@
             return def.name || 'NULL PHANTOM';
         }
 
+        function isMatrixCrawlerAdvancedNormalEnemy(type) {
+            return type === 'portSentry' || type === 'crashBug' || type === 'firewallHost';
+        }
+
+        function getMatrixCrawlerEnemyBaseHp(type) {
+            if (type === 'bug') return 18;
+            if (type === 'turret') return 34;
+            if (type === 'orbit') return 42;
+            if (type === 'portSentry') return 36;
+            if (type === 'crashBug') return 44;
+            if (type === 'firewallHost') return 62;
+            if (type === 'miniboss') return 155;
+            return 30;
+        }
+
+        function initializeMatrixCrawlerAdvancedEnemy(enemy) {
+            if (!enemy) return enemy;
+            if (enemy.type === 'portSentry') {
+                enemy.fireTimer = 0.85 + Math.random() * 0.75;
+                enemy.sentryWindup = 0;
+                enemy.fireFlashTimer = 0;
+                enemy.aimAngle = Math.random() * Math.PI * 2;
+            } else if (enemy.type === 'crashBug') {
+                enemy.crashState = 'wander';
+                enemy.dashCooldown = 0.9 + Math.random() * 1.1;
+                enemy.dashWindup = 0;
+                enemy.dashTimer = 0;
+                enemy.dashRecover = 0;
+                enemy.dashBounces = 0;
+                enemy.dashVx = 0;
+                enemy.dashVy = 0;
+                enemy.wanderAngle = Math.random() * Math.PI * 2;
+                enemy.aimAngle = enemy.wanderAngle;
+            } else if (enemy.type === 'firewallHost') {
+                enemy.hostState = 'closed';
+                enemy.hostTimer = 0.9 + Math.random() * 1.1;
+                enemy.hostFireDelay = 0;
+                enemy.hostFlashTimer = 0;
+                enemy.aimAngle = 0;
+                enemy.isShielded = true;
+            }
+            return enemy;
+        }
+
         function spawnMatrixEnemy(type, x, y, options = {}) {
             const archetypes = {
                 seeker: { hp: 28, speed: 78, radius: 18, char: '0', color: '#41ff93', contact: 8, score: 20, visualKind: 'base', visualScale: 0.92 },
                 bug: { hp: 18, speed: 118, radius: 16, char: 'x', color: '#8ff7ff', contact: 6, score: 15, visualKind: 'base', visualScale: 0.84 },
                 turret: { hp: 34, speed: 0, radius: 20, char: 'T', color: '#9bffcf', contact: 8, score: 25, visualKind: 'armored', visualScale: 0.96 },
                 orbit: { hp: 42, speed: 64, radius: 20, char: '@', color: '#d884ff', contact: 8, score: 30, visualKind: 'armored', visualScale: 0.94 },
+                portSentry: { hp: 36, speed: 0, radius: 19, char: 'P', color: '#8ff7ff', contact: 8, score: 32, visualKind: 'armored', visualScale: 0.88 },
+                crashBug: { hp: 44, speed: 48, radius: 18, char: 'C', color: '#ff6f61', contact: 12, score: 38, visualKind: 'base', visualScale: 0.90 },
+                firewallHost: { hp: 62, speed: 0, radius: 22, char: 'H', color: '#ffb347', contact: 10, score: 48, visualKind: 'armored', visualScale: 1.0 },
                 miniboss: { hp: 155, speed: 42, radius: 31, char: 'M', color: '#fff07a', contact: 14, score: 120, visualKind: 'elite', visualScale: 1.16 },
                 nullPhantom: { hp: 760, speed: 0, radius: 54, char: 'N', color: '#9f8cff', contact: 18, score: 500 },
                 distortedGlitch: { hp: 800, speed: 0, radius: 50, char: '#', color: '#00ff66', contact: 18, score: 620 }
@@ -747,7 +801,8 @@
                 indexOffset: Math.random() * 1000,
                 matrixCrawlerEnemy: true
             };
-            if (type !== 'nullPhantom' && type !== 'distortedGlitch' && typeof configureEnemyShipVisual === 'function') {
+            initializeMatrixCrawlerAdvancedEnemy(enemy);
+            if (type !== 'nullPhantom' && type !== 'distortedGlitch' && !isMatrixCrawlerAdvancedNormalEnemy(type) && typeof configureEnemyShipVisual === 'function') {
                 configureEnemyShipVisual(enemy, options.visualKind || base.visualKind || 'base', {
                     color: options.color || enemy.color,
                     visualScale: options.visualScale || base.visualScale || 1
@@ -876,18 +931,27 @@
         function spawnMatrixRoomEnemies(room) {
             const state = matrixCrawlerState;
             const rect = getMatrixCrawlerRoomRect(room);
+            const floor = Math.max(1, state.floor || 1);
             const floorBoost = Math.max(0, (state.floor || 1) - 1) * 0.24;
             const difficulty = 1 + Math.min(3.5, room.depth * 0.18 + floorBoost);
             let pattern = ['seeker', 'bug', 'turret'];
             let count = 3 + Math.floor(room.depth * 0.42 + Math.max(0, (state.floor || 1) - 1) * 0.35);
             if (room.type === 'challenge') {
-                pattern = ['seeker', 'turret', 'orbit', 'miniboss'];
-                count = 5;
+                pattern = floor >= 2
+                    ? ['crashBug', 'portSentry', 'firewallHost', 'orbit', 'crashBug', 'turret']
+                    : ['seeker', 'turret', 'orbit', 'miniboss'];
+                count = floor >= 2 ? 6 : 5;
             } else if (room.type === 'boss') {
                 const bossDef = getMatrixCrawlerBossDefForFloor(state.floor || 1);
                 if (bossDef.type === 'distortedGlitch') spawnMatrixDistortedGlitchBoss(room, rect);
                 else spawnMatrixNullPhantomBoss(room, rect);
                 return;
+            } else if (floor >= 2 && room.depth >= 5) {
+                pattern = ['seeker', 'portSentry', 'bug', 'crashBug', 'firewallHost', 'orbit'];
+            } else if (floor >= 2 && room.depth >= 3) {
+                pattern = ['seeker', 'bug', 'portSentry', 'crashBug', 'turret'];
+            } else if (floor >= 2 && room.depth >= 1) {
+                pattern = ['seeker', 'bug', 'portSentry'];
             } else if (room.depth >= 4) {
                 pattern = ['seeker', 'bug', 'turret', 'orbit'];
             }
@@ -895,7 +959,7 @@
                 const spawn = getMatrixCrawlerSpawnPoint(room, rect, i, count);
                 const type = pattern[i % pattern.length];
                 spawnMatrixEnemy(type, spawn.x, spawn.y, {
-                    hp: Math.round((type === 'bug' ? 18 : type === 'turret' ? 34 : 30) * difficulty)
+                    hp: Math.round(getMatrixCrawlerEnemyBaseHp(type) * difficulty)
                 });
             }
         }
@@ -1671,6 +1735,7 @@
                 turnRate: options.turnRate || 0,
                 speed,
                 decay: options.decay || 0,
+                damage: options.damage || 9,
                 hitboxScale: options.hitboxScale || 1,
                 isHuge: !!options.isHuge,
                 isPhantomBullet: !!options.isPhantomBullet,
@@ -2325,10 +2390,193 @@
             }
         }
 
+        function fireMatrixPortSentryShot(enemy) {
+            const aim = enemy.aimAngle ?? Math.atan2(player.y - enemy.y, player.x - enemy.x);
+            const muzzleX = enemy.x + Math.cos(aim) * 18;
+            const muzzleY = enemy.y + Math.sin(aim) * 18;
+            fireMatrixEnemyBullet(muzzleX, muzzleY, aim, 205, {
+                char: '1',
+                color: '#8ff7ff',
+                radius: 6,
+                hitboxScale: 0.82,
+                damage: 8,
+                life: 4.2
+            });
+            enemy.fireFlashTimer = 0.16;
+            emitMatrixCrawlerParticle(muzzleX, muzzleY, '#8ff7ff');
+        }
+
+        function updateMatrixPortSentry(enemy, dt, room, dx, dy, dist) {
+            enemy.aimAngle = Math.atan2(dy, dx);
+            enemy.fireFlashTimer = Math.max(0, (enemy.fireFlashTimer || 0) - dt);
+            if (dist > MATRIX_PORT_SENTRY_RANGE) {
+                enemy.sentryWindup = 0;
+                enemy.fireTimer = Math.min(0.75, (enemy.fireTimer || 0.75) + dt * 0.25);
+                return;
+            }
+            if ((enemy.sentryWindup || 0) > 0) {
+                enemy.sentryWindup = Math.max(0, enemy.sentryWindup - dt);
+                if (enemy.sentryWindup <= 0) {
+                    fireMatrixPortSentryShot(enemy);
+                    enemy.fireTimer = 1.55 + Math.random() * 0.55;
+                }
+                return;
+            }
+            enemy.fireTimer = (enemy.fireTimer || 0) - dt;
+            if (enemy.fireTimer <= 0) {
+                enemy.sentryWindup = MATRIX_PORT_SENTRY_WINDUP;
+                enemy.fireTimer = 0;
+            }
+        }
+
+        function updateMatrixCrashBug(enemy, dt, room, dx, dy, dist) {
+            enemy.fireFlashTimer = Math.max(0, (enemy.fireFlashTimer || 0) - dt);
+            if (enemy.crashState === 'windup') {
+                enemy.dashWindup = Math.max(0, (enemy.dashWindup || 0) - dt);
+                enemy.aimAngle = enemy.dashAngle || Math.atan2(dy, dx);
+                if (enemy.dashWindup <= 0) {
+                    enemy.crashState = 'dash';
+                    enemy.dashTimer = MATRIX_CRASH_BUG_DASH_TIME;
+                    enemy.dashBounces = 1;
+                    enemy.dashVx = Math.cos(enemy.aimAngle) * MATRIX_CRASH_BUG_DASH_SPEED;
+                    enemy.dashVy = Math.sin(enemy.aimAngle) * MATRIX_CRASH_BUG_DASH_SPEED;
+                    enemy.fireFlashTimer = 0.18;
+                }
+                return;
+            }
+
+            if (enemy.crashState === 'dash') {
+                enemy.dashTimer = Math.max(0, (enemy.dashTimer || 0) - dt);
+                const nextX = enemy.x + (enemy.dashVx || 0) * dt;
+                const nextY = enemy.y + (enemy.dashVy || 0) * dt;
+                const moved = moveMatrixCrawlerBodyInRoom(room, enemy.x, enemy.y, nextX, nextY, enemy.radius + 4);
+                const hitX = Math.abs(moved.x - nextX) > 0.1;
+                const hitY = Math.abs(moved.y - nextY) > 0.1;
+                enemy.x = moved.x;
+                enemy.y = moved.y;
+                if ((hitX || hitY) && (enemy.dashBounces || 0) > 0) {
+                    if (hitX) enemy.dashVx *= -0.82;
+                    if (hitY) enemy.dashVy *= -0.82;
+                    enemy.dashBounces--;
+                    enemy.fireFlashTimer = 0.10;
+                } else if (hitX || hitY || enemy.dashTimer <= 0) {
+                    enemy.crashState = 'recover';
+                    enemy.dashRecover = 0.46;
+                    enemy.dashCooldown = 1.05 + Math.random() * 0.85;
+                    enemy.dashVx = 0;
+                    enemy.dashVy = 0;
+                }
+                enemy.aimAngle = Math.atan2(enemy.dashVy || dy, enemy.dashVx || dx);
+                return;
+            }
+
+            if (enemy.crashState === 'recover') {
+                enemy.dashRecover = Math.max(0, (enemy.dashRecover || 0) - dt);
+                if (enemy.dashRecover <= 0) enemy.crashState = 'wander';
+                return;
+            }
+
+            enemy.dashCooldown = Math.max(0, (enemy.dashCooldown || 0) - dt);
+            enemy.wanderAngle = (enemy.wanderAngle || 0) + Math.sin(enemy.phase * 0.7) * dt * 0.55;
+            const chaseWeight = dist < 520 ? 0.42 : 0.18;
+            const aim = Math.atan2(dy, dx);
+            const crawlAngle = enemy.wanderAngle * (1 - chaseWeight) + aim * chaseWeight;
+            enemy.aimAngle = aim;
+            const speed = enemy.speed || 48;
+            const nextX = enemy.x + Math.cos(crawlAngle) * speed * dt;
+            const nextY = enemy.y + Math.sin(crawlAngle) * speed * dt;
+            const moved = moveMatrixCrawlerBodyInRoom(room, enemy.x, enemy.y, nextX, nextY, enemy.radius + 4);
+            enemy.x = moved.x;
+            enemy.y = moved.y;
+
+            if (enemy.dashCooldown <= 0 && dist < 620) {
+                enemy.crashState = 'windup';
+                enemy.dashWindup = MATRIX_CRASH_BUG_WINDUP;
+                enemy.dashAngle = aim;
+                enemy.aimAngle = aim;
+            }
+        }
+
+        function fireMatrixFirewallHostSpread(enemy, room) {
+            const aim = enemy.aimAngle ?? Math.atan2(player.y - enemy.y, player.x - enemy.x);
+            const roomDepth = room ? room.depth || 0 : 0;
+            const count = (matrixCrawlerState.floor >= 3 || roomDepth >= 5 || (room && room.type === 'challenge')) ? 5 : 3;
+            const spread = count === 5 ? 0.15 : 0.19;
+            const half = (count - 1) / 2;
+            for (let i = 0; i < count; i++) {
+                const offset = (i - half) * spread;
+                fireMatrixEnemyBullet(enemy.x + Math.cos(aim) * 18, enemy.y + Math.sin(aim) * 18, aim + offset, 178 + i * 3, {
+                    char: i === half ? '!' : '/',
+                    color: i === half ? '#ffffff' : '#ffb347',
+                    radius: 6,
+                    hitboxScale: 0.78,
+                    damage: 9,
+                    life: 4.4
+                });
+            }
+            enemy.hostFlashTimer = 0.18;
+            addShake(2.5);
+        }
+
+        function updateMatrixFirewallHost(enemy, dt, room, dx, dy, dist) {
+            enemy.aimAngle = Math.atan2(dy, dx);
+            enemy.hostFlashTimer = Math.max(0, (enemy.hostFlashTimer || 0) - dt);
+            enemy.hostTimer = Math.max(0, (enemy.hostTimer || 0) - dt);
+            if (enemy.hostState === 'closed') {
+                enemy.isShielded = true;
+                if (enemy.hostTimer <= 0 || dist < MATRIX_FIREWALL_HOST_RANGE) {
+                    enemy.hostState = 'opening';
+                    enemy.hostTimer = 0.38;
+                    enemy.hostFireDelay = 0;
+                }
+                return;
+            }
+            if (enemy.hostState === 'opening') {
+                enemy.isShielded = true;
+                if (enemy.hostTimer <= 0) {
+                    enemy.hostState = 'open';
+                    enemy.hostTimer = MATRIX_FIREWALL_HOST_OPEN_TIME;
+                    enemy.hostFireDelay = 0.34;
+                    enemy.isShielded = false;
+                }
+                return;
+            }
+            if (enemy.hostState === 'open') {
+                enemy.isShielded = false;
+                enemy.hostFireDelay = Math.max(0, (enemy.hostFireDelay || 0) - dt);
+                if (enemy.hostFireDelay <= 0 && !enemy.hostFired) {
+                    fireMatrixFirewallHostSpread(enemy, room);
+                    enemy.hostFired = true;
+                }
+                if (enemy.hostTimer <= 0) {
+                    enemy.hostState = 'closing';
+                    enemy.hostTimer = 0.34;
+                    enemy.hostFired = false;
+                    enemy.isShielded = true;
+                }
+                return;
+            }
+            if (enemy.hostState === 'closing') {
+                enemy.isShielded = true;
+                if (enemy.hostTimer <= 0) {
+                    enemy.hostState = 'closed';
+                    enemy.hostTimer = 1.25 + Math.random() * 0.75;
+                }
+            }
+        }
+
         function fireMatrixEnemyPattern(enemy) {
             const dx = player.x - enemy.x;
             const dy = player.y - enemy.y;
             const aim = Math.atan2(dy, dx);
+            if (enemy.type === 'portSentry') {
+                fireMatrixPortSentryShot(enemy);
+                return;
+            }
+            if (enemy.type === 'firewallHost') {
+                fireMatrixFirewallHostSpread(enemy, getMatrixCrawlerRoom());
+                return;
+            }
             if (enemy.type === 'turret') {
                 for (let i = -1; i <= 1; i++) fireMatrixEnemyBullet(enemy.x, enemy.y, aim + i * 0.16, 170, { char: '1', radius: 5 });
                 return;
@@ -2618,6 +2866,27 @@
                 const dx = player.x - enemy.x;
                 const dy = player.y - enemy.y;
                 const dist = Math.max(1, Math.hypot(dx, dy));
+                if (enemy.type === 'portSentry') {
+                    updateMatrixPortSentry(enemy, dt, room, dx, dy, dist);
+                    const postDist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+                    if (postDist < enemy.radius + getMatrixCrawlerPlayerHitboxRadius() + 2) damageMatrixPlayer(enemy.contact || 8);
+                    if (!isMatrixCrawlerRuntimeActive()) return;
+                    continue;
+                }
+                if (enemy.type === 'crashBug') {
+                    updateMatrixCrashBug(enemy, dt, room, dx, dy, dist);
+                    const postDist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+                    if (postDist < enemy.radius + getMatrixCrawlerPlayerHitboxRadius() + 2) damageMatrixPlayer(enemy.contact || 12);
+                    if (!isMatrixCrawlerRuntimeActive()) return;
+                    continue;
+                }
+                if (enemy.type === 'firewallHost') {
+                    updateMatrixFirewallHost(enemy, dt, room, dx, dy, dist);
+                    const postDist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+                    if (postDist < enemy.radius + getMatrixCrawlerPlayerHitboxRadius() + 2) damageMatrixPlayer(enemy.contact || 10);
+                    if (!isMatrixCrawlerRuntimeActive()) return;
+                    continue;
+                }
                 if (enemy.speed > 0) {
                     let moveScale = enemy.type === 'orbit' ? Math.sin(enemy.phase) * 0.45 : 1;
                     const tangent = enemy.type === 'orbit' ? 0.85 : 0;
@@ -2685,7 +2954,7 @@
                 b.life -= dt;
                 const hitRadius = (b.radius || 6) * (b.hitboxScale || 1);
                 if (Math.hypot(player.x - b.x, player.y - b.y) <= hitRadius + getMatrixCrawlerPlayerHitboxRadius()) {
-                    damageMatrixPlayer(9);
+                    damageMatrixPlayer(b.damage || 9);
                     if (!isMatrixCrawlerRuntimeActive()) return;
                     if (!beginMatrixCrawlerEnemyBulletDissolve(b, { duration: 0.26, velocityScale: 0.06 })) {
                         state.enemyBullets.splice(i, 1);
@@ -3381,6 +3650,105 @@
             ctx.shadowBlur = 0;
         }
 
+        function drawMatrixCrawlerPortSentry(entity, now) {
+            const angle = entity.aimAngle ?? Math.atan2(player.y - entity.y, player.x - entity.x);
+            const windupRatio = Math.max(0, Math.min(1, (entity.sentryWindup || 0) / MATRIX_PORT_SENTRY_WINDUP));
+            const flash = Math.max(entity.fireFlashTimer || 0, entity.flashTimer || 0);
+            const pulse = 0.5 + Math.sin(now * 0.012 + entity.indexOffset) * 0.5;
+            const bodyColor = flash > 0 ? '#ffffff' : '#8ff7ff';
+            ctx.save();
+            ctx.translate(entity.x, entity.y);
+            ctx.rotate(angle);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = bodyColor;
+            ctx.shadowBlur = glowEnabled ? 9 + windupRatio * 11 : 0;
+            ctx.font = 'bold 21px Courier New';
+            ctx.fillStyle = colorWithAlpha(bodyColor, 0.92);
+            ctx.fillText(windupRatio > 0 ? '[O]' : '[o]', 0, 0);
+            ctx.font = 'bold 17px Courier New';
+            ctx.fillStyle = windupRatio > 0 ? '#ffffff' : colorWithAlpha('#9bffcf', 0.72);
+            ctx.fillText('>', 24 + windupRatio * 3, 0);
+            if (windupRatio > 0) {
+                ctx.globalAlpha = 0.34 + pulse * 0.26;
+                ctx.font = 'bold 12px Courier New';
+                ctx.fillStyle = '#ffea8a';
+                ctx.fillText('!', 0, -20);
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawMatrixCrawlerCrashBug(entity, now) {
+            const angle = entity.aimAngle ?? Math.atan2(player.y - entity.y, player.x - entity.x);
+            const windup = entity.crashState === 'windup';
+            const dashing = entity.crashState === 'dash';
+            const recovering = entity.crashState === 'recover';
+            const flash = Math.max(entity.fireFlashTimer || 0, entity.flashTimer || 0);
+            const bodyColor = flash > 0 ? '#ffffff' : (recovering ? '#ffb347' : '#ff6f61');
+            ctx.save();
+            ctx.translate(entity.x, entity.y);
+            ctx.rotate(angle);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (dashing) {
+                ctx.font = 'bold 19px Courier New';
+                ctx.fillStyle = colorWithAlpha('#ff6f61', 0.20);
+                for (let i = 3; i >= 1; i--) ctx.fillText('<<<', -i * 12, 0);
+            }
+            ctx.shadowColor = bodyColor;
+            ctx.shadowBlur = glowEnabled ? (dashing ? 15 : windup ? 12 : 7) : 0;
+            ctx.font = `bold ${dashing ? 24 : 21}px Courier New`;
+            ctx.fillStyle = colorWithAlpha(bodyColor, recovering ? 0.70 : 0.94);
+            ctx.fillText(dashing ? '<C=>' : windup ? '<C!' : recovering ? '<c>' : '<c>', 0, 0);
+            if (windup) {
+                ctx.globalAlpha = 0.58 + Math.sin(now * 0.035) * 0.20;
+                ctx.font = 'bold 13px Courier New';
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText('>>>', 34, 0);
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function drawMatrixCrawlerFirewallHost(entity, now) {
+            const open = entity.hostState === 'open';
+            const opening = entity.hostState === 'opening';
+            const closing = entity.hostState === 'closing';
+            const flash = Math.max(entity.hostFlashTimer || 0, entity.flashTimer || 0);
+            const baseColor = flash > 0 ? '#ffffff' : (open ? '#ffdf9a' : '#ffb347');
+            const shellAlpha = open ? 0.44 : opening || closing ? 0.72 : 0.95;
+            const pulse = 0.5 + Math.sin(now * 0.01 + entity.indexOffset) * 0.5;
+            ctx.save();
+            ctx.translate(entity.x, entity.y);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = baseColor;
+            ctx.shadowBlur = glowEnabled ? (open ? 13 : 8) : 0;
+            ctx.font = 'bold 24px Courier New';
+            ctx.fillStyle = colorWithAlpha(baseColor, shellAlpha);
+            ctx.fillText(open ? '[   ]' : '[###]', 0, 0);
+            ctx.font = 'bold 18px Courier New';
+            ctx.fillStyle = open ? '#ffffff' : colorWithAlpha('#050d08', 0.72);
+            ctx.fillText(open ? 'O' : 'X', 0, 0);
+            if (open) {
+                ctx.globalAlpha = 0.28 + pulse * 0.22;
+                ctx.font = 'bold 13px Courier New';
+                ctx.fillStyle = '#ff5e8a';
+                ctx.fillText('///', 0, -22);
+            } else if (entity.isShielded) {
+                ctx.globalAlpha = 0.34 + pulse * 0.14;
+                ctx.strokeStyle = '#ffb347';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(-22.5, -15.5, 45, 31);
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
         function drawMatrixCrawlerEntityFallback(entity, now) {
             ctx.save();
             ctx.textAlign = 'center';
@@ -3400,6 +3768,18 @@
             }
             if (entity.type === 'distortedGlitch') {
                 drawMatrixDistortedGlitchBoss(entity, now);
+                return;
+            }
+            if (entity.type === 'portSentry') {
+                drawMatrixCrawlerPortSentry(entity, now);
+                return;
+            }
+            if (entity.type === 'crashBug') {
+                drawMatrixCrawlerCrashBug(entity, now);
+                return;
+            }
+            if (entity.type === 'firewallHost') {
+                drawMatrixCrawlerFirewallHost(entity, now);
                 return;
             }
             if (entity.enemyShipSprite && typeof drawEnemyShipSprite === 'function') {
