@@ -18,32 +18,26 @@
         const GLITCH_CHARS = [..."ﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙ"];
         
         const RAGE_HINTS = [
-            "Tip: try not getting hit.",
-            "Reminder: you are not invincible.",
-            "Hint: press A to move left.",
-            "Did you know: enemy bullets deal damage.",
-            "Pro tip: the goal is to survive.",
-            "Strategy guide: dodge the purple round things.",
-            "Fun fact: exploding means you lose.",
-            "Advice: try shooting back.",
-            "Notice: the enemies are trying to kill you.",
-            "Tip: try and prevent your ship from exploding.",
-            "Pro tip: weapons only work if you fire them.",
-            "Hint: use your eyes to see the bullets.",
-            "Tip: dying lowers your chances of winning.",
-            "Reminder: dodging is highly recommended.",
-            "Reminder: you cannot win if you are dead.",
-            "Reminder: bullets travel toward you.",
-            "Pro tip: try getting better at the game.",
-            "Strategy: consider not flying into bullets.",
-            "Hint: the enemies shoot bullets that hurt you.",
-            "Fun fact: this game has a tutorial. You ignored it.",
-            "Fun fact: My 6 year old beat this game in one try.",
-            "Tip: the bullets are not power-ups.",
-            "Reminder: your ship is not supposed to catch every shot.",
-            "Pro tip: panic is not a movement ability.",
-            "Strategy guide: try dodging before the bullet touches you.",
-            "Fun fact: the walls are also not a safe place to live.",
+            "Flight Advisory: Enemy projectiles are hazardous. Avoid direct contact.",
+            "Navigation Note: Remaining stationary increases exposure to incoming fire.",
+            "Combat Guidance: Move before the projectile reaches your position.",
+            "Safety Notice: Your hull is not rated for repeated bullet impacts.",
+            "Tactical Advisory: Use open space before it is no longer open.",
+            "Pilot Reminder: Survival improves when hostile rounds miss the ship.",
+            "Systems Note: Weapon output is most useful before hull integrity reaches zero.",
+            "Route Advisory: Dense patterns are easier to read from a safer lane.",
+            "Damage Report: The final impact was avoidable with earlier repositioning.",
+            "Training Notice: The bright hostile pixels should be treated as dangerous.",
+            "Operational Tip: Preserve health by dodging first and firing second.",
+            "Pilot Advisory: Panic steering is not an approved evasive maneuver.",
+            "Combat Note: The safest projectile is the one outside your hitbox.",
+            "Systems Reminder: Collision with enemy fire reduces mission success.",
+            "Flight Tip: Lateral movement is recommended during sustained fire.",
+            "Tactical Note: A smaller target still benefits from not being hit.",
+            "Route Guidance: Do not occupy the same coordinates as hostile fire.",
+            "Training Tip: Try using the empty part of the screen sooner.",
+            "Safety Reminder: The retry system remains available for further study.",
+            "Operational Advisory: One more run may produce improved results.",
         ];
 
         // Input Handling
@@ -166,11 +160,12 @@
             if (keys.hasOwnProperty(k)) {
                 keys[k] = true;
                 const survivorMode = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
+                const matrixMode = typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive();
                 const survivorEightWayAim = typeof survivorEightWayAimEnabled === 'undefined' || survivorEightWayAimEnabled;
                 const shouldDetonate = survivorMode
                     ? (k === ' ' || k === 'b' || (!survivorEightWayAim && k === 'arrowdown'))
-                    : k === ' ';
-                if (gameState === 'PLAYING' && shouldDetonate && !e.repeat && bombProjectiles.length > 0) {
+                    : (matrixMode ? (k === ' ' || k === 'b') : k === ' ');
+                if ((gameState === 'PLAYING' || gameState === 'MATRIX_CRAWLER') && shouldDetonate && !e.repeat && bombProjectiles.length > 0) {
                     for (let bi = 0; bi < bombProjectiles.length; bi++) bombProjectiles[bi].forceDetonate = true;
                 }
                 // Prevent scrolling for game keys
@@ -182,19 +177,29 @@
             if (k === 'escape') {
                 if (gameState === 'PLAYING') {
                     enterPauseMode();
+                } else if (gameState === 'MATRIX_CRAWLER') {
+                    enterPauseMode();
                 } else if (gameState === 'GALAXY_SELECT') {
                     enterPauseMode();
                 } else if (gameState === 'PAUSED') {
-                    if (pauseState === 'SETTINGS') {
+                    if (pauseState === 'GRAPHICS') {
+                        pauseState = 'MAIN';
+                        settingsSelection = 0;
+                    } else if (pauseState === 'SETTINGS') {
                         pauseState = 'MAIN';
                     } else {
                         resumeFromPauseMode();
                     }
                 } else if (gameState === 'SHIP_SELECT') {
                     shipSelectIndex = selectedShipIndex;
-                    shipSelectReturnState = 'LAUNCH';
-                    gameState = 'GALAXY_SELECT';
-                    resetPauseMenuShipCursor();
+                    if (shipSelectReturnState === 'GALAXY_SELECT' && typeof beginTerminalDockTransition === 'function') {
+                        shipSelectReturnState = 'LAUNCH';
+                        beginTerminalDockTransition('exit', selectedShipIndex);
+                    } else {
+                        shipSelectReturnState = 'LAUNCH';
+                        gameState = 'GALAXY_SELECT';
+                        resetPauseMenuShipCursor();
+                    }
                 }
                 e.preventDefault();
                 return;
@@ -236,17 +241,22 @@
                 }
                 return;
             }
-            if (gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP') {
+            if (gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK') {
                 e.preventDefault();
                 return;
             }
             if (gameState === 'GALAXY_SELECT') {
+                if (typeof ensureGalaxySelectMusic === 'function') ensureGalaxySelectMusic(0.35);
                 const galaxyCount = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1;
                 const moveGalaxySelection = (dirX, dirY, fallbackDelta) => {
+                    const previousGalaxyIndex = selectedGalaxyIndex;
                     if (typeof getGalaxySelectDirectionalIndex === 'function') {
                         selectedGalaxyIndex = getGalaxySelectDirectionalIndex(selectedGalaxyIndex, dirX, dirY);
                     } else {
                         selectedGalaxyIndex = (selectedGalaxyIndex + galaxyCount + fallbackDelta) % galaxyCount;
+                    }
+                    if (typeof handleGalaxySelectIndexChanged === 'function') {
+                        handleGalaxySelectIndexChanged(previousGalaxyIndex, selectedGalaxyIndex);
                     }
                 };
                 if (k === 'arrowleft' || k === 'a') {
@@ -305,8 +315,12 @@
                     selectShip(shipSelectIndex, true);
                     if (shipSelectReturnState === 'GALAXY_SELECT') {
                         shipSelectReturnState = 'LAUNCH';
-                        gameState = 'GALAXY_SELECT';
-                        resetPauseMenuShipCursor();
+                        if (typeof beginTerminalDockTransition === 'function') {
+                            beginTerminalDockTransition('exit', selectedShipIndex);
+                        } else {
+                            gameState = 'GALAXY_SELECT';
+                            resetPauseMenuShipCursor();
+                        }
                     } else {
                         beginLaunchSequence();
                     }
@@ -376,7 +390,10 @@
                         if (selectedPauseOption === 'RESUME') {
                             resumeFromPauseMode();
                         }
-                        else if (selectedPauseOption === 'RESTART') resetGame();
+                        else if (selectedPauseOption === 'RESTART') {
+                            if (pauseReturnState === 'MATRIX_CRAWLER' && typeof restartMatrixCrawlerRun === 'function') restartMatrixCrawlerRun();
+                            else resetGame();
+                        }
                         else if (selectedPauseOption === 'VOLUME') {
                             isMuted = !isMuted;
                             clearPauseVolumePreview();
@@ -384,6 +401,10 @@
                         }
                         else if (selectedPauseOption === 'SETTINGS') {
                             pauseState = 'SETTINGS';
+                            settingsSelection = 0;
+                        }
+                        else if (selectedPauseOption === 'GRAPHICS') {
+                            pauseState = 'GRAPHICS';
                             settingsSelection = 0;
                         }
                         else if (selectedPauseOption === 'FULLSCREEN' || selectedPauseOption === 'EXIT FULLSCREEN') {
@@ -395,42 +416,70 @@
                             }
                         }
                         else if (selectedPauseOption === 'EXIT') {
-                            if (pauseReturnState === 'PLAYING' && typeof beginReturnToGalaxySelectLoading === 'function') {
+                            if ((pauseReturnState === 'PLAYING' || pauseReturnState === 'MATRIX_CRAWLER') && typeof beginReturnToGalaxySelectLoading === 'function') {
                                 beginReturnToGalaxySelectLoading();
                             } else {
                                 location.reload();
                             }
                         }
                 }
-            } else if (pauseState === 'SETTINGS') {
-                    const lastSettingsIndex = SETTINGS_MENU_OPTION_COUNT - 1;
+            } else if (pauseState === 'SETTINGS' || pauseState === 'GRAPHICS') {
+                    const optionCount = typeof getCurrentSettingsMenuOptionCount === 'function'
+                        ? getCurrentSettingsMenuOptionCount()
+                        : SETTINGS_MENU_OPTION_COUNT;
+                    const lastSettingsIndex = optionCount - 1;
                     if (k === 'arrowup' || k === 'w') settingsSelection = (settingsSelection === 0) ? lastSettingsIndex : settingsSelection - 1;
                     if (k === 'arrowdown' || k === 's') settingsSelection = (settingsSelection === lastSettingsIndex) ? 0 : settingsSelection + 1;
                     
                     if (k === 'arrowleft' || k === 'a' || k === 'arrowright' || k === 'd' || k === 'enter' || k === ' ') {
-                        if (settingsSelection === 0 && (k !== 'enter' && k !== ' ')) {
-                            if (k === 'arrowleft' || k === 'a') currentThemeIndex = (currentThemeIndex + 3) % 4;
-                            if (k === 'arrowright' || k === 'd') currentThemeIndex = (currentThemeIndex + 1) % 4;
-                            applyTheme();
-                        } else if (settingsSelection === 1 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
-                            showFpsCounter = !showFpsCounter;
-                            sessionStorage.setItem('ascii_show_fps', showFpsCounter.toString());
-                            applyFpsVisibility();
-                        } else if (settingsSelection === 2 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
-                            showStatsPanel = !showStatsPanel;
-                            sessionStorage.setItem('ascii_show_stats', showStatsPanel.toString());
-                            applyStatsVisibility();
-                        } else if (settingsSelection === 3 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
-                            userFpsCap = !userFpsCap;
-                        } else if (settingsSelection === 4 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
-                            glowEnabled = !glowEnabled;
-                            applyTheme();
-                        } else if (settingsSelection === 5 && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd')) {
-                            survivorEightWayAimEnabled = !survivorEightWayAimEnabled;
-                            sessionStorage.setItem('ascii_survivor_eight_way_aim', survivorEightWayAimEnabled.toString());
-                        } else if (settingsSelection === lastSettingsIndex && (k === 'enter' || k === ' ')) {
-                            pauseState = 'MAIN';
-                            settingsSelection = 0;
+                        const isToggleKey = k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'arrowright' || k === 'a' || k === 'd';
+                        const direction = (k === 'arrowleft' || k === 'a') ? -1 : 1;
+
+                        if (pauseState === 'SETTINGS') {
+                            if (settingsSelection === 0 && (k !== 'enter' && k !== ' ')) {
+                                if (k === 'arrowleft' || k === 'a') currentThemeIndex = (currentThemeIndex + 3) % 4;
+                                if (k === 'arrowright' || k === 'd') currentThemeIndex = (currentThemeIndex + 1) % 4;
+                                applyTheme();
+                            } else if (settingsSelection === 1 && isToggleKey) {
+                                showFpsCounter = !showFpsCounter;
+                                sessionStorage.setItem('ascii_show_fps', showFpsCounter.toString());
+                                applyFpsVisibility();
+                            } else if (settingsSelection === 2 && isToggleKey) {
+                                showStatsPanel = !showStatsPanel;
+                                sessionStorage.setItem('ascii_show_stats', showStatsPanel.toString());
+                                applyStatsVisibility();
+                            } else if (settingsSelection === 3 && isToggleKey) {
+                                survivorEightWayAimEnabled = !survivorEightWayAimEnabled;
+                                sessionStorage.setItem('ascii_survivor_eight_way_aim', survivorEightWayAimEnabled.toString());
+                            } else if (settingsSelection === lastSettingsIndex && (k === 'enter' || k === ' ')) {
+                                pauseState = 'MAIN';
+                                settingsSelection = 0;
+                            }
+                        } else if (pauseState === 'GRAPHICS') {
+                            if (settingsSelection === 0 && isToggleKey) {
+                                userFpsCap = !userFpsCap;
+                                sessionStorage.setItem('ascii_fps_cap', userFpsCap.toString());
+                            } else if (settingsSelection === 1 && isToggleKey) {
+                                if (typeof setCanvasSharpnessIndex === 'function') {
+                                    setCanvasSharpnessIndex(canvasSharpnessIndex + direction);
+                                }
+                            } else if (settingsSelection === 2 && isToggleKey) {
+                                if (typeof setCanvasFilterIndex === 'function') {
+                                    setCanvasFilterIndex(canvasFilterIndex + direction);
+                                }
+                            } else if (settingsSelection === 3 && isToggleKey) {
+                                glowEnabled = !glowEnabled;
+                                sessionStorage.setItem('ascii_glow_enabled', glowEnabled.toString());
+                                if (typeof invalidateGraphicsRenderCaches === 'function') invalidateGraphicsRenderCaches();
+                                applyTheme();
+                            } else if (settingsSelection === 4 && isToggleKey) {
+                                if (typeof setVisualQualityIndex === 'function') {
+                                    setVisualQualityIndex(visualQualityIndex + direction);
+                                }
+                            } else if (settingsSelection === lastSettingsIndex && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'a')) {
+                                pauseState = 'MAIN';
+                                settingsSelection = 0;
+                            }
                         }
                     }
                 }
@@ -455,13 +504,44 @@
             }
         });
         window.addEventListener('blur', clearGameplayKeys);
-        window.addEventListener('mousemove', e => {
+        function updateMouseFromEvent(e) {
             const rect = canvas.getBoundingClientRect();
             mouse.x = (e.clientX - rect.left) * (LOGICAL_W / rect.width);
             mouse.y = (e.clientY - rect.top) * (LOGICAL_H / rect.height);
+        }
+
+        window.addEventListener('mousemove', e => {
+            updateMouseFromEvent(e);
+            if (typeof handleGalaxyLayoutEditorMouseMove === 'function') {
+                handleGalaxyLayoutEditorMouseMove(mouse.x, mouse.y);
+            }
         });
-        window.addEventListener('mousedown', () => { mouse.isDown = true; mouse.lastClick = performance.now(); });
-        window.addEventListener('mouseup', () => { mouse.isDown = false; });
+        window.addEventListener('mousedown', e => {
+            updateMouseFromEvent(e);
+            if (typeof handleGalaxyLayoutEditorMouseDown === 'function' && handleGalaxyLayoutEditorMouseDown(mouse.x, mouse.y)) {
+                e.preventDefault();
+                return;
+            }
+            mouse.isDown = true;
+            mouse.lastClick = performance.now();
+        });
+        window.addEventListener('mouseup', e => {
+            updateMouseFromEvent(e);
+            if (typeof handleGalaxyLayoutEditorMouseUp === 'function' && handleGalaxyLayoutEditorMouseUp()) {
+                e.preventDefault();
+            }
+            mouse.isDown = false;
+        });
+        window.addEventListener('wheel', e => {
+            updateMouseFromEvent(e);
+            if (typeof handleGalaxyLayoutEditorWheel === 'function' && handleGalaxyLayoutEditorWheel(e.deltaY, {
+                shiftKey: e.shiftKey,
+                altKey: e.altKey,
+                ctrlKey: e.ctrlKey
+            }, mouse.x, mouse.y)) {
+                e.preventDefault();
+            }
+        }, { passive: false });
 
         // Field Particle System (Background)
         let numParticles = 0;

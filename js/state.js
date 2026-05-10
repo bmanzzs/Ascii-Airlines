@@ -11,6 +11,95 @@
         let renderStyleMode = 2;
         let glowEnabled = true;
         let survivorEightWayAimEnabled = true;
+        const CANVAS_SHARPNESS_OPTIONS = [
+            { label: 'PERFORMANCE', scale: 1 },
+            { label: 'BALANCED', scale: 1.25 },
+            { label: 'CRISP', scale: 1.5 },
+            { label: 'ULTRA', scale: 2 }
+        ];
+        const CANVAS_FILTER_OPTIONS = [
+            { label: 'PIXEL', value: 'pixelated', smoothing: false },
+            { label: 'SMOOTH', value: 'auto', smoothing: true }
+        ];
+        const VISUAL_QUALITY_OPTIONS = [
+            { label: 'LOW', particles: 0.62, background: 0.72, effects: 0.72, detail: 0.78 },
+            { label: 'NORMAL', particles: 1, background: 1, effects: 1, detail: 1 },
+            { label: 'HIGH', particles: 1.28, background: 1.18, effects: 1.18, detail: 1.14 }
+        ];
+        let canvasSharpnessIndex = 0;
+        let canvasFilterIndex = 0;
+        let visualQualityIndex = 1;
+
+        function getCanvasSharpnessOption() {
+            return CANVAS_SHARPNESS_OPTIONS[canvasSharpnessIndex] || CANVAS_SHARPNESS_OPTIONS[0];
+        }
+
+        function getCanvasSharpnessScale() {
+            const option = getCanvasSharpnessOption();
+            return option && Number.isFinite(option.scale) ? option.scale : 1;
+        }
+
+        function getCanvasSharpnessLabel() {
+            const option = getCanvasSharpnessOption();
+            return `${option.label} ${option.scale.toFixed(2)}X`;
+        }
+
+        function setCanvasSharpnessIndex(index) {
+            const count = CANVAS_SHARPNESS_OPTIONS.length;
+            canvasSharpnessIndex = ((index % count) + count) % count;
+            sessionStorage.setItem('ascii_canvas_sharpness', canvasSharpnessIndex.toString());
+            if (typeof resize === 'function') resize();
+        }
+
+        function getCanvasFilterOption() {
+            return CANVAS_FILTER_OPTIONS[canvasFilterIndex] || CANVAS_FILTER_OPTIONS[0];
+        }
+
+        function getCanvasFilterLabel() {
+            return getCanvasFilterOption().label;
+        }
+
+        function isCanvasFilterSmooth() {
+            return !!getCanvasFilterOption().smoothing;
+        }
+
+        function applyCanvasFilterSetting() {
+            const option = getCanvasFilterOption();
+            if (typeof canvas !== 'undefined' && canvas && canvas.style) {
+                canvas.style.imageRendering = option.value || 'pixelated';
+            }
+            if (typeof ctx !== 'undefined' && ctx) {
+                ctx.imageSmoothingEnabled = isCanvasFilterSmooth();
+            }
+        }
+
+        function setCanvasFilterIndex(index) {
+            const count = CANVAS_FILTER_OPTIONS.length;
+            canvasFilterIndex = ((index % count) + count) % count;
+            sessionStorage.setItem('ascii_canvas_filter', canvasFilterIndex.toString());
+            applyCanvasFilterSetting();
+        }
+
+        function getVisualQualityOption() {
+            return VISUAL_QUALITY_OPTIONS[visualQualityIndex] || VISUAL_QUALITY_OPTIONS[1];
+        }
+
+        function getVisualQualityLabel() {
+            return getVisualQualityOption().label;
+        }
+
+        function getVisualQualityScale(kind = 'detail') {
+            const option = getVisualQualityOption();
+            return Number.isFinite(option[kind]) ? option[kind] : (Number.isFinite(option.detail) ? option.detail : 1);
+        }
+
+        function setVisualQualityIndex(index) {
+            const count = VISUAL_QUALITY_OPTIONS.length;
+            visualQualityIndex = ((index % count) + count) % count;
+            sessionStorage.setItem('ascii_visual_quality', visualQualityIndex.toString());
+            if (typeof invalidateGraphicsRenderCaches === 'function') invalidateGraphicsRenderCaches();
+            if (typeof rebuildField === 'function') rebuildField();
+        }
         
         function applyTheme() {
             const root = document.documentElement;
@@ -50,6 +139,32 @@
         applyStatsVisibility();
         let savedSurvivorAimMode = sessionStorage.getItem('ascii_survivor_eight_way_aim');
         if (savedSurvivorAimMode !== null) survivorEightWayAimEnabled = savedSurvivorAimMode === 'true';
+        let savedCanvasSharpness = sessionStorage.getItem('ascii_canvas_sharpness');
+        if (savedCanvasSharpness !== null) {
+            const parsedCanvasSharpness = parseInt(savedCanvasSharpness, 10);
+            if (Number.isFinite(parsedCanvasSharpness)) {
+                canvasSharpnessIndex = Math.max(0, Math.min(CANVAS_SHARPNESS_OPTIONS.length - 1, parsedCanvasSharpness));
+            }
+        }
+        let savedCanvasFilter = sessionStorage.getItem('ascii_canvas_filter');
+        if (savedCanvasFilter !== null) {
+            const parsedCanvasFilter = parseInt(savedCanvasFilter, 10);
+            if (Number.isFinite(parsedCanvasFilter)) {
+                canvasFilterIndex = Math.max(0, Math.min(CANVAS_FILTER_OPTIONS.length - 1, parsedCanvasFilter));
+            }
+        }
+        let savedVisualQuality = sessionStorage.getItem('ascii_visual_quality');
+        if (savedVisualQuality !== null) {
+            const parsedVisualQuality = parseInt(savedVisualQuality, 10);
+            if (Number.isFinite(parsedVisualQuality)) {
+                visualQualityIndex = Math.max(0, Math.min(VISUAL_QUALITY_OPTIONS.length - 1, parsedVisualQuality));
+            }
+        }
+        let savedFpsCap = sessionStorage.getItem('ascii_fps_cap');
+        if (savedFpsCap !== null) userFpsCap = savedFpsCap === 'true';
+        let savedGlowEnabled = sessionStorage.getItem('ascii_glow_enabled');
+        if (savedGlowEnabled !== null) glowEnabled = savedGlowEnabled === 'true';
+        applyCanvasFilterSetting();
 
         // FPS Counter State
         let frameCount = 0;
@@ -128,7 +243,7 @@
         let gameState = 'GALAXY_SELECT';
         let titleAlpha = 1.0;
         let autoLaunch = false;
-        let pauseState = 'MAIN'; // 'MAIN' or 'SETTINGS'
+        let pauseState = 'MAIN'; // 'MAIN', 'SETTINGS', or 'GRAPHICS'
         let pauseSelection = 0;
         let pauseReturnState = 'PLAYING';
         let shipSelectReturnState = 'LAUNCH';
@@ -195,6 +310,7 @@
         let consoleNotifications = [];
         let consoleReferenceLines = [];
         let queuedConsoleLevels = 0;
+        let levelUpReturnState = 'PLAYING';
         let postResumeBombLockTimer = 0;
         let focusMeter = FOCUS_METER_MAX;
         let focusRegenDelay = 0;
@@ -216,9 +332,9 @@
             startedAt: 0,
             color: '#6aa8ff'
         };
-        const GALAXY_WARP_DURATION = 1.35;
-        const GALAXY_WARP_HANDOFF_START = 0.76;
-        const GALAXY_WARP_OUTRO_FADE = 0.56;
+        const GALAXY_WARP_DURATION = 2.18;
+        const GALAXY_WARP_HANDOFF_START = 0.80;
+        const GALAXY_WARP_OUTRO_FADE = 0.64;
         let galaxyWarpTransition = {
             active: false,
             startedAt: 0,
@@ -231,6 +347,26 @@
             toY: 0,
             color: '#6aa8ff',
             outroStartedAt: 0
+        };
+        const TERMINAL_DOCK_ENTER_DURATION = 1.42;
+        const TERMINAL_DOCK_EXIT_DURATION = 1.28;
+        let terminalDockTransition = {
+            active: false,
+            phase: 'enter',
+            startedAt: 0,
+            galaxyIndex: 0,
+            shipIndex: 0,
+            fromX: 0,
+            fromY: 0,
+            fromRot: 0,
+            fromScale: 0.24,
+            color: '#8ff7ff'
+        };
+        let terminalDockExitHold = {
+            active: false,
+            galaxyIndex: -1,
+            shipIndex: 0,
+            startedAt: 0
         };
         let victoryTimer = 0;
         let scoreScreenTimer = 0;
@@ -257,7 +393,12 @@
         const PAUSE_VOLUME_RETURN_FADE_SECONDS = 0.35;
         const POST_RESUME_BOMB_LOCK_SECONDS = 0.5;
         let pauseVolumePreviewTimeout = null;
-        const SETTINGS_MENU_OPTION_COUNT = 7;
+        const SETTINGS_MENU_OPTION_COUNT = 5;
+        const GRAPHICS_MENU_OPTION_COUNT = 6;
+
+        function getCurrentSettingsMenuOptionCount() {
+            return pauseState === 'GRAPHICS' ? GRAPHICS_MENU_OPTION_COUNT : SETTINGS_MENU_OPTION_COUNT;
+        }
 
         const COMBO_SCORE_MULT_PER_KILL = 0.01;
         const COMBO_FOCUS_STEP = 10;
@@ -302,7 +443,7 @@
         }
 
         function setActiveGameMode(mode = 'campaign') {
-            activeGameMode = mode === 'survivor' ? 'survivor' : 'campaign';
+            activeGameMode = (mode === 'survivor' || mode === 'matrixCrawler') ? mode : 'campaign';
         }
 
         function isSurvivorGalaxy(index = currentGalaxyIndex) {
@@ -312,6 +453,10 @@
 
         function isSurvivorModeActive() {
             return activeGameMode === 'survivor';
+        }
+
+        function isMatrixCrawlerModeActive() {
+            return activeGameMode === 'matrixCrawler';
         }
 
         function createEmptyRunStats() {
@@ -372,7 +517,7 @@
         }
 
         function recordRunFocusTime(mode, dt) {
-            if (!runStats || gameState !== 'PLAYING') return;
+            if (!runStats || (gameState !== 'PLAYING' && gameState !== 'MATRIX_CRAWLER')) return;
             if (mode === 'drive') runStats.focusDriveTime += Math.max(0, dt || 0);
             if (mode === 'specter') runStats.specterTime += Math.max(0, dt || 0);
         }
@@ -380,8 +525,11 @@
         function captureRunSummary(defeatedBoss = null) {
             const galaxy = getGalaxyDefinition(currentGalaxyIndex);
             const now = performance.now();
+            const matrixSummary = typeof getMatrixCrawlerHudSnapshot === 'function' && typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive()
+                ? getMatrixCrawlerHudSnapshot()
+                : null;
             runStats.endedAt = now;
-            runStats.wavesCleared = getActiveRunWaveLimit();
+            runStats.wavesCleared = matrixSummary ? (matrixSummary.roomsCleared || 0) : getActiveRunWaveLimit();
             return {
                 galaxyIndex: currentGalaxyIndex,
                 galaxyName: galaxy.title || galaxy.name,
@@ -396,6 +544,9 @@
                 focusDriveTime: runStats.focusDriveTime || 0,
                 specterTime: runStats.specterTime || 0,
                 timeSurvived: Math.max(0, ((runStats.endedAt || now) - (runStats.startedAt || now)) / 1000),
+                roomsCleared: matrixSummary ? (matrixSummary.roomsCleared || 0) : null,
+                totalRooms: matrixSummary ? (matrixSummary.totalCombatRooms || 0) : null,
+                credits: matrixSummary ? (matrixSummary.coins || 0) : null,
                 selectedShip: getSelectedShipConfig().name,
                 level: player.level || 1,
                 maxHp: Math.round(player.maxHp || 0),
@@ -567,6 +718,11 @@
             } else if (gameState === 'GALAXY_WARP') {
                 const elapsed = ((currentFrameNow || performance.now()) - (galaxyWarpTransition.startedAt || 0)) / 1000;
                 if (elapsed >= GALAXY_WARP_DURATION) completeGalaxyWarpTransition();
+            } else if (gameState === 'TERMINAL_DOCK') {
+                const transition = terminalDockTransition || {};
+                const duration = transition.phase === 'exit' ? TERMINAL_DOCK_EXIT_DURATION : TERMINAL_DOCK_ENTER_DURATION;
+                const elapsed = ((currentFrameNow || performance.now()) - (transition.startedAt || 0)) / 1000;
+                if (elapsed >= duration) completeTerminalDockTransition();
             } else if (gameState === 'VICTORY') {
                 victoryTimer += safeDt;
                 if (victoryTimer >= VICTORY_AUTO_ADVANCE_SECONDS) advanceCampaignScreen();
@@ -605,9 +761,55 @@
             enterGalaxySelectScreen();
         }
 
+        function clearTerminalDockExitHold() {
+            terminalDockExitHold.active = false;
+            terminalDockExitHold.galaxyIndex = -1;
+            terminalDockExitHold.shipIndex = 0;
+            terminalDockExitHold.startedAt = 0;
+        }
+
+        function markTerminalDockExitHold(galaxyIndex = selectedGalaxyIndex, shipIndex = selectedShipIndex) {
+            terminalDockExitHold.active = true;
+            terminalDockExitHold.galaxyIndex = galaxyIndex;
+            terminalDockExitHold.shipIndex = shipIndex;
+            terminalDockExitHold.startedAt = currentFrameNow || performance.now();
+        }
+
+        function isTerminalDockExitHoldActive(galaxyIndex = selectedGalaxyIndex) {
+            if (terminalDockExitHold.active && selectedGalaxyIndex !== terminalDockExitHold.galaxyIndex) {
+                clearTerminalDockExitHold();
+                return false;
+            }
+            return terminalDockExitHold.active
+                && gameState === 'GALAXY_SELECT'
+                && terminalDockExitHold.galaxyIndex === galaxyIndex;
+        }
+
+        function handleGalaxySelectIndexChanged(previousIndex, nextIndex) {
+            if (!terminalDockExitHold.active) return;
+            if (nextIndex !== terminalDockExitHold.galaxyIndex) clearTerminalDockExitHold();
+        }
+
+        function getTerminalDockExitCursorPose(galaxyIndex = selectedGalaxyIndex) {
+            if (typeof getGalaxySelectSlot !== 'function' || typeof getGalaxySelectRenderRadius !== 'function') return null;
+            const slot = getGalaxySelectSlot(galaxyIndex);
+            const radius = getGalaxySelectRenderRadius(galaxyIndex, true);
+            const x = Math.min(width - 54, slot.x + radius * 1.98);
+            const y = Math.max(100, slot.y - radius * 0.44);
+            return {
+                x,
+                y,
+                faceX: Math.min(width + radius * 0.8, x + radius * 0.86),
+                faceY: Math.max(80, y - radius * 0.12),
+                scale: 0.25,
+                radius
+            };
+        }
+
         function enterGalaxySelectScreen() {
             clearGameplayKeys();
             if (typeof endSurvivorRun === 'function') endSurvivorRun({ silent: true });
+            if (typeof endMatrixCrawlerRun === 'function') endMatrixCrawlerRun();
             setActiveGameMode('campaign');
             resetRunCompleteTransition();
             selectedGalaxyIndex = Math.max(0, Math.min((typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1) - 1, selectedGalaxyIndex));
@@ -616,8 +818,10 @@
             pauseSelection = 0;
             pausePowerupSelection = 0;
             pausePowerupBarAnim.mode = 'idle';
+            clearTerminalDockExitHold();
             resetPauseMenuShipCursor();
-            stopMusic();
+            if (typeof startGalaxySelectMusic === 'function') startGalaxySelectMusic(0.45);
+            else stopMusic();
             applyCurrentVolume();
             if (typeof updateFocusMusicPlaybackRate === 'function') updateFocusMusicPlaybackRate(1, 0.08);
         }
@@ -630,13 +834,10 @@
                 return false;
             }
             if (galaxy.mode === 'shipHub') {
-                shipSelectReturnState = 'GALAXY_SELECT';
-                shipSelectIndex = selectedShipIndex;
                 galaxySelectNotice = '';
                 galaxySelectNoticeTimer = 0;
                 clearGameplayKeys();
-                resetPauseMenuShipCursor();
-                gameState = 'SHIP_SELECT';
+                beginTerminalDockTransition('enter', selectedShipIndex);
                 titleAlpha = 1;
                 return true;
             }
@@ -644,6 +845,7 @@
             galaxySelectNotice = '';
             galaxySelectNoticeTimer = 0;
             clearGameplayKeys();
+            clearTerminalDockExitHold();
             beginGalaxyWarpTransition(selectedGalaxyIndex);
             titleAlpha = 1;
             return true;
@@ -678,6 +880,7 @@
                 toX: slot.x,
                 toY: slot.y,
                 color: (galaxy.colors && (galaxy.colors[1] || galaxy.colors[0])) || currentThemeColor,
+                shipColor: (galaxy.colors && galaxy.colors[0]) || currentThemeColor,
                 outroStartedAt: 0
             };
             if (typeof prepareGalaxyWarpMenuSnapshot === 'function') {
@@ -687,6 +890,86 @@
             gameState = 'GALAXY_WARP';
             clearPauseVolumePreview();
             applyCurrentVolume();
+        }
+
+        function beginTerminalDockTransition(phase = 'enter', shipIndex = selectedShipIndex) {
+            const now = currentFrameNow || performance.now();
+            const galaxyIndex = selectedGalaxyIndex;
+            const galaxy = getGalaxyDefinition(galaxyIndex);
+            const slot = typeof getGalaxySelectSlot === 'function'
+                ? getGalaxySelectSlot(galaxyIndex)
+                : { x: width * 0.14, y: height * 0.57 };
+            const fromX = pauseMenuShipCursor && pauseMenuShipCursor.initialized
+                ? (Number.isFinite(pauseMenuShipCursor.renderX) ? pauseMenuShipCursor.renderX : pauseMenuShipCursor.x)
+                : slot.x - 92;
+            const fromY = pauseMenuShipCursor && pauseMenuShipCursor.initialized
+                ? (Number.isFinite(pauseMenuShipCursor.renderY) ? pauseMenuShipCursor.renderY : pauseMenuShipCursor.y)
+                : slot.y;
+            const fromRot = pauseMenuShipCursor && pauseMenuShipCursor.initialized && Number.isFinite(pauseMenuShipCursor.renderRot)
+                ? pauseMenuShipCursor.renderRot
+                : Math.PI / 2;
+            const fromScale = pauseMenuShipCursor && pauseMenuShipCursor.initialized && Number.isFinite(pauseMenuShipCursor.renderScale)
+                ? pauseMenuShipCursor.renderScale
+                : (pauseMenuShipCursor.scale || 0.24);
+            if (phase === 'enter') clearTerminalDockExitHold();
+            terminalDockTransition = {
+                active: true,
+                phase,
+                startedAt: now,
+                galaxyIndex,
+                shipIndex,
+                fromX,
+                fromY,
+                fromRot,
+                fromScale,
+                color: (galaxy && galaxy.colors && galaxy.colors[0]) || '#8ff7ff'
+            };
+            clearGameplayKeys();
+            gameState = 'TERMINAL_DOCK';
+            titleAlpha = 1;
+        }
+
+        function completeTerminalDockTransition() {
+            if (!terminalDockTransition.active) return;
+            const phase = terminalDockTransition.phase;
+            terminalDockTransition.active = false;
+            clearGameplayKeys();
+            if (phase === 'exit') {
+                markTerminalDockExitHold(selectedGalaxyIndex, terminalDockTransition.shipIndex);
+                const exitPose = getTerminalDockExitCursorPose(selectedGalaxyIndex);
+                if (exitPose) {
+                    pauseMenuShipCursor.x = exitPose.x;
+                    pauseMenuShipCursor.y = exitPose.y;
+                    pauseMenuShipCursor.vx = 0;
+                    pauseMenuShipCursor.vy = 0;
+                    pauseMenuShipCursor.rot = Math.atan2(exitPose.faceY - exitPose.y, exitPose.faceX - exitPose.x) + Math.PI / 2;
+                    pauseMenuShipCursor.scale = 0.25;
+                    pauseMenuShipCursor.speed = Math.hypot(pauseMenuShipCursor.vx, pauseMenuShipCursor.vy);
+                    pauseMenuShipCursor.trail = [];
+                    pauseMenuShipCursor.trailEmitAcc = 0;
+                    pauseMenuShipCursor.settleBlend = 0;
+                    pauseMenuShipCursor.initialized = true;
+                    pauseMenuShipCursor.lastNow = currentFrameNow || performance.now();
+                    pauseMenuShipCursor.targetKey = `terminal-outbound-${selectedGalaxyIndex}`;
+                    pauseMenuShipCursor.routeKey = `terminal-outbound-${selectedGalaxyIndex}`;
+                    pauseMenuShipCursor.approachComplete = true;
+                    pauseMenuShipCursor.renderX = pauseMenuShipCursor.x;
+                    pauseMenuShipCursor.renderY = pauseMenuShipCursor.y;
+                    pauseMenuShipCursor.renderRot = pauseMenuShipCursor.rot;
+                    pauseMenuShipCursor.renderScale = pauseMenuShipCursor.scale;
+                } else {
+                    clearTerminalDockExitHold();
+                    resetPauseMenuShipCursor();
+                }
+                gameState = 'GALAXY_SELECT';
+                titleAlpha = 1;
+                return;
+            }
+            shipSelectReturnState = 'GALAXY_SELECT';
+            shipSelectIndex = selectedShipIndex;
+            resetPauseMenuShipCursor();
+            gameState = 'SHIP_SELECT';
+            titleAlpha = 1;
         }
 
         function completeGalaxyWarpTransition() {
@@ -708,6 +991,16 @@
                 }
                 return;
             }
+            if (galaxy && galaxy.mode === 'matrixCrawler') {
+                if (typeof beginMatrixCrawlerRun === 'function') {
+                    beginMatrixCrawlerRun();
+                } else {
+                    gameState = 'GALAXY_SELECT';
+                    galaxySelectNotice = 'MATRIX CRAWLER UNAVAILABLE';
+                    galaxySelectNoticeTimer = 1.4;
+                }
+                return;
+            }
             if (typeof beginLaunchSequence === 'function') {
                 beginLaunchSequence();
             } else {
@@ -721,9 +1014,9 @@
 
         function getPauseMenuOptions() {
             if (pauseReturnState === 'GALAXY_SELECT') {
-                return ['RESUME', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
+                return ['RESUME', 'VOLUME', 'SETTINGS', 'GRAPHICS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
             }
-            return ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
+            return ['RESUME', 'RESTART', 'VOLUME', 'SETTINGS', 'GRAPHICS', document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN', 'EXIT'];
         }
 
         function addScore(baseScore, useCombo = true) {
@@ -890,7 +1183,18 @@
             }
         }
 
+        function isMusicPlayerMasterVolumeOverrideActive() {
+            return typeof musicPlayerMasterOverride !== 'undefined'
+                && musicPlayerMasterOverride
+                && typeof musicPlayerIsPlaying !== 'undefined'
+                && musicPlayerIsPlaying;
+        }
+
         function applyCurrentVolume(scale = 1, rampSeconds = 0) {
+            if (isMusicPlayerMasterVolumeOverrideActive()) {
+                setMasterVolume(isMuted ? 0 : 1, rampSeconds);
+                return;
+            }
             setMasterVolume(isMuted ? 0 : currentVolume * scale, rampSeconds);
         }
 
@@ -924,7 +1228,8 @@
 
         function getFocusRegenPerSec() {
             const survivorFocus = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
-            const modeMult = survivorFocus ? SURVIVOR_FOCUS_REGEN_MULT : 1;
+            const matrixFocus = typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive();
+            const modeMult = (survivorFocus || matrixFocus) ? SURVIVOR_FOCUS_REGEN_MULT : 1;
             return FOCUS_REGEN_PER_SEC * modeMult * (1 + clampFocusTuning(getFocusModifierValue('focusRegen', 0), 0, 2.25));
         }
 
@@ -976,11 +1281,13 @@
         }
 
         function areFocusAbilitiesSuppressed() {
-            return isBossIntroActive() || isRunCompleteTransitionActive();
+            return isBossIntroActive()
+                || (typeof isMatrixCrawlerBossIntroActive === 'function' && isMatrixCrawlerBossIntroActive())
+                || isRunCompleteTransitionActive();
         }
 
         function canUseFocusAbilitiesNow() {
-            return gameState === 'PLAYING'
+            return (gameState === 'PLAYING' || gameState === 'MATRIX_CRAWLER')
                 && !(bossCinematic && bossCinematic.paused)
                 && !areFocusAbilitiesSuppressed();
         }
@@ -1019,13 +1326,15 @@
 
         function getPlayerSpecterVisualScale() {
             const survivorFocus = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
-            const targetScale = survivorFocus ? SURVIVOR_COMBINED_FOCUS_SHRINK_SCALE : getFocusSpecterVisualTargetScale();
+            const matrixFocus = typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive();
+            const targetScale = (survivorFocus || matrixFocus) ? SURVIVOR_COMBINED_FOCUS_SHRINK_SCALE : getFocusSpecterVisualTargetScale();
             return 1 - (1 - targetScale) * getSpecterRenderIntensity();
         }
 
         function getPlayerSpecterHitboxScale() {
             const survivorFocus = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
-            const targetScale = survivorFocus ? SURVIVOR_COMBINED_FOCUS_SHRINK_SCALE : getFocusSpecterHitboxTargetScale();
+            const matrixFocus = typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive();
+            const targetScale = (survivorFocus || matrixFocus) ? SURVIVOR_COMBINED_FOCUS_SHRINK_SCALE : getFocusSpecterHitboxTargetScale();
             return 1 - (1 - targetScale) * getSpecterRenderIntensity();
         }
 
@@ -1043,9 +1352,11 @@
 
             const inputKeys = typeof keys !== 'undefined' ? keys : null;
             const survivorFocus = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
-            const combinedHeld = !!(survivorFocus && canUseAbilities && inputKeys && inputKeys.shift);
-            const driveHeld = !!(canUseAbilities && inputKeys && (survivorFocus ? inputKeys.shift : inputKeys.shift));
-            const specterHeld = !!(canUseAbilities && inputKeys && (survivorFocus ? inputKeys.shift : (inputKeys.arrowdown && !driveHeld)));
+            const matrixFocus = typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive();
+            const combinedFocus = survivorFocus || matrixFocus;
+            const combinedHeld = !!(combinedFocus && canUseAbilities && inputKeys && inputKeys.shift);
+            const driveHeld = !!(canUseAbilities && inputKeys && inputKeys.shift);
+            const specterHeld = !!(canUseAbilities && inputKeys && (combinedFocus ? inputKeys.shift : (inputKeys.arrowdown && !driveHeld)));
             const canSpendFocus = canUseAbilities && focusLockoutTimer <= 0 && focusMeter > 0;
             let wantDrive = canSpendFocus && driveHeld;
             let wantSpecter = canSpendFocus && specterHeld;
@@ -1118,7 +1429,7 @@
         }
 
         function enterPauseMode() {
-            if (gameState !== 'PLAYING' && gameState !== 'GALAXY_SELECT') return;
+            if (gameState !== 'PLAYING' && gameState !== 'GALAXY_SELECT' && gameState !== 'MATRIX_CRAWLER') return;
             if (gameState === 'PLAYING' && isBossIntroActive()) return;
             clearPauseVolumePreview();
             pauseReturnState = gameState;
@@ -1140,7 +1451,7 @@
             gameState = returnState;
             pausePowerupBarAnim.mode = returnState === 'PLAYING' && player.weapons.length > 0 ? 'closing' : 'idle';
             pausePowerupBarAnim.closeTime = performance.now();
-            postResumeBombLockTimer = returnState === 'PLAYING' ? POST_RESUME_BOMB_LOCK_SECONDS : 0;
+            postResumeBombLockTimer = (returnState === 'PLAYING' || returnState === 'MATRIX_CRAWLER') ? POST_RESUME_BOMB_LOCK_SECONDS : 0;
             keys[' '] = false;
             keys.arrowdown = false;
             keys.shift = false;

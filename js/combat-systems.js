@@ -520,7 +520,9 @@
             }
             if (boss && boss.phase === 'ACTIVE') {
                 if (boss.isSurvivorBoss) {
-                    if (doesCircleHitTargetMask(x, y, radius, boss)) {
+                    if (boss.survivorBossType === 'overheatingFirewall' && !boss.isVulnerable) {
+                        if (doesCircleHitTargetMask(x, y, radius, boss)) boss.flashTimer = Math.max(boss.flashTimer || 0, 0.06);
+                    } else if (doesCircleHitTargetMask(x, y, radius, boss)) {
                         boss.hp -= damage;
                         boss.flashTimer = 0.15;
                         if (boss.hp <= 0 && typeof killSurvivorBoss === 'function') killSurvivorBoss(boss);
@@ -928,8 +930,16 @@
             document.documentElement.style.setProperty('--hud-weapon-cell', `${hudWeaponCellSize}px`);
 
             width = LOGICAL_W; height = LOGICAL_H;
-            canvas.width = LOGICAL_W; canvas.height = LOGICAL_H;
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            canvasRenderScale = typeof getCanvasSharpnessScale === 'function' ? getCanvasSharpnessScale() : 1;
+            canvas.width = Math.max(1, Math.round(LOGICAL_W * canvasRenderScale));
+            canvas.height = Math.max(1, Math.round(LOGICAL_H * canvasRenderScale));
+            setCanvasBaseTransform(ctx);
+            if (typeof applyCanvasFilterSetting === 'function') {
+                applyCanvasFilterSetting();
+            } else {
+                canvas.style.imageRendering = 'pixelated';
+                ctx.imageSmoothingEnabled = false;
+            }
             ctx.font = `${FONT_SIZE}px Courier New`;
             ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
             const metrics = ctx.measureText('0');
@@ -939,17 +949,21 @@
         }
 
         function rebuildField() {
-            const cols = Math.ceil(width / CELL_SIZE) + 2;
-            const rows = Math.ceil(height / CELL_SIZE) + 2;
-            numParticles = Math.min(cols * rows, 8000);
+            const particleQuality = typeof getVisualQualityScale === 'function' ? getVisualQualityScale('particles') : 1;
+            const densityScale = Math.max(0.45, Math.min(1.35, particleQuality));
+            const fieldCellSize = Math.max(14, CELL_SIZE / Math.sqrt(densityScale));
+            const cols = Math.ceil(width / fieldCellSize) + 2;
+            const rows = Math.ceil(height / fieldCellSize) + 2;
+            const particleCap = Math.round(8000 * Math.max(0.68, Math.min(1.22, densityScale)));
+            numParticles = Math.min(cols * rows, particleCap);
             initArrays(numParticles);
             let i = 0;
             for (let y = -1; y <= rows; y++) {
                 for (let x = -1; x <= cols; x++) {
                     if (i >= numParticles) break;
                     const depth = 0.22 + Math.random() * 0.78;
-                    fpHX[i] = x * CELL_SIZE + (Math.random() - 0.5) * CELL_SIZE * 0.64;
-                    fpHY[i] = y * CELL_SIZE + (Math.random() - 0.5) * CELL_SIZE * 0.64;
+                    fpHX[i] = x * fieldCellSize + (Math.random() - 0.5) * fieldCellSize * 0.64;
+                    fpHY[i] = y * fieldCellSize + (Math.random() - 0.5) * fieldCellSize * 0.64;
                     fpX[i] = fpHX[i]; fpY[i] = fpHY[i];
                     fpChar[i] = Math.floor(Math.random() * PARTICLE_CHARS.length);
                     fpColor[i] = Math.random() < 0.08 ? 1 : 0;
@@ -1095,6 +1109,7 @@
         function prepareRunStateForLaunch() {
             if (typeof setActiveGameMode === 'function') setActiveGameMode('campaign');
             if (typeof resetSurvivorRuntimeStateForCampaign === 'function') resetSurvivorRuntimeStateForCampaign();
+            if (typeof resetMatrixCrawlerRuntimeStateForCampaign === 'function') resetMatrixCrawlerRuntimeStateForCampaign();
             teardownBossCinematic();
             if (typeof resetRunCompleteTransition === 'function') resetRunCompleteTransition();
             resetRunStats();

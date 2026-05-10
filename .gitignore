@@ -3,3 +3,5 @@ output/
 tmp/
 npxserve.bat
 .codex-screenshots/
+.claude/
+artifacts/

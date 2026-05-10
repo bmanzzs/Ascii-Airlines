@@ -1161,6 +1161,10 @@
         }
 
         function drawPauseGlowText(text, x, y, font, color, selected = false) {
+            if (typeof canvasRenderScale === 'number' && canvasRenderScale > 1.01) {
+                drawPauseGlowTextDirect(ctx, text, x, y, font, color, selected);
+                return;
+            }
             const sprite = getPauseGlowTextSprite(text, font, color, selected);
             if (sprite) {
                 ctx.save();
@@ -1238,18 +1242,21 @@
             return true;
         }
 
-        function getPauseCursorTargetForText(text, x, y, key) {
+        function getPauseCursorTargetForText(text, x, y, key, font = `bold 23px 'Electrolize', sans-serif`, scale = 0.29) {
             ctx.save();
-            ctx.font = `bold 28px 'Electrolize', sans-serif`;
+            ctx.font = font;
             const metrics = ctx.measureText(text);
             const boxW = Math.max(1, metrics.width);
             ctx.restore();
+            const fontMatch = /(\d+(?:\.\d+)?)px/.exec(font);
+            const fontPx = fontMatch ? Number(fontMatch[1]) : 23;
+            const offset = Math.max(25, fontPx * 1.08);
             return {
-                x: Math.max(32, x - boxW / 2 - 34),
+                x: Math.max(32, x - boxW / 2 - offset),
                 y: y - 1,
                 faceX: x,
                 faceY: y,
-                scale: 0.34,
+                scale,
                 key
             };
         }
@@ -1382,7 +1389,9 @@
         function emitPauseMenuShipExhaustTrail(cursor, now, speedRatio, emissionScale = 1, trailMax = PAUSE_CURSOR_TRAIL_MAX) {
             const state = pauseMenuShipCursor;
             const dt = Math.min(0.05, Math.max(0.001, cursor.dt || 0.016));
-            state.trailEmitAcc += dt * (28 + speedRatio * 24) * Math.max(0, emissionScale);
+            const effectQuality = typeof getVisualQualityScale === 'function' ? getVisualQualityScale('effects') : 1;
+            const qualityScale = Math.max(0.65, Math.min(1.22, effectQuality));
+            state.trailEmitAcc += dt * (28 + speedRatio * 24) * Math.max(0, emissionScale) * qualityScale;
             const emitCount = Math.min(3, Math.floor(state.trailEmitAcc));
             if (emitCount <= 0) return;
             state.trailEmitAcc -= emitCount;
@@ -1427,16 +1436,20 @@
                 }
             }
 
-            const maxTrail = Math.max(8, trailMax || PAUSE_CURSOR_TRAIL_MAX);
+            const maxTrail = Math.max(8, Math.round((trailMax || PAUSE_CURSOR_TRAIL_MAX) * qualityScale));
             if (state.trail.length > maxTrail) {
                 state.trail.splice(0, state.trail.length - maxTrail);
             }
         }
 
-        function drawPauseMenuShipTrail(dt) {
+        function drawPauseMenuShipTrail(dt, alphaScale = 1, options = {}) {
             const trail = pauseMenuShipCursor.trail;
             if (!trail.length) return;
             const step = Math.min(0.05, Math.max(0.001, dt || 0.016));
+            const alphaMult = Math.max(0, Math.min(1, alphaScale));
+            const ionize = !!options.ionize;
+            const ionColors = (options.ionColors && options.ionColors.length ? options.ionColors : [options.color, currentThemeColor, '#8ff7ff'])
+                .filter(Boolean);
             ctx.save();
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -1453,11 +1466,16 @@
                 p.vx *= drag;
                 p.vy *= drag;
                 const lifeRatio = Math.max(0, p.life / p.maxLife);
-                ctx.globalAlpha = lifeRatio * (p.isSmoke ? 0.22 : 0.72);
-                ctx.fillStyle = p.isSmoke ? p.color : getExhaustColor(lifeRatio);
-                if (!p.isSmoke && glowEnabled) {
+                ctx.globalAlpha = alphaMult * lifeRatio * (p.isSmoke ? (ionize ? 0.28 : 0.22) : (ionize ? 0.62 : 0.72));
+                if (ionize) {
+                    const ionColor = i % 6 === 0 ? '#ffffff' : (ionColors[i % Math.max(1, ionColors.length)] || currentThemeColor);
+                    ctx.fillStyle = colorWithAlpha(ionColor, p.isSmoke ? 0.68 : 0.92);
+                } else {
+                    ctx.fillStyle = p.isSmoke ? p.color : getExhaustColor(lifeRatio);
+                }
+                if ((!p.isSmoke || ionize) && glowEnabled) {
                     ctx.shadowColor = ctx.fillStyle;
-                    ctx.shadowBlur = 8 + lifeRatio * 8;
+                    ctx.shadowBlur = (ionize && p.isSmoke ? 3 : 8) + lifeRatio * (ionize ? 7 : 8);
                 } else {
                     ctx.shadowBlur = 0;
                 }
@@ -1876,19 +1894,19 @@
         function drawPausePowerupBar(tableY = 62) {
             const slotCount = 10;
             const cols = 5;
-            const cell = 42;
-            const gap = 8;
+            const cell = 38;
+            const gap = 7;
             const tableW = cols * cell + (cols - 1) * gap;
             const tableH = 2 * cell + gap;
             const tableX = Math.round(width / 2 - tableW / 2);
             const focused = pauseSelection === -1 && player.weapons.length > 0;
             const selectedIndex = Math.max(0, Math.min(Math.max(0, player.weapons.length - 1), pausePowerupSelection));
             pausePowerupSelection = selectedIndex;
-            const detailH = focused ? 86 : 0;
-            const panelX = tableX - 14;
-            const panelY = tableY - 30;
-            const panelW = tableW + 28;
-            const panelH = tableH + 44 + detailH;
+            const detailH = focused ? 78 : 0;
+            const panelX = tableX - 12;
+            const panelY = tableY - 26;
+            const panelW = tableW + 24;
+            const panelH = tableH + 38 + detailH;
             let cursorTarget = null;
             pausePowerupBarAnim.lastTableY = tableY;
 
@@ -1915,8 +1933,8 @@
             ctx.fillStyle = focused
                 ? mixColor(currentThemeColor, '#ffffff', 0.55)
                 : colorWithAlpha(mixColor(currentThemeColor, '#ffffff', 0.32), 0.78);
-            ctx.font = `bold 12px 'Electrolize', sans-serif`;
-            drawPauseGlowText('POWERUPS', tableX + tableW / 2, tableY - 15, `bold 12px 'Electrolize', sans-serif`, ctx.fillStyle, focused);
+            ctx.font = `bold 11px 'Electrolize', sans-serif`;
+            drawPauseGlowText('POWERUPS', tableX + tableW / 2, tableY - 13, `bold 11px 'Electrolize', sans-serif`, ctx.fillStyle, focused);
 
             for (let i = 0; i < slotCount; i++) {
                 const col = i % cols;
@@ -1933,7 +1951,7 @@
                         faceY: y + cell / 2,
                         approachX: Math.max(34, tableX - 30),
                         approachY: y + cell / 2,
-                        scale: 0.2,
+                        scale: 0.18,
                         key: `powerup-${selectedIndex}`
                     };
                 }
@@ -1959,7 +1977,7 @@
                     ctx.fillStyle = powerup.color;
                     const isChainLightning = powerup.icon === 'chainLightning';
                     const iconPulse = isSelected && !isChainLightning ? (0.5 + Math.sin(currentFrameNow * 0.012) * 0.5) : 0;
-                    const iconSize = isSelected ? (isChainLightning ? 28 : Math.round(29 + iconPulse * 4)) : 28;
+                    const iconSize = isSelected ? (isChainLightning ? 25 : Math.round(26 + iconPulse * 3)) : 25;
                     const iconSpin = isSelected && !isChainLightning ? Math.sin(currentFrameNow * 0.008) * 0.08 : 0;
                     ctx.font = `bold ${iconSize}px Courier New`;
                     if (glowEnabled) {
@@ -2004,16 +2022,19 @@
 
             if (pauseState === 'MAIN') {
                 const options = getPauseMenuOptions();
-                const pauseOptionGap = 74;
+                const pauseFont = `bold 23px 'Electrolize', sans-serif`;
+                const pauseOptionGap = 58;
                 const showPowerups = isPausePowerupMenuAvailable();
-                const powerupDetailReserve = showPowerups ? 86 : 0;
-                const powerupPanelH = showPowerups ? 2 * 42 + 8 + 44 + powerupDetailReserve : 0;
-                const powerupPanelBottomMargin = Math.max(122, Math.round(height * 0.145));
-                const powerupTableY = Math.round(height - powerupPanelBottomMargin - powerupPanelH + 30);
-                const powerupPanelTop = showPowerups ? powerupTableY - 30 : Math.round(height * 0.78);
+                const powerupCell = 38;
+                const powerupGap = 7;
+                const powerupDetailReserve = showPowerups ? 78 : 0;
+                const powerupPanelH = showPowerups ? 2 * powerupCell + powerupGap + 38 + powerupDetailReserve : 0;
+                const powerupPanelBottomMargin = Math.max(104, Math.round(height * 0.13));
+                const powerupTableY = Math.round(height - powerupPanelBottomMargin - powerupPanelH + 26);
+                const powerupPanelTop = showPowerups ? powerupTableY - 26 : Math.round(height * 0.78);
                 const textBlockH = (options.length - 1) * pauseOptionGap;
-                const preferredMidY = Math.round(height * (showPowerups ? 0.235 : 0.31));
-                const maxMidY = powerupPanelTop - 84 - textBlockH;
+                const preferredMidY = Math.round(height * (showPowerups ? 0.235 : 0.30));
+                const maxMidY = powerupPanelTop - 70 - textBlockH;
                 const minMidY = Math.round(height * 0.16);
                 const midY = Math.max(minMidY, Math.min(preferredMidY, maxMidY));
                 if (showPowerups) shipCursorTarget = drawPausePowerupBar(powerupTableY);
@@ -2025,52 +2046,61 @@
                     const color = isSel
                         ? mixColor(currentThemeColor, '#ffffff', 0.62)
                         : colorWithAlpha(mixColor(currentThemeColor, '#dcecff', 0.34), 0.74);
-                    if (isSel) shipCursorTarget = getPauseCursorTargetForText(opt, midX, y, `main-${i}`);
-                    drawPauseGlowText(opt, midX, y, `bold 28px 'Electrolize', sans-serif`, color, isSel);
+                    if (isSel) shipCursorTarget = getPauseCursorTargetForText(opt, midX, y, `main-${i}`, pauseFont, 0.29);
+                    drawPauseGlowText(opt, midX, y, pauseFont, color, isSel);
 
                     if (i === volumeIndex) {
                         const blocks = Math.round(currentVolume * 20);
                         const barStr = '▓'.repeat(blocks) + '░'.repeat(20 - blocks);
                         const muteStr = isMuted ? ' MUTE' : '';
-                        const barY = (y + 25) | 0;
+                        const barY = (y + 20) | 0;
                         ctx.textAlign = 'left';
-                        ctx.font = `bold 18px Courier New`;
+                        ctx.font = `bold 15px Courier New`;
                         const bracketW = ctx.measureText('[').width;
-                        ctx.font = `bold 10px Courier New`;
+                        ctx.font = `bold 9px Courier New`;
                         const blockBarW = ctx.measureText(barStr).width;
                         const totalW = bracketW * 2 + blockBarW;
                         const startX = midX - totalW / 2;
                         ctx.fillStyle = color;
-                        ctx.font = `bold 18px Courier New`;
+                        ctx.font = `bold 15px Courier New`;
                         ctx.fillText('[', startX | 0, barY);
-                        ctx.font = `bold 10px Courier New`;
+                        ctx.font = `bold 9px Courier New`;
                         ctx.fillText(barStr, (startX + bracketW) | 0, barY);
-                        ctx.font = `bold 18px Courier New`;
+                        ctx.font = `bold 15px Courier New`;
                         ctx.fillText(']' + muteStr, (startX + bracketW + blockBarW) | 0, barY);
                         ctx.textAlign = 'center';
                     }
                     ctx.shadowBlur = 0;
                 });
                 drawPauseMenuShipCursor(shipCursorTarget);
-            } else if (pauseState === 'SETTINGS') {
-                const options = [
-                    'THEME: < ' + themes[currentThemeIndex] + ' >',
-                    'SHOW FPS: < ' + (showFpsCounter ? 'ON' : 'OFF') + ' >',
-                    'SHOW STATS: < ' + (showStatsPanel ? 'ON' : 'OFF') + ' >',
-                    'FPS CAP 60: < ' + (userFpsCap ? 'ON' : 'OFF') + ' >',
-                    'GLOW EFFECT: < ' + (glowEnabled ? 'ON' : 'OFF') + ' >',
-                    'SURVIVOR AIM: < ' + (survivorEightWayAimEnabled ? '8-WAY' : 'ROTATE') + ' >',
-                    'GO BACK'
-                ];
-                const midY = Math.round(height / 2 - ((options.length - 1) * 80) / 2 - 24);
+            } else if (pauseState === 'SETTINGS' || pauseState === 'GRAPHICS') {
+                const settingsFont = `bold 21px 'Electrolize', sans-serif`;
+                const settingsGap = 58;
+                const options = pauseState === 'GRAPHICS'
+                    ? [
+                        'FPS CAP 60: < ' + (userFpsCap ? 'ON' : 'OFF') + ' >',
+                        'CANVAS SHARP: < ' + (typeof getCanvasSharpnessLabel === 'function' ? getCanvasSharpnessLabel() : 'PERFORMANCE 1.00X') + ' >',
+                        'CANVAS FILTER: < ' + (typeof getCanvasFilterLabel === 'function' ? getCanvasFilterLabel() : 'PIXEL') + ' >',
+                        'GLOW EFFECT: < ' + (glowEnabled ? 'ON' : 'OFF') + ' >',
+                        'VISUAL QUALITY: < ' + (typeof getVisualQualityLabel === 'function' ? getVisualQualityLabel() : 'NORMAL') + ' >',
+                        'GO BACK'
+                    ]
+                    : [
+                        'THEME: < ' + themes[currentThemeIndex] + ' >',
+                        'SHOW FPS: < ' + (showFpsCounter ? 'ON' : 'OFF') + ' >',
+                        'SHOW STATS: < ' + (showStatsPanel ? 'ON' : 'OFF') + ' >',
+                        'SURVIVOR AIM: < ' + (survivorEightWayAimEnabled ? '8-WAY' : 'ROTATE') + ' >',
+                        'GO BACK'
+                    ];
+                const midY = Math.round(height / 2 - ((options.length - 1) * settingsGap) / 2 - 8);
                 options.forEach((opt, i) => {
                     const isSel = settingsSelection === i;
-                    const y = midY + i * 80;
+                    const y = midY + i * settingsGap;
                     const color = isSel
                         ? mixColor(currentThemeColor, '#ffffff', 0.62)
                         : colorWithAlpha(mixColor(currentThemeColor, '#dcecff', 0.34), 0.74);
-                    if (isSel) shipCursorTarget = getPauseCursorTargetForText(opt, midX, y, `settings-${i}`);
-                    drawPauseGlowText(opt, midX, y, `bold 28px 'Electrolize', sans-serif`, color, isSel);
+                    if (isSel) shipCursorTarget = getPauseCursorTargetForText(opt, midX, y, `${pauseState.toLowerCase()}-${i}`, settingsFont, 0.27);
+                    drawPauseGlowText(opt, midX, y, settingsFont, color, isSel);
                     ctx.shadowBlur = 0;
                 });
                 drawPauseMenuShipCursor(shipCursorTarget);
@@ -2305,9 +2335,12 @@
                         player.xp = 0;
                         player.level++;
                         player.xpNeeded = getXpNeededForLevel(player.level);
-                        beginLevelUpOffer();
+                        beginLevelUpOffer({ returnState: levelUpReturnState || 'PLAYING' });
                     } else {
-                        gameState = 'PLAYING'; 
+                        const returnState = levelUpReturnState || 'PLAYING';
+                        gameState = returnState;
+                        pauseReturnState = returnState;
+                        levelUpReturnState = 'PLAYING';
                         applyCurrentVolume();
                     }
                 }
@@ -2434,48 +2467,104 @@
         }
 
         function drawMusicPlayerVisualizer(panelX, panelY, panelW, panelH, accentColor, status) {
-            if (typeof getMusicPlayerVisualizerLevels !== 'function') return;
-            const barCount = Math.max(18, Math.min(34, Math.floor(panelW / 18)));
-            const levels = getMusicPlayerVisualizerLevels(barCount);
-            if (!levels || !levels.length) return;
+            if (typeof getMusicPlayerVisualizerWaveform !== 'function') return;
+            const pointCount = Math.max(42, Math.min(56, Math.floor(panelW / 11)));
+            const waveform = getMusicPlayerVisualizerWaveform(pointCount);
+            if (!waveform || !waveform.length) return;
 
             const left = panelX + 16;
             const right = panelX + panelW - 16;
-            const baseY = panelY + panelH - 20;
-            const topY = panelY + 38;
-            const usableH = Math.max(24, baseY - topY);
-            const gap = 3;
-            const barW = Math.max(2, ((right - left) - gap * (levels.length - 1)) / levels.length);
+            const topY = panelY + 34;
+            const bottomY = panelY + panelH - 16;
+            const midY = topY + (bottomY - topY) * 0.55;
+            const usableH = Math.max(28, bottomY - topY);
             const activeAlpha = status && status.isPlaying ? 1 : 0.42;
+            const widthSpan = Math.max(1, right - left);
+            const energy = Math.max(waveform.rms || 0, waveform.peak || 0, waveform.impulse || 0);
+            const impulses = waveform.impulses || [];
+            const gap = 2;
+            const barW = Math.max(3, (widthSpan - gap * (waveform.length - 1)) / waveform.length);
 
             ctx.save();
+            ctx.beginPath();
+            ctx.rect(left, topY, right - left, bottomY - topY);
+            ctx.clip();
             ctx.globalCompositeOperation = 'screen';
+
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            const wash = ctx.createLinearGradient(left, 0, right, 0);
+            wash.addColorStop(0, colorWithAlpha(accentColor, 0));
+            wash.addColorStop(0.22, colorWithAlpha(accentColor, 0.030 * activeAlpha));
+            wash.addColorStop(0.5, colorWithAlpha('#7ee7ff', 0.045 * activeAlpha));
+            wash.addColorStop(0.78, colorWithAlpha('#ff8fd8', 0.030 * activeAlpha));
+            wash.addColorStop(1, colorWithAlpha(accentColor, 0));
+            ctx.fillStyle = wash;
+            ctx.fillRect(left, topY, right - left, bottomY - topY);
+
             ctx.lineWidth = 1;
-            ctx.strokeStyle = colorWithAlpha('#7ee7ff', 0.035 * activeAlpha);
-            for (let i = 0; i < 4; i++) {
-                const y = topY + usableH * (i + 1) / 5;
+            ctx.strokeStyle = colorWithAlpha('#7ee7ff', 0.032 * activeAlpha);
+            for (let i = 0; i < 3; i++) {
+                const y = topY + usableH * (i + 1) / 4;
                 ctx.beginPath();
                 ctx.moveTo(left, y | 0);
                 ctx.lineTo(right, y | 0);
                 ctx.stroke();
             }
 
-            for (let i = 0; i < levels.length; i++) {
-                const level = Math.max(0, Math.min(1, levels[i] || 0));
-                const x = left + i * (barW + gap);
-                const barH = Math.max(2, usableH * (0.025 + level * 0.72));
-                const y = baseY - barH;
-                const alpha = (0.018 + level * 0.13) * activeAlpha;
-                const barGrad = ctx.createLinearGradient(0, y, 0, baseY);
-                barGrad.addColorStop(0, colorWithAlpha('#ffffff', alpha * 0.72));
-                barGrad.addColorStop(0.45, colorWithAlpha('#7ee7ff', alpha));
-                barGrad.addColorStop(1, colorWithAlpha(accentColor, alpha * 1.16));
-                ctx.fillStyle = barGrad;
-                ctx.fillRect(x | 0, y | 0, Math.max(1, barW) | 0, barH | 0);
-            }
+            const waveGrad = ctx.createLinearGradient(left, 0, right, 0);
+            waveGrad.addColorStop(0, colorWithAlpha(accentColor, 0.44 * activeAlpha));
+            waveGrad.addColorStop(0.34, colorWithAlpha('#7ee7ff', 0.56 * activeAlpha));
+            waveGrad.addColorStop(0.62, colorWithAlpha('#ffffff', 0.58 * activeAlpha));
+            waveGrad.addColorStop(1, colorWithAlpha('#ff8fd8', 0.38 * activeAlpha));
 
-            ctx.fillStyle = colorWithAlpha(accentColor, 0.035 * activeAlpha);
-            ctx.fillRect(left | 0, (baseY - 1) | 0, (right - left) | 0, 1);
+            const barGrad = ctx.createLinearGradient(0, topY, 0, bottomY);
+            barGrad.addColorStop(0, colorWithAlpha('#ff8fd8', 0.70));
+            barGrad.addColorStop(0.28, colorWithAlpha('#7ee7ff', 0.86));
+            barGrad.addColorStop(0.52, colorWithAlpha('#ffffff', 0.92));
+            barGrad.addColorStop(0.74, colorWithAlpha(accentColor, 0.88));
+            barGrad.addColorStop(1, colorWithAlpha('#ff8fd8', 0.56));
+
+            if (glowEnabled) {
+                ctx.shadowColor = accentColor;
+                ctx.shadowBlur = 6 + energy * 7;
+            }
+            ctx.fillStyle = barGrad;
+            for (let i = 0; i < waveform.length; i++) {
+                const previousSample = Math.max(-1, Math.min(1, waveform[Math.max(0, i - 1)] || 0));
+                const currentSample = Math.max(-1, Math.min(1, waveform[i] || 0));
+                const nextSample = Math.max(-1, Math.min(1, waveform[Math.min(waveform.length - 1, i + 1)] || 0));
+                const sample = currentSample * 0.72 + previousSample * 0.14 + nextSample * 0.14;
+                const impulse = impulses[i] || 0;
+                const magnitude = Math.min(1, Math.abs(sample) * 0.94 + impulse * 0.18 + energy * 0.035);
+                const barH = Math.min(usableH, usableH * (0.035 + Math.pow(magnitude, 0.82) * 0.94));
+                const driftY = sample * usableH * 0.055;
+                const x = left + i * (barW + gap);
+                const y = Math.max(topY, Math.min(bottomY - barH, midY - barH / 2 + driftY));
+                ctx.globalAlpha = (0.12 + magnitude * 0.42) * activeAlpha;
+                ctx.fillRect(x | 0, y | 0, Math.max(1, barW) | 0, Math.max(1, barH) | 0);
+
+                if (status && status.isPlaying && impulse > 0.36) {
+                    ctx.save();
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = Math.min(0.34, (impulse * 0.30) * activeAlpha);
+                    ctx.fillStyle = colorWithAlpha('#ffffff', 0.82);
+                    const tickH = Math.min(barH, 5 + impulse * usableH * 0.18);
+                    ctx.fillRect(x | 0, (y + (barH - tickH) / 2) | 0, Math.max(1, barW) | 0, Math.max(1, tickH) | 0);
+                    ctx.restore();
+                    ctx.fillStyle = barGrad;
+                }
+            }
+            ctx.shadowBlur = 0;
+
+            ctx.globalAlpha = 0.12 * activeAlpha;
+            ctx.strokeStyle = colorWithAlpha(accentColor, 0.42);
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(left, midY | 0);
+            ctx.lineTo(right, midY | 0);
+            ctx.stroke();
             ctx.restore();
         }
 
@@ -2797,7 +2886,7 @@
             ctx.fillStyle = '#ffffff';
             ctx.shadowColor = selectedShip.previewColor;
             ctx.shadowBlur = glowEnabled ? 16 + headerPulse * 8 : 0;
-            ctx.fillText(hubMode ? 'VECTOR TERMINAL' : 'HANGAR SELECT', width / 2, height * 0.12);
+            ctx.fillText(hubMode ? 'TERMINAL' : 'HANGAR SELECT', width / 2, height * 0.12);
 
             ctx.font = `bold 12px 'Electrolize', sans-serif`;
             ctx.fillStyle = '#8fb9c8';
@@ -2932,21 +3021,31 @@
 
         const GALAXY_SELECT_LOCK_MESSAGES = ['ACCESS DENIED', 'CHECKSUM FAIL', 'PERMISSION 000', 'ROUTE SEALED'];
 
-        const GALAXY_SELECT_LAYOUT = [
-            { x: 0.34, y: 0.46, scale: 1.08, axis: -0.46, tilt: 0.46, spinDir: 1, spinSpeed: 0.96, cursorAngle: -0.72 },
-            { x: 0.53, y: 0.24, scale: 0.92, axis: 0.52, tilt: 0.36, spinDir: -1, spinSpeed: 1.14, cursorAngle: 0.58 },
-            { x: 0.80, y: 0.36, scale: 1.18, axis: -0.18, tilt: 0.57, spinDir: 1, spinSpeed: 0.82, cursorAngle: 0.48 },
-            { x: 0.39, y: 0.70, scale: 1.12, axis: 0.62, tilt: 0.36, spinDir: -1, spinSpeed: 1.02, cursorAngle: 2.38 },
-            { x: 0.86, y: 0.69, scale: 1.25, axis: -0.72, tilt: 0.40, spinDir: 1, spinSpeed: 0.78, cursorAngle: 1.64 },
-            { x: 0.62, y: 0.52, scale: 0.96, axis: 0.30, tilt: 0.60, spinDir: -1, spinSpeed: 1.22, cursorAngle: 0.96 },
-            { x: 0.17, y: 0.30, scale: 0.96, axis: 1.04, tilt: 0.72, spinDir: 1, spinSpeed: 1.42, cursorAngle: 2.36, prism: true },
-            { x: 0.17, y: 0.63, scale: 0.90, axis: -0.22, tilt: 0.42, spinDir: -1, spinSpeed: 0.88, cursorAngle: 2.18, hub: true }
+        const GALAXY_SELECT_DEFAULT_LAYOUT = [
+            { x: 0.435, y: 0.448, scale: 1.08, axis: -0.46, tilt: 0.46, spinDir: 1, spinSpeed: 0.96, cursorAngle: -0.72 },
+            { x: 0.54, y: 0.251, scale: 1.16, axis: 0.52, tilt: 0.36, spinDir: -1, spinSpeed: 1.14, cursorAngle: 0.58 },
+            { x: 0.78, y: 0.34, scale: 1.18, axis: -0.03, tilt: 0.57, spinDir: 1, spinSpeed: 0.82, cursorAngle: 0.48 },
+            { x: 0.46, y: 0.74, scale: 0.96, axis: 0.62, tilt: 0.36, spinDir: -1, spinSpeed: 1.02, cursorAngle: 2.38 },
+            { x: 0.84, y: 0.63, scale: 1.25, axis: -0.795, tilt: 0.4, spinDir: 1, spinSpeed: 0.78, cursorAngle: 1.64 },
+            { x: 0.66, y: 0.53, scale: 0.92, axis: 0.3, tilt: 0.6, spinDir: -1, spinSpeed: 1.22, cursorAngle: 0.96 },
+            { x: 0.18, y: 0.37, scale: 0.96, axis: 1.04, tilt: 0.72, spinDir: 1, spinSpeed: 1.42, cursorAngle: 2.36, prism: true },
+            { x: 0.153, y: 0.657, scale: 0.74, axis: 0.005, tilt: 0.42, spinDir: -1, spinSpeed: 0.88, cursorAngle: Math.PI, hub: true }
         ];
+        const GALAXY_SELECT_LAYOUT = GALAXY_SELECT_DEFAULT_LAYOUT.map(profile => ({ ...profile }));
+        const GALAXY_LAYOUT_STORAGE_KEY = 'ascii_galaxy_select_layout_v1';
+        let galaxyLayoutEditMode = false;
+        let galaxyLayoutHoverIndex = -1;
+        let galaxyLayoutDragState = {
+            active: false,
+            index: -1,
+            offsetX: 0,
+            offsetY: 0
+        };
         const GALAXY_SELECT_CURSOR_REST_SEED = Math.random() * 10000;
-        const GALAXY_WARP_STREAK_COUNT = 42;
+        const GALAXY_WARP_STREAK_COUNT = 34;
         const GALAXY_WARP_HANDOFF_STREAK_COUNT = 16;
-        const GALAXY_WARP_FOCUSED_DETAIL = 0.48;
-        const GALAXY_WARP_FOCUSED_FONT_SCALE = 0.42;
+        const GALAXY_WARP_FOCUSED_DETAIL = 1;
+        const GALAXY_WARP_FOCUSED_FONT_SCALE = 1;
         const GALAXY_WARP_SPRITE_CACHE_FPS = 72;
         const GALAXY_CURSOR_TRAIL_MAX = 44;
         const GALAXY_SPRITE_POINT_CACHE = new Map();
@@ -2966,19 +3065,304 @@
             width: 0,
             height: 0,
             selectedIndex: -1,
+            shipKey: '',
             stamp: 0,
             canvas: null
+        };
+        const galaxyWarpExactGlyphLayerCache = {
+            width: 0,
+            height: 0,
+            canvas: null,
+            drawKey: '',
+            drawn: false
         };
         const GALAXY_SELECT_BACKGROUND_CACHE_FPS = 36;
         const GALAXY_SELECT_SPRITE_CACHE_FPS_SELECTED = 54;
         const GALAXY_SELECT_SPRITE_CACHE_FPS_IDLE = 36;
         const GALAXY_SELECT_SPRITE_CACHE_MAX = 96;
         const galaxySelectSpriteFrameCache = new Map();
+        const galaxySelectHighlightState = new Map();
+        const galaxySpriteBloomScratch = {
+            width: 0,
+            height: 0,
+            canvas: null,
+            ctx: null
+        };
+
+        function invalidateGraphicsRenderCaches() {
+            pauseGlowTextCache.clear();
+            GALAXY_SPRITE_POINT_CACHE.clear();
+            galaxySelectSpriteFrameCache.clear();
+            galaxySelectBackgroundFrameCache.bucket = -1;
+            galaxySelectBackgroundFrameCache.canvas = null;
+            galaxyWarpMenuSnapshotCache.canvas = null;
+            galaxyWarpMenuSnapshotCache.stamp = 0;
+            galaxyWarpExactGlyphLayerCache.drawKey = '';
+            galaxyWarpExactGlyphLayerCache.drawn = false;
+            galaxySpriteBloomScratch.width = 0;
+            galaxySpriteBloomScratch.height = 0;
+            galaxySpriteBloomScratch.canvas = null;
+            galaxySpriteBloomScratch.ctx = null;
+        }
 
         function galaxyNoise(seed, n) {
             const v = Math.sin((seed + 1) * 127.1 + n * 311.7) * 43758.5453123;
             return v - Math.floor(v);
         }
+
+        function clampGalaxySelectHighlight(value) {
+            return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+        }
+
+        function easeGalaxySelectHighlight(value) {
+            const t = clampGalaxySelectHighlight(value);
+            return 1 - Math.pow(1 - t, 3);
+        }
+
+        function getGalaxyOptionHighlightAmount(options, selected) {
+            return clampGalaxySelectHighlight(
+                options && Number.isFinite(options.highlightAmount)
+                    ? options.highlightAmount
+                    : (selected ? 1 : 0)
+            );
+        }
+
+        function getGalaxySelectHighlightAmount(index, selected, now) {
+            const target = selected ? 1 : 0;
+            let state = galaxySelectHighlightState.get(index);
+            if (!state) {
+                state = { value: target, lastNow: now || performance.now() };
+                galaxySelectHighlightState.set(index, state);
+                return easeGalaxySelectHighlight(state.value);
+            }
+            const frameNow = Number.isFinite(now) ? now : performance.now();
+            const dt = Math.max(0, Math.min(0.05, (frameNow - state.lastNow) / 1000));
+            const speed = target > state.value ? 16 : 11;
+            const step = 1 - Math.exp(-speed * dt);
+            state.value += (target - state.value) * step;
+            if (Math.abs(target - state.value) < 0.003) state.value = target;
+            state.lastNow = frameNow;
+            return easeGalaxySelectHighlight(state.value);
+        }
+
+        function getGalaxySelectHighlightPulse(index, now, highlightAmount) {
+            const highlight = clampGalaxySelectHighlight(highlightAmount);
+            if (highlight <= 0.01) return 0;
+            return highlight * (0.5 + Math.sin(now * 0.0028 + index * 0.83) * 0.5);
+        }
+
+        function clampGalaxyLayoutCoord(value, min, max) {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return min;
+            return Math.max(min, Math.min(max, numeric));
+        }
+
+        function clampGalaxyLayoutScale(value) {
+            return clampGalaxyLayoutCoord(value, 0.52, 1.58);
+        }
+
+        function wrapGalaxyLayoutAxis(value) {
+            let numeric = Number(value);
+            if (!Number.isFinite(numeric)) return 0;
+            while (numeric > Math.PI) numeric -= Math.PI * 2;
+            while (numeric < -Math.PI) numeric += Math.PI * 2;
+            return numeric;
+        }
+
+        function applyGalaxySelectLayoutPositions(positions) {
+            if (!Array.isArray(positions)) return false;
+            let applied = false;
+            const count = Math.min(positions.length, GALAXY_SELECT_LAYOUT.length);
+            for (let i = 0; i < count; i++) {
+                const pos = positions[i];
+                if (!pos || !Number.isFinite(Number(pos.x)) || !Number.isFinite(Number(pos.y))) continue;
+                GALAXY_SELECT_LAYOUT[i].x = clampGalaxyLayoutCoord(pos.x, 0.07, 0.93);
+                GALAXY_SELECT_LAYOUT[i].y = clampGalaxyLayoutCoord(pos.y, 0.16, 0.80);
+                if (Number.isFinite(Number(pos.scale))) GALAXY_SELECT_LAYOUT[i].scale = clampGalaxyLayoutScale(pos.scale);
+                if (Number.isFinite(Number(pos.axis))) GALAXY_SELECT_LAYOUT[i].axis = wrapGalaxyLayoutAxis(pos.axis);
+                applied = true;
+            }
+            return applied;
+        }
+
+        function loadGalaxySelectLayoutDraft() {
+            try {
+                const stored = localStorage.getItem(GALAXY_LAYOUT_STORAGE_KEY);
+                if (!stored) return false;
+                return applyGalaxySelectLayoutPositions(JSON.parse(stored));
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function saveGalaxySelectLayoutDraft() {
+            try {
+                const positions = GALAXY_SELECT_LAYOUT.map(profile => ({
+                    x: Number(profile.x.toFixed(4)),
+                    y: Number(profile.y.toFixed(4)),
+                    scale: Number(profile.scale.toFixed(4)),
+                    axis: Number(profile.axis.toFixed(4))
+                }));
+                localStorage.setItem(GALAXY_LAYOUT_STORAGE_KEY, JSON.stringify(positions));
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function resetGalaxySelectLayoutDraft() {
+            for (let i = 0; i < GALAXY_SELECT_LAYOUT.length; i++) {
+                GALAXY_SELECT_LAYOUT[i].x = GALAXY_SELECT_DEFAULT_LAYOUT[i].x;
+                GALAXY_SELECT_LAYOUT[i].y = GALAXY_SELECT_DEFAULT_LAYOUT[i].y;
+                GALAXY_SELECT_LAYOUT[i].scale = GALAXY_SELECT_DEFAULT_LAYOUT[i].scale;
+                GALAXY_SELECT_LAYOUT[i].axis = GALAXY_SELECT_DEFAULT_LAYOUT[i].axis;
+            }
+            try {
+                localStorage.removeItem(GALAXY_LAYOUT_STORAGE_KEY);
+            } catch (_) {}
+            galaxyLayoutDragState.active = false;
+            galaxyLayoutDragState.index = -1;
+            if (typeof resetPauseMenuShipCursor === 'function') resetPauseMenuShipCursor();
+            return true;
+        }
+
+        function formatGalaxyLayoutNumber(value) {
+            return (Math.round(Number(value) * 1000) / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+        }
+
+        function formatGalaxySelectLayoutForFile() {
+            const lines = ['const GALAXY_SELECT_LAYOUT = ['];
+            for (let i = 0; i < GALAXY_SELECT_LAYOUT.length; i++) {
+                const profile = GALAXY_SELECT_LAYOUT[i];
+                const parts = [
+                    `x: ${formatGalaxyLayoutNumber(profile.x)}`,
+                    `y: ${formatGalaxyLayoutNumber(profile.y)}`,
+                    `scale: ${formatGalaxyLayoutNumber(profile.scale)}`,
+                    `axis: ${formatGalaxyLayoutNumber(profile.axis)}`,
+                    `tilt: ${formatGalaxyLayoutNumber(profile.tilt)}`,
+                    `spinDir: ${profile.spinDir}`,
+                    `spinSpeed: ${formatGalaxyLayoutNumber(profile.spinSpeed)}`,
+                    `cursorAngle: ${formatGalaxyLayoutNumber(profile.cursorAngle)}`
+                ];
+                if (profile.prism) parts.push('prism: true');
+                if (profile.hub) parts.push('hub: true');
+                lines.push(`    { ${parts.join(', ')} }${i === GALAXY_SELECT_LAYOUT.length - 1 ? '' : ','}`);
+            }
+            lines.push('];');
+            return lines.join('\n');
+        }
+
+        function setGalaxyLayoutEditorEnabled(enabled) {
+            galaxyLayoutEditMode = !!enabled;
+            galaxyLayoutDragState.active = false;
+            galaxyLayoutDragState.index = -1;
+            galaxyLayoutHoverIndex = -1;
+            if (galaxyLayoutEditMode && gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT' && typeof resumeFromPauseMode === 'function') {
+                resumeFromPauseMode();
+            }
+            return galaxyLayoutEditMode;
+        }
+
+        function getGalaxyLayoutEditorHelpLines() {
+            return [
+                'layout on/off : toggle drag editor',
+                'Drag nodes to move them on galaxy select',
+                'Mouse wheel scales hovered/dragged node',
+                'Shift + mouse wheel rotates hovered/dragged node',
+                'layout copy : copy/paste layout block',
+                'layout reset : restore default coordinates',
+                'Draft saves locally in this browser'
+            ];
+        }
+
+        function getGalaxyLayoutEditorHitIndex(x, y) {
+            const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [];
+            const count = Math.min(galaxies.length || GALAXY_SELECT_LAYOUT.length, GALAXY_SELECT_LAYOUT.length);
+            let bestIndex = -1;
+            let bestDist = Infinity;
+            for (let i = count - 1; i >= 0; i--) {
+                const slot = getGalaxySelectSlot(i);
+                const radius = getGalaxySelectRenderRadius(i, i === selectedGalaxyIndex);
+                const dist = Math.hypot(x - slot.x, y - slot.y);
+                const hitRadius = Math.max(42, radius * 0.86);
+                if (dist <= hitRadius && dist < bestDist) {
+                    bestIndex = i;
+                    bestDist = dist;
+                }
+            }
+            return bestIndex;
+        }
+
+        function updateGalaxyLayoutEditorHover() {
+            if (!galaxyLayoutEditMode || gameState !== 'GALAXY_SELECT' || consoleOpen) {
+                galaxyLayoutHoverIndex = -1;
+                return;
+            }
+            galaxyLayoutHoverIndex = getGalaxyLayoutEditorHitIndex(mouse.x, mouse.y);
+        }
+
+        function handleGalaxyLayoutEditorMouseDown(x = mouse.x, y = mouse.y) {
+            if (!galaxyLayoutEditMode || gameState !== 'GALAXY_SELECT' || consoleOpen) return false;
+            const hitIndex = getGalaxyLayoutEditorHitIndex(x, y);
+            if (hitIndex < 0) return false;
+            const slot = getGalaxySelectSlot(hitIndex);
+            galaxyLayoutDragState.active = true;
+            galaxyLayoutDragState.index = hitIndex;
+            galaxyLayoutDragState.offsetX = slot.x - x;
+            galaxyLayoutDragState.offsetY = slot.y - y;
+            galaxyLayoutHoverIndex = hitIndex;
+            selectedGalaxyIndex = hitIndex;
+            if (typeof resetPauseMenuShipCursor === 'function') resetPauseMenuShipCursor();
+            return true;
+        }
+
+        function handleGalaxyLayoutEditorMouseMove(x = mouse.x, y = mouse.y) {
+            if (!galaxyLayoutEditMode || gameState !== 'GALAXY_SELECT') return false;
+            if (!galaxyLayoutDragState.active) {
+                updateGalaxyLayoutEditorHover();
+                return false;
+            }
+            const profile = GALAXY_SELECT_LAYOUT[galaxyLayoutDragState.index];
+            if (!profile) return false;
+            profile.x = clampGalaxyLayoutCoord((x + galaxyLayoutDragState.offsetX) / Math.max(1, width), 0.07, 0.93);
+            profile.y = clampGalaxyLayoutCoord((y + galaxyLayoutDragState.offsetY) / Math.max(1, height), 0.16, 0.80);
+            selectedGalaxyIndex = galaxyLayoutDragState.index;
+            galaxyLayoutHoverIndex = galaxyLayoutDragState.index;
+            saveGalaxySelectLayoutDraft();
+            return true;
+        }
+
+        function handleGalaxyLayoutEditorMouseUp() {
+            if (!galaxyLayoutEditMode || !galaxyLayoutDragState.active) return false;
+            galaxyLayoutDragState.active = false;
+            saveGalaxySelectLayoutDraft();
+            return true;
+        }
+
+        function handleGalaxyLayoutEditorWheel(deltaY, options = {}, x = mouse.x, y = mouse.y) {
+            if (!galaxyLayoutEditMode || gameState !== 'GALAXY_SELECT' || consoleOpen) return false;
+            const targetIndex = galaxyLayoutDragState.active
+                ? galaxyLayoutDragState.index
+                : getGalaxyLayoutEditorHitIndex(x, y);
+            if (targetIndex < 0) return false;
+            const profile = GALAXY_SELECT_LAYOUT[targetIndex];
+            if (!profile) return false;
+            const direction = deltaY < 0 ? 1 : -1;
+            if (options && options.shiftKey) {
+                const rotationStep = (options.altKey ? 0.025 : 0.075) * direction;
+                profile.axis = wrapGalaxyLayoutAxis(profile.axis + rotationStep);
+            } else {
+                const scaleStep = (options.altKey ? 0.015 : 0.04) * direction;
+                profile.scale = clampGalaxyLayoutScale(profile.scale + scaleStep);
+            }
+            selectedGalaxyIndex = targetIndex;
+            galaxyLayoutHoverIndex = targetIndex;
+            saveGalaxySelectLayoutDraft();
+            if (typeof resetPauseMenuShipCursor === 'function') resetPauseMenuShipCursor();
+            return true;
+        }
+
+        loadGalaxySelectLayoutDraft();
 
         function getGalaxySpritePointSet(galaxy, index, count) {
             const arms = Math.max(2, galaxy.arms || 2);
@@ -3081,6 +3465,8 @@
             const ny = dirY / dirLen;
             let bestIndex = current;
             let bestScore = Infinity;
+            let fallbackIndex = current;
+            let fallbackScore = Infinity;
 
             for (let i = 0; i < count; i++) {
                 if (i === current) continue;
@@ -3091,9 +3477,14 @@
                 const forward = dx * nx + dy * ny;
                 if (forward <= 6) continue;
                 const alignment = forward / dist;
-                if (alignment < 0.28) continue;
                 const perpendicular = Math.abs(dx * ny - dy * nx);
-                const score = perpendicular * 1.35 + forward * 0.16 - alignment * 34;
+                const score = forward + perpendicular * 1.35 - alignment * 12;
+                const looseScore = forward + perpendicular * 1.9 - alignment * 8;
+                if (looseScore < fallbackScore) {
+                    fallbackScore = looseScore;
+                    fallbackIndex = i;
+                }
+                if (alignment < 0.28) continue;
                 if (score < bestScore) {
                     bestScore = score;
                     bestIndex = i;
@@ -3101,17 +3492,19 @@
             }
 
             if (bestIndex !== current) return bestIndex;
+            if (fallbackIndex !== current) return fallbackIndex;
 
             return current;
         }
 
-        function getGalaxySelectRenderRadius(index, selected = false) {
+        function getGalaxySelectRenderRadius(index, selected = false, highlightAmount = null) {
             const profile = getGalaxyVisualProfile(index);
             const galaxy = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS[index] : null;
             const baseRadius = Math.max(46, Math.min(82, Math.min(width, height) * 0.073));
             const survivorScale = galaxy && galaxy.mode === 'survivor' ? 0.94 : 1;
-            const hubScale = galaxy && galaxy.mode === 'shipHub' ? 0.92 : 1;
-            return baseRadius * profile.scale * survivorScale * hubScale * (selected ? 1.14 : 0.94);
+            const hubScale = galaxy && galaxy.mode === 'shipHub' ? 0.86 : 1;
+            const highlight = Number.isFinite(highlightAmount) ? clampGalaxySelectHighlight(highlightAmount) : (selected ? 1 : 0);
+            return baseRadius * profile.scale * survivorScale * hubScale * (0.94 + highlight * 0.20);
         }
 
         function drawGalaxySelectCircuitSubstrate(now) {
@@ -3358,10 +3751,55 @@
             return (galaxy && (galaxy.visualStyle || galaxy.id)) || 'spiral';
         }
 
-        function drawGalaxySoftAura(colors, radius, selected, alphaScale = 1) {
+        function isPrismWakeGalaxySprite(galaxy) {
+            return galaxy && (galaxy.mode === 'survivor' || getGalaxyRenderStyle(galaxy) === 'prismWake');
+        }
+
+        function getGalaxySpriteBloomScratch(widthPx, heightPx) {
+            const w = Math.max(1, Math.ceil(widthPx || 1));
+            const h = Math.max(1, Math.ceil(heightPx || 1));
+            if (!galaxySpriteBloomScratch.canvas) {
+                galaxySpriteBloomScratch.canvas = document.createElement('canvas');
+            }
+            if (galaxySpriteBloomScratch.width !== w || galaxySpriteBloomScratch.height !== h) {
+                galaxySpriteBloomScratch.canvas.width = w;
+                galaxySpriteBloomScratch.canvas.height = h;
+                galaxySpriteBloomScratch.width = w;
+                galaxySpriteBloomScratch.height = h;
+                galaxySpriteBloomScratch.ctx = galaxySpriteBloomScratch.canvas.getContext('2d', { alpha: true });
+            }
+            return galaxySpriteBloomScratch.ctx ? galaxySpriteBloomScratch : null;
+        }
+
+        function applyGalaxySpriteBloom(targetCtx, sourceCanvas, highlightAmount = 1) {
+            if (!targetCtx || !sourceCanvas || !('filter' in targetCtx)) return false;
+            const scratch = getGalaxySpriteBloomScratch(sourceCanvas.width, sourceCanvas.height);
+            if (!scratch || !scratch.ctx) return false;
+            const highlight = clampGalaxySelectHighlight(highlightAmount);
+            scratch.ctx.setTransform(1, 0, 0, 1, 0, 0);
+            scratch.ctx.clearRect(0, 0, scratch.width, scratch.height);
+            scratch.ctx.globalAlpha = 1;
+            scratch.ctx.globalCompositeOperation = 'source-over';
+            scratch.ctx.filter = 'none';
+            scratch.ctx.drawImage(sourceCanvas, 0, 0);
+
+            targetCtx.save();
+            targetCtx.globalCompositeOperation = 'lighter';
+            targetCtx.globalAlpha = 0.22 + highlight * 0.22;
+            targetCtx.filter = `blur(${Math.round(5 + highlight * 3)}px)`;
+            targetCtx.drawImage(scratch.canvas, 0, 0);
+            targetCtx.filter = 'none';
+            targetCtx.globalAlpha = 0.08 + highlight * 0.08;
+            targetCtx.drawImage(scratch.canvas, 0, 0);
+            targetCtx.restore();
+            return true;
+        }
+
+        function drawGalaxySoftAura(colors, radius, selected, alphaScale = 1, highlightAmount = null) {
+            const highlight = Number.isFinite(highlightAmount) ? clampGalaxySelectHighlight(highlightAmount) : (selected ? 1 : 0);
             const aura = galaxyCtx.createRadialGradient(0, 0, radius * 0.08, 0, 0, radius * 1.35);
-            aura.addColorStop(0, colorWithAlpha(colors[2] || colors[1] || '#ffffff', (selected ? 0.18 : 0.10) * alphaScale));
-            aura.addColorStop(0.42, colorWithAlpha(colors[1] || colors[0], (selected ? 0.10 : 0.045) * alphaScale));
+            aura.addColorStop(0, colorWithAlpha(colors[2] || colors[1] || '#ffffff', (0.10 + highlight * 0.08) * alphaScale));
+            aura.addColorStop(0.42, colorWithAlpha(colors[1] || colors[0], (0.045 + highlight * 0.055) * alphaScale));
             aura.addColorStop(1, colorWithAlpha(colors[0], 0));
             galaxyCtx.fillStyle = aura;
             galaxyCtx.beginPath();
@@ -3373,16 +3811,17 @@
             const fontScale = options.fontScale || 1;
             const warpMode = !!options.warp;
             const available = !galaxy || galaxy.available !== false;
-            galaxyCtx.globalAlpha = available ? (selected ? 0.96 : 0.70) : 0.25;
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
+            galaxyCtx.globalAlpha = available ? (0.70 + highlight * 0.26) : (0.25 + highlight * 0.08);
             galaxyCtx.fillStyle = (galaxy && galaxy.coreColor) || colors[2] || '#ffffff';
             galaxyCtx.shadowColor = (galaxy && galaxy.coreColor) || colors[2] || colors[0];
-            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (selected ? 20 : 9) * fontScale : 0;
+            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (9 + highlight * 11) * fontScale : 0;
             galaxyCtx.save();
             galaxyCtx.rotate(axis * 0.45);
             galaxyCtx.scale(1, 0.78 + tilt * 0.24);
-            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(10, (selected ? 34 : 28) * fontScale), options)}px Courier New`;
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(10, (28 + highlight * 6) * fontScale), options)}px Courier New`;
             galaxyCtx.fillText(getGalaxyCoreGlyph(galaxy, '@'), 0, 0);
-            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, (selected ? 16 : 13) * fontScale), options)}px Courier New`;
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, (13 + highlight * 3) * fontScale), options)}px Courier New`;
             galaxyCtx.fillStyle = '#071026';
             galaxyCtx.shadowBlur = 0;
             galaxyCtx.fillText(getGalaxyCoreVoidGlyph(galaxy, '.'), 0, 0);
@@ -3396,15 +3835,17 @@
             const seed = galaxy.seed || index * 17;
             const profile = getGalaxyVisualProfile(index);
             const axis = options.axisOverride ?? (profile.axis + Math.sin(now * 0.00009 + seed) * 0.035);
-            const spin = now * (options.warp ? 0.00008 : 0.00012) * (selected ? 1.55 : 1.0) * (profile.spinDir || 1) * (profile.spinSpeed || 1);
-            const brightness = galaxy.available ? (selected ? 1.18 : 0.78) : 0.32;
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
+            const spinRate = options.warp ? 0.00008 : 0.00012;
+            const spin = now * spinRate * (options.warp && selected ? 1.55 : 1) * (profile.spinDir || 1) * (profile.spinSpeed || 1);
+            const brightness = galaxy.available ? (0.78 + highlight * 0.40) : (0.32 + highlight * 0.08);
             const tilt = options.tiltOverride ?? (profile.tilt || galaxy.tilt || 0.5);
             const cosAxis = Math.cos(axis);
             const sinAxis = Math.sin(axis);
             const twist = (galaxy.twist || 2.8) * Math.PI;
             const detail = options.detail || 1;
             const fontScale = options.fontScale || 1;
-            const stepCount = Math.max(14, Math.round((selected ? 42 : 34) * detail));
+            const stepCount = Math.max(14, Math.round((34 + highlight * 8) * detail));
             const glyphs = galaxy && Array.isArray(galaxy.glyphs) && galaxy.glyphs.length ? galaxy.glyphs : ['.', '*', '+'];
             const lineWobble = style === 'matrixNebula' ? 0.20 : 0.09;
             let lastFont = '';
@@ -3414,7 +3855,7 @@
             for (let arm = 0; arm < arms; arm++) {
                 const armAngle = (arm / arms) * Math.PI * 2;
                 const armColor = colors[arm % colors.length] || colors[0];
-                galaxyCtx.globalAlpha = (selected ? 0.22 : 0.11) * brightness;
+                galaxyCtx.globalAlpha = (0.11 + highlight * 0.11) * brightness;
                 galaxyCtx.strokeStyle = colorWithAlpha(armColor, style === 'matrixNebula' ? 0.38 : 0.52);
                 galaxyCtx.lineWidth = Math.max(1, radius * (style === 'matrixNebula' ? 0.018 : 0.012));
                 galaxyCtx.beginPath();
@@ -3449,7 +3890,7 @@
                     const perspective = 0.74 + depth * 0.42;
                     const x = (localX * cosAxis - localY * sinAxis) * perspective;
                     const y = (localX * sinAxis + localY * cosAxis) * perspective;
-                    const fontSize = getGalaxyFontPx(Math.max(6, (7 + (1 - t) * 9 + depth * 4) * (selected ? 1.05 : 0.95) * fontScale), options);
+                    const fontSize = getGalaxyFontPx(Math.max(6, (7 + (1 - t) * 9 + depth * 4) * (0.95 + highlight * 0.10) * fontScale), options);
                     const nextFont = `bold ${fontSize}px Courier New`;
                     if (nextFont !== lastFont) {
                         galaxyCtx.font = nextFont;
@@ -3467,6 +3908,7 @@
         function drawBinaryQuasarJet(radius, axis, now, selected, options = {}) {
             const jetAngle = axis - Math.PI / 2;
             const pulse = 0.58 + Math.sin(now * 0.0024) * 0.22;
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
             galaxyCtx.save();
             galaxyCtx.globalCompositeOperation = 'screen';
             galaxyCtx.lineCap = 'round';
@@ -3474,15 +3916,15 @@
                 const dx = Math.cos(jetAngle) * side;
                 const dy = Math.sin(jetAngle) * side;
                 const inner = radius * 0.18;
-                const outer = radius * (selected ? 1.68 : 1.42);
-                galaxyCtx.globalAlpha = selected ? 0.34 : 0.20;
+                const outer = radius * (1.42 + highlight * 0.26);
+                galaxyCtx.globalAlpha = 0.20 + highlight * 0.14;
                 galaxyCtx.strokeStyle = colorWithAlpha('#dff7ff', 0.72 * pulse);
                 galaxyCtx.lineWidth = Math.max(1, radius * 0.035);
                 galaxyCtx.beginPath();
                 galaxyCtx.moveTo(dx * inner, dy * inner);
                 galaxyCtx.lineTo(dx * outer, dy * outer);
                 galaxyCtx.stroke();
-                galaxyCtx.globalAlpha = selected ? 0.56 : 0.32;
+                galaxyCtx.globalAlpha = 0.32 + highlight * 0.24;
                 galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, radius * 0.10), options)}px Courier New`;
                 galaxyCtx.fillStyle = '#ffffff';
                 for (let i = 0; i < 5; i++) {
@@ -3493,8 +3935,9 @@
             galaxyCtx.restore();
         }
 
-        function drawMatrixNebulaCloud(galaxy, radius, selected, now, index) {
+        function drawMatrixNebulaCloud(galaxy, radius, selected, now, index, options = {}) {
             const colors = galaxy.colors || ['#007a3a', '#25b85b', '#f2fff6'];
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
             galaxyCtx.save();
             galaxyCtx.globalCompositeOperation = 'screen';
             for (let i = 0; i < 12; i++) {
@@ -3505,7 +3948,7 @@
                 const blobR = radius * (0.14 + galaxyNoise(index + 61, i) * 0.20);
                 const whiteGas = i % 5 === 0;
                 const grad = galaxyCtx.createRadialGradient(blobX, blobY, 0, blobX, blobY, blobR);
-                grad.addColorStop(0, colorWithAlpha(whiteGas ? '#f2fff6' : colors[i % 2], selected ? 0.16 : 0.08));
+                grad.addColorStop(0, colorWithAlpha(whiteGas ? '#f2fff6' : colors[i % 2], 0.08 + highlight * 0.08));
                 grad.addColorStop(1, colorWithAlpha(colors[0], 0));
                 galaxyCtx.fillStyle = grad;
                 galaxyCtx.globalAlpha = 1;
@@ -3519,7 +3962,8 @@
         function drawFractalCounterHalo(galaxy, radius, selected, now, index, options = {}) {
             const profile = getGalaxyVisualProfile(index);
             const spin = -now * 0.00018 * (profile.spinSpeed || 1);
-            const count = Math.round((selected ? 58 : 44) * (options.detail || 1));
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
+            const count = Math.round((44 + highlight * 14) * (options.detail || 1));
             const axis = profile.axis - 0.18;
             const tilt = 0.42;
             const cosAxis = Math.cos(axis);
@@ -3536,7 +3980,7 @@
                 const localY = Math.sin(a) * (radius * 0.58 + jitter * 0.35) * tilt;
                 const x = localX * cosAxis - localY * sinAxis;
                 const y = localX * sinAxis + localY * cosAxis;
-                galaxyCtx.globalAlpha = selected ? 0.34 : 0.18;
+                galaxyCtx.globalAlpha = 0.18 + highlight * 0.16;
                 galaxyCtx.fillStyle = i % 7 === 0 ? '#fff7b8' : '#ffd65e';
                 galaxyCtx.fillText(i % 4 === 0 ? '*' : '.', x, y);
             }
@@ -3551,6 +3995,8 @@
             const fontScale = options.fontScale || 1;
             const detail = options.detail || 1;
             const warpMode = !!options.warp;
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
+            const glowPulse = getGalaxySelectHighlightPulse(index, now, highlight);
             galaxyCtx.save();
             galaxyCtx.translate(x, y);
             galaxyCtx.rotate(axis);
@@ -3558,9 +4004,9 @@
             galaxyCtx.textAlign = 'center';
             galaxyCtx.textBaseline = 'middle';
             galaxyCtx.globalCompositeOperation = 'screen';
-            drawGalaxySoftAura(['#ff6a00', '#ff9a1f', '#7cc7ff'], radius, selected, 0.9);
+            drawGalaxySoftAura(['#ff6a00', '#ff9a1f', '#7cc7ff'], radius, selected, 0.9 + glowPulse * 0.14, highlight);
 
-            const coronaCount = Math.round((selected ? 74 : 58) * detail);
+            const coronaCount = Math.round((58 + highlight * 16) * detail);
             for (let ring = 0; ring < 3; ring++) {
                 const ringR = radius * (0.84 + ring * 0.13);
                 const wobble = 0.07 + ring * 0.035;
@@ -3570,24 +4016,24 @@
                     const flame = 1 + Math.sin(a * 9 + now * 0.002 + ring) * wobble;
                     const px = Math.cos(a) * ringR * flame;
                     const py = Math.sin(a) * ringR * flame;
-                    galaxyCtx.globalAlpha = (selected ? 0.52 : 0.30) * (ring === 1 ? 1 : 0.72);
+                    galaxyCtx.globalAlpha = (0.30 + highlight * 0.22) * (ring === 1 ? 1 : 0.72);
                     galaxyCtx.fillStyle = ring === 0 ? '#ff4f00' : (i % 5 === 0 ? '#ffc073' : '#ff761b');
                     galaxyCtx.fillText(i % 3 === 0 ? '/' : (i % 3 === 1 ? '\\' : '|'), px, py);
                 }
             }
 
             galaxyCtx.globalCompositeOperation = 'source-over';
-            galaxyCtx.globalAlpha = galaxy.available ? (selected ? 0.92 : 0.66) : 0.25;
-            galaxyCtx.strokeStyle = colorWithAlpha('#ff8a1c', selected ? 0.78 : 0.48);
+            galaxyCtx.globalAlpha = galaxy.available ? (0.66 + highlight * 0.26) : (0.25 + highlight * 0.07);
+            galaxyCtx.strokeStyle = colorWithAlpha('#ff8a1c', 0.48 + highlight * 0.30);
             galaxyCtx.lineWidth = Math.max(2, radius * 0.035);
             galaxyCtx.beginPath();
             galaxyCtx.ellipse(0, 0, radius * 0.76, radius * 0.38, 0, 0, Math.PI * 2);
             galaxyCtx.stroke();
 
-            galaxyCtx.globalAlpha = selected ? 0.95 : 0.72;
+            galaxyCtx.globalAlpha = 0.72 + highlight * 0.23;
             galaxyCtx.fillStyle = '#7cc7ff';
             galaxyCtx.shadowColor = '#7cc7ff';
-            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (selected ? 18 : 9) : 0;
+            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (9 + highlight * 9 + glowPulse * 4) : 0;
             galaxyCtx.beginPath();
             galaxyCtx.ellipse(0, 0, radius * 0.30, radius * 0.30, 0, 0, Math.PI * 2);
             galaxyCtx.fill();
@@ -3609,26 +4055,28 @@
             const spin = now * 0.00013 * (profile.spinDir || 1) * (profile.spinSpeed || 1);
             const detail = options.detail || 1;
             const fontScale = options.fontScale || 1;
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
+            const glowPulse = getGalaxySelectHighlightPulse(index, now, highlight);
             galaxyCtx.save();
             galaxyCtx.translate(x, y);
             galaxyCtx.rotate(axis);
             galaxyCtx.textAlign = 'center';
             galaxyCtx.textBaseline = 'middle';
             galaxyCtx.globalCompositeOperation = 'screen';
-            drawGalaxySoftAura(colors, radius, selected, 0.86);
+            drawGalaxySoftAura(colors, radius, selected, 0.86 + glowPulse * 0.13, highlight);
 
-            galaxyCtx.strokeStyle = colorWithAlpha(colors[1], selected ? 0.28 : 0.15);
+            galaxyCtx.strokeStyle = colorWithAlpha(colors[1], 0.15 + highlight * 0.13);
             galaxyCtx.lineWidth = 1;
             for (let ring = -2; ring <= 2; ring++) {
                 const yRing = ring * radius * 0.18;
                 const ringScale = Math.sqrt(Math.max(0.08, 1 - Math.abs(ring) * 0.18));
-                galaxyCtx.globalAlpha = selected ? 0.35 : 0.20;
+                galaxyCtx.globalAlpha = 0.20 + highlight * 0.15;
                 galaxyCtx.beginPath();
                 galaxyCtx.ellipse(0, yRing, radius * 0.74 * ringScale, radius * 0.18, spin + ring * 0.12, 0, Math.PI * 2);
                 galaxyCtx.stroke();
             }
 
-            const points = Math.round((selected ? 90 : 70) * detail);
+            const points = Math.round((70 + highlight * 20) * detail);
             let lastFont = '';
             for (let i = 0; i < points; i++) {
                 const t = i / Math.max(1, points - 1);
@@ -3643,7 +4091,7 @@
                     galaxyCtx.font = nextFont;
                     lastFont = nextFont;
                 }
-                galaxyCtx.globalAlpha = (selected ? 0.72 : 0.44) * (0.48 + sphere * 0.52);
+                galaxyCtx.globalAlpha = (0.44 + highlight * 0.28) * (0.48 + sphere * 0.52);
                 galaxyCtx.fillStyle = i % 9 === 0 ? colors[2] : (i % 2 ? colors[0] : colors[1]);
                 galaxyCtx.fillText(i % 4 === 0 ? '1' : (i % 4 === 1 ? '0' : (i % 4 === 2 ? '<' : '>')), px, py);
             }
@@ -3659,14 +4107,18 @@
             const profile = getGalaxyVisualProfile(index);
             const axis = profile.axis + Math.sin(now * 0.00011 + index) * 0.06;
             const tilt = profile.tilt || 0.72;
-            const spin = now * 0.00016 * (selected ? 1.8 : 1.0) * (profile.spinDir || 1) * (profile.spinSpeed || 1);
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
+            const glowPulse = getGalaxySelectHighlightPulse(index, now, highlight);
+            const spin = now * 0.00016 * (options.warp && selected ? 1.8 : 1) * (profile.spinDir || 1) * (profile.spinSpeed || 1);
             const shimmer = 0.5 + Math.sin(now * 0.0047) * 0.5;
             const detail = options.detail || 1;
             const fontScale = options.fontScale || 1;
             const warpMode = !!options.warp;
-            const ringCount = Math.max(3, Math.round((selected ? 6 : 5) * detail));
-            const pointsPerRing = Math.max(9, Math.round((selected ? 22 : 17) * detail));
-            const brightness = selected ? 1 : 0.74;
+            const spriteBloomMode = !!options.spriteBloom;
+            const perGlyphGlowEnabled = glowEnabled && !warpMode && !spriteBloomMode;
+            const ringCount = Math.max(3, Math.round((5 + highlight) * detail));
+            const pointsPerRing = Math.max(9, Math.round((17 + highlight * 5) * detail));
+            const brightness = 0.74 + highlight * 0.26;
 
             galaxyCtx.save();
             galaxyCtx.translate(x, y);
@@ -3675,9 +4127,9 @@
             galaxyCtx.globalCompositeOperation = 'lighter';
 
             const aura = galaxyCtx.createRadialGradient(0, 0, radius * 0.06, 0, 0, radius * 1.32);
-            aura.addColorStop(0, colorWithAlpha('#ffffff', selected ? 0.18 : 0.10));
-            aura.addColorStop(0.32, colorWithAlpha('#ff5edb', selected ? 0.12 : 0.06));
-            aura.addColorStop(0.62, colorWithAlpha('#61f7ff', selected ? 0.08 : 0.035));
+            aura.addColorStop(0, colorWithAlpha('#ffffff', 0.10 + highlight * 0.08 + glowPulse * 0.025));
+            aura.addColorStop(0.32, colorWithAlpha('#ff5edb', 0.06 + highlight * 0.06 + glowPulse * 0.02));
+            aura.addColorStop(0.62, colorWithAlpha('#61f7ff', 0.035 + highlight * 0.045 + glowPulse * 0.016));
             aura.addColorStop(1, colorWithAlpha('#ffffff', 0));
             galaxyCtx.fillStyle = aura;
             galaxyCtx.beginPath();
@@ -3690,7 +4142,7 @@
             const cosAxis = Math.cos(axis);
             const sinAxis = Math.sin(axis);
             let lastFont = '';
-            const outerCount = Math.max(16, Math.round((selected ? 54 : 40) * detail));
+            const outerCount = Math.max(16, Math.round((40 + highlight * 14) * detail));
             galaxyCtx.save();
             galaxyCtx.rotate(axis + spin * 0.7);
             galaxyCtx.scale(1, tilt * 0.62);
@@ -3698,11 +4150,11 @@
             for (let i = 0; i < outerCount; i++) {
                 const angle = (i / outerCount) * Math.PI * 2 + spin * 2.4;
                 const stripePulse = 1 + Math.sin(angle * 8 + now * 0.003) * 0.035;
-                galaxyCtx.globalAlpha = (selected ? 0.70 : 0.42) * (0.72 + Math.sin(angle * 4 + now * 0.001) * 0.18);
+                galaxyCtx.globalAlpha = (0.42 + highlight * 0.28) * (0.72 + Math.sin(angle * 4 + now * 0.001) * 0.18);
                 galaxyCtx.fillStyle = colors[i % colors.length] || '#ffffff';
-                if (glowEnabled && !warpMode && (selected || i % 5 === 0)) {
+                if (perGlyphGlowEnabled && (highlight > 0.04 || i % 5 === 0)) {
                     galaxyCtx.shadowColor = galaxyCtx.fillStyle;
-                    galaxyCtx.shadowBlur = selected ? 8 + shimmer * 7 : 4;
+                    galaxyCtx.shadowBlur = 4 + highlight * (4 + shimmer * 7 + glowPulse * 3);
                 } else {
                     galaxyCtx.shadowBlur = 0;
                 }
@@ -3724,7 +4176,7 @@
                     const px = localX * cosAxis - localY * sinAxis;
                     const py = localX * sinAxis + localY * cosAxis;
                     const depth = 0.5 + Math.sin(angle) * 0.5;
-                    const fontSize = getGalaxyFontPx(Math.max(7, (7 + (1 - ringT) * 13 + depth * 4) * (selected ? 1.06 : 0.94) * fontScale), options);
+                    const fontSize = getGalaxyFontPx(Math.max(7, (7 + (1 - ringT) * 13 + depth * 4) * (0.94 + highlight * 0.12) * fontScale), options);
                     const nextFont = `bold ${fontSize}px Courier New`;
                     if (nextFont !== lastFont) {
                         galaxyCtx.font = nextFont;
@@ -3734,9 +4186,9 @@
                     const sparkle = noise > 0.86 ? shimmer * 0.24 : 0;
                     galaxyCtx.globalAlpha = Math.min(1, (0.12 + depth * 0.34 + (1 - ringT) * 0.24 + sparkle) * brightness);
                     galaxyCtx.fillStyle = noise > 0.94 ? '#ffffff' : color;
-                    if (glowEnabled && !warpMode && (selected || noise > 0.92)) {
+                    if (perGlyphGlowEnabled && (highlight > 0.04 || noise > 0.92)) {
                         galaxyCtx.shadowColor = galaxyCtx.fillStyle;
-                        galaxyCtx.shadowBlur = selected ? 7 + shimmer * 9 : 4;
+                        galaxyCtx.shadowBlur = 4 + highlight * (3 + shimmer * 9 + glowPulse * 3);
                     } else {
                         galaxyCtx.shadowBlur = 0;
                     }
@@ -3744,24 +4196,24 @@
                 }
             }
 
-            galaxyCtx.globalAlpha = selected ? 1 : 0.8;
+            galaxyCtx.globalAlpha = 0.8 + highlight * 0.2;
             galaxyCtx.shadowColor = '#ffffff';
-            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (selected ? 22 : 12) : 0;
+            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (12 + highlight * 10 + glowPulse * 5) : 0;
             galaxyCtx.fillStyle = '#ffffff';
-            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(12, (selected ? 34 : 29) * fontScale), options)}px Courier New`;
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(12, (29 + highlight * 5) * fontScale), options)}px Courier New`;
             galaxyCtx.fillText(getGalaxyCoreGlyph(galaxy, '▲'), 0, 0);
             galaxyCtx.save();
             galaxyCtx.rotate(-spin * 2.8);
-            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, (selected ? 18 : 15) * fontScale), options)}px Courier New`;
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, (15 + highlight * 3) * fontScale), options)}px Courier New`;
             for (let i = 0; i < 10; i++) {
                 const angle = (i / 10) * Math.PI * 2 + spin * 4;
-                galaxyCtx.globalAlpha = selected ? 0.82 : 0.58;
+                galaxyCtx.globalAlpha = 0.58 + highlight * 0.24;
                 galaxyCtx.fillStyle = i % 2 ? '#ffffff' : (colors[i % colors.length] || '#ffe66d');
                 galaxyCtx.fillText(glyphs[(i * 3) % glyphs.length], Math.cos(angle) * radius * 0.16, Math.sin(angle) * radius * 0.16);
             }
             galaxyCtx.restore();
-            galaxyCtx.globalAlpha = selected ? 1 : 0.82;
-            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, (selected ? 17 : 14) * fontScale), options)}px Courier New`;
+            galaxyCtx.globalAlpha = 0.82 + highlight * 0.18;
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, (14 + highlight * 3) * fontScale), options)}px Courier New`;
             galaxyCtx.fillStyle = colors[1] || '#ffe66d';
             galaxyCtx.fillText(getGalaxyCoreVoidGlyph(galaxy, '▼'), 0, 0);
             galaxyCtx.restore();
@@ -3780,6 +4232,8 @@
             const fontScale = options.fontScale || 1;
             const detail = options.detail || 1;
             const warpMode = !!options.warp;
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
+            const glowPulse = getGalaxySelectHighlightPulse(index, now, highlight);
 
             galaxyCtx.save();
             galaxyCtx.translate(x, y);
@@ -3787,13 +4241,13 @@
             galaxyCtx.textAlign = 'center';
             galaxyCtx.textBaseline = 'middle';
             galaxyCtx.globalCompositeOperation = 'screen';
-            drawGalaxySoftAura(colors, radius, selected, 0.92);
+            drawGalaxySoftAura(colors, radius, selected, 0.92 + glowPulse * 0.13, highlight);
 
-            const ringCount = Math.max(24, Math.round((selected ? 58 : 44) * detail));
+            const ringCount = Math.max(24, Math.round((44 + highlight * 14) * detail));
             galaxyCtx.lineCap = 'round';
             for (let ring = 0; ring < 2; ring++) {
-                galaxyCtx.globalAlpha = (selected ? 0.34 : 0.19) * (ring ? 0.72 : 1);
-                galaxyCtx.strokeStyle = colorWithAlpha(ring ? colors[1] : colors[0], selected ? 0.72 : 0.46);
+                galaxyCtx.globalAlpha = (0.19 + highlight * 0.15) * (ring ? 0.72 : 1);
+                galaxyCtx.strokeStyle = colorWithAlpha(ring ? colors[1] : colors[0], 0.46 + highlight * 0.26);
                 galaxyCtx.lineWidth = Math.max(1, radius * (ring ? 0.014 : 0.02));
                 galaxyCtx.beginPath();
                 galaxyCtx.ellipse(0, 0, radius * (0.94 + ring * 0.16), radius * (0.34 + ring * 0.06), spin * (ring ? -0.7 : 1), 0, Math.PI * 2);
@@ -3806,20 +4260,20 @@
                 const lanePulse = 1 + Math.sin(a * 6 + now * 0.002) * 0.045;
                 const px = Math.cos(a) * radius * 1.04 * lanePulse;
                 const py = Math.sin(a) * radius * 0.38 * lanePulse;
-                galaxyCtx.globalAlpha = (selected ? 0.55 : 0.32) * (0.72 + Math.sin(a * 3 + now * 0.001) * 0.18);
+                galaxyCtx.globalAlpha = (0.32 + highlight * 0.23) * (0.72 + Math.sin(a * 3 + now * 0.001) * 0.18);
                 galaxyCtx.fillStyle = i % 7 === 0 ? '#ffffff' : (i % 2 ? colors[0] : colors[1]);
                 galaxyCtx.fillText(i % 4 === 0 ? '+' : (i % 4 === 1 ? '=' : (i % 4 === 2 ? '[' : ']')), px, py);
             }
 
             galaxyCtx.globalCompositeOperation = 'source-over';
             const availableAlpha = galaxy.available ? 1 : 0.34;
-            galaxyCtx.globalAlpha = (selected ? 0.96 : 0.74) * availableAlpha;
+            galaxyCtx.globalAlpha = (0.74 + highlight * 0.22) * availableAlpha;
             if (glowEnabled && !warpMode) {
                 galaxyCtx.shadowColor = colors[0];
-                galaxyCtx.shadowBlur = selected ? 16 + pulse * 8 : 8;
+                galaxyCtx.shadowBlur = 8 + highlight * (8 + pulse * 8) + glowPulse * 4;
             }
 
-            galaxyCtx.strokeStyle = colorWithAlpha(colors[0], selected ? 0.84 : 0.58);
+            galaxyCtx.strokeStyle = colorWithAlpha(colors[0], 0.58 + highlight * 0.26);
             galaxyCtx.lineWidth = Math.max(2, radius * 0.034);
             galaxyCtx.beginPath();
             galaxyCtx.moveTo(-radius * 0.86, 0);
@@ -3829,7 +4283,7 @@
             galaxyCtx.stroke();
 
             galaxyCtx.fillStyle = colorWithAlpha('#071326', 0.88);
-            galaxyCtx.strokeStyle = colorWithAlpha('#f6fbff', selected ? 0.88 : 0.62);
+            galaxyCtx.strokeStyle = colorWithAlpha('#f6fbff', 0.62 + highlight * 0.26);
             galaxyCtx.lineWidth = Math.max(1, radius * 0.018);
             galaxyCtx.beginPath();
             galaxyCtx.rect(-radius * 0.34, -radius * 0.22, radius * 0.68, radius * 0.44);
@@ -3842,7 +4296,7 @@
                     const px = side * radius * (0.47 + i * 0.13);
                     const py = Math.sin(now * 0.002 + i + side) * radius * 0.018;
                     galaxyCtx.fillStyle = i % 2 ? colorWithAlpha(colors[1], 0.42) : colorWithAlpha('#0b2444', 0.88);
-                    galaxyCtx.strokeStyle = colorWithAlpha(i % 2 ? colors[0] : colors[2], selected ? 0.72 : 0.46);
+                    galaxyCtx.strokeStyle = colorWithAlpha(i % 2 ? colors[0] : colors[2], 0.46 + highlight * 0.26);
                     galaxyCtx.beginPath();
                     galaxyCtx.rect(px - radius * 0.045, py - radius * 0.14, radius * 0.09, radius * 0.28);
                     galaxyCtx.fill();
@@ -3856,20 +4310,20 @@
                 const panelW = radius * 0.36;
                 const panelH = radius * 0.17;
                 for (let row = -1; row <= 1; row += 2) {
-                    galaxyCtx.fillStyle = colorWithAlpha(row < 0 ? colors[1] : colors[0], selected ? 0.22 : 0.13);
-                    galaxyCtx.strokeStyle = colorWithAlpha('#8ff7ff', selected ? 0.62 : 0.35);
+                    galaxyCtx.fillStyle = colorWithAlpha(row < 0 ? colors[1] : colors[0], 0.13 + highlight * 0.09);
+                    galaxyCtx.strokeStyle = colorWithAlpha('#8ff7ff', 0.35 + highlight * 0.27);
                     const left = side < 0 ? panelX - panelW : panelX;
                     galaxyCtx.beginPath();
                     galaxyCtx.rect(left, row * panelY - panelH / 2, panelW, panelH);
                     galaxyCtx.fill();
                     galaxyCtx.stroke();
                     galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(5, radius * 0.065 * fontScale), options)}px Courier New`;
-                    galaxyCtx.fillStyle = colorWithAlpha('#ffffff', selected ? 0.58 : 0.34);
+                    galaxyCtx.fillStyle = colorWithAlpha('#ffffff', 0.34 + highlight * 0.24);
                     galaxyCtx.fillText(row < 0 ? 'AI' : 'RL', panelX + side * panelW * 0.52, row * panelY);
                 }
             }
 
-            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (selected ? 18 : 8) : 0;
+            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (8 + highlight * 10 + glowPulse * 5) : 0;
             galaxyCtx.fillStyle = '#f6fbff';
             galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(12, radius * 0.26 * fontScale), options)}px Courier New`;
             galaxyCtx.fillText('A', 0, -radius * 0.01);
@@ -3900,13 +4354,27 @@
             galaxyCtx.globalCompositeOperation = 'source-over';
         }
 
+        function getVisualQualityAdjustedGalaxyOptions(options = {}) {
+            if (options._visualQualityApplied) return options;
+            const detailScale = typeof getVisualQualityScale === 'function' ? getVisualQualityScale('detail') : 1;
+            if (Math.abs(detailScale - 1) < 0.001) {
+                return { ...options, _visualQualityApplied: true };
+            }
+            return {
+                ...options,
+                detail: (options.detail || 1) * detailScale,
+                _visualQualityApplied: true
+            };
+        }
+
         function drawGalaxyGlyphSpriteDirect(galaxy, x, y, radius, selected, now, index, options = {}) {
+            options = getVisualQualityAdjustedGalaxyOptions(options);
             const style = getGalaxyRenderStyle(galaxy);
             if (galaxy && (galaxy.mode === 'shipHub' || style === 'shipHub')) {
                 drawShipHubGalaxySprite(galaxy, x, y, radius, selected, now, index, options);
                 return;
             }
-            if (galaxy && (galaxy.mode === 'survivor' || style === 'prismWake')) {
+            if (isPrismWakeGalaxySprite(galaxy)) {
                 drawPrismWakeGalaxySprite(galaxy, x, y, radius, selected, now, index, options);
                 return;
             }
@@ -3923,14 +4391,16 @@
             const profile = getGalaxyVisualProfile(index);
             const axis = options.axisOverride ?? (profile.axis + Math.sin(now * 0.00009 + (galaxy.seed || index)) * 0.035);
             const tilt = options.tiltOverride ?? (profile.tilt || galaxy.tilt || 0.5);
+            const highlight = getGalaxyOptionHighlightAmount(options, selected);
+            const glowPulse = getGalaxySelectHighlightPulse(index, now, highlight);
 
             galaxyCtx.save();
             galaxyCtx.textAlign = 'center';
             galaxyCtx.textBaseline = 'middle';
             galaxyCtx.translate(x, y);
             galaxyCtx.globalCompositeOperation = 'screen';
-            if (glowEnabled && selected) drawGalaxySoftAura(colors, radius, selected, style === 'matrixNebula' ? 0.72 : 1);
-            if (style === 'matrixNebula') drawMatrixNebulaCloud(galaxy, radius, selected, now, index);
+            if (glowEnabled && highlight > 0.01) drawGalaxySoftAura(colors, radius, selected, (style === 'matrixNebula' ? 0.72 : 1) + glowPulse * 0.16, highlight);
+            if (style === 'matrixNebula') drawMatrixNebulaCloud(galaxy, radius, selected, now, index, options);
             if (style === 'binaryQuasar') drawBinaryQuasarJet(radius, axis, now, selected, options);
 
             drawGalaxySpiralArms(galaxy, radius, selected, now, index, options);
@@ -3959,6 +4429,7 @@
             const radiusKey = Math.round(radius * 2);
             const detailKey = Math.round((options.detail || 1) * 100);
             const fontKey = Math.round((options.fontScale || 1) * 100);
+            const highlightKey = Math.round(getGalaxyOptionHighlightAmount(options, selected) * 24);
             return {
                 key: [
                     width,
@@ -3971,6 +4442,7 @@
                     radiusKey,
                     detailKey,
                     fontKey,
+                    highlightKey,
                     galaxy && galaxy.mode === 'shipHub' && typeof getSelectedShipConfig === 'function'
                         ? getSelectedShipConfig().id
                         : ''
@@ -3981,6 +4453,7 @@
         }
 
         function drawGalaxyGlyphSprite(galaxy, x, y, radius, selected, now, index, options = {}) {
+            options = getVisualQualityAdjustedGalaxyOptions(options);
             if (options && options.noCache) {
                 drawGalaxyGlyphSpriteDirect(galaxy, x, y, radius, selected, now, index, options);
                 return;
@@ -3992,7 +4465,8 @@
                 galaxySelectSpriteFrameCache.delete(key);
                 galaxySelectSpriteFrameCache.set(key, entry);
             } else {
-                const cacheRadius = Math.ceil(radius * (selected ? 4.35 : 4.05) + 48);
+                const highlight = getGalaxyOptionHighlightAmount(options, selected);
+                const cacheRadius = Math.ceil(radius * (4.05 + highlight * 0.30) + 48);
                 const cacheCanvas = document.createElement('canvas');
                 cacheCanvas.width = cacheRadius;
                 cacheCanvas.height = cacheRadius;
@@ -4014,6 +4488,13 @@
             if (entry.bucket !== bucket) {
                 const cacheCtx = entry.ctx;
                 const previousCtx = galaxyCtx;
+                const highlight = getGalaxyOptionHighlightAmount(options, selected);
+                const spriteBloom = selected
+                    && !options.warp
+                    && glowEnabled
+                    && isPrismWakeGalaxySprite(galaxy)
+                    && cacheCtx
+                    && ('filter' in cacheCtx);
                 galaxyCtx = cacheCtx;
                 cacheCtx.setTransform(1, 0, 0, 1, 0, 0);
                 cacheCtx.clearRect(0, 0, entry.canvas.width, entry.canvas.height);
@@ -4023,8 +4504,10 @@
                 try {
                     drawGalaxyGlyphSpriteDirect(galaxy, entry.canvas.width / 2, entry.canvas.height / 2, radius, selected, bucketNow, index, {
                         ...options,
-                        noCache: true
+                        noCache: true,
+                        spriteBloom
                     });
+                    if (spriteBloom) applyGalaxySpriteBloom(cacheCtx, entry.canvas, highlight);
                 } finally {
                     galaxyCtx = previousCtx;
                 }
@@ -4039,6 +4522,43 @@
 
         function getGalaxyCursorTarget(slot, radius, galaxy, index, now) {
             const profile = getGalaxyVisualProfile(index);
+            if (galaxy && galaxy.mode === 'shipHub') {
+                if (typeof isTerminalDockExitHoldActive === 'function' && isTerminalDockExitHoldActive(index)) {
+                    const exitPose = typeof getTerminalDockExitCursorPose === 'function'
+                        ? getTerminalDockExitCursorPose(index)
+                        : null;
+                    if (exitPose) {
+                        const restY = exitPose.y + Math.sin(now * 0.0016 + index) * 2.2;
+                        return {
+                            x: exitPose.x,
+                            y: restY,
+                            faceX: exitPose.faceX,
+                            faceY: exitPose.faceY + (restY - exitPose.y) * 0.25,
+                            scale: exitPose.scale,
+                            key: `terminal-outbound-${index}`,
+                            color: galaxy.colors ? galaxy.colors[0] : currentThemeColor,
+                            floaty: true,
+                            suppressGuide: true
+                        };
+                    }
+                }
+                const dockX = slot.x - radius * 0.64;
+                const dockY = slot.y;
+                const restX = Math.max(42, dockX - radius * 0.82);
+                const restY = dockY + Math.sin(now * 0.0018) * 2.5;
+                return {
+                    x: restX,
+                    y: restY,
+                    faceX: dockX,
+                    faceY: dockY,
+                    approachX: Math.max(24, restX - radius * 0.74),
+                    approachY: dockY + radius * 0.18,
+                    scale: 0.23,
+                    key: `terminal-${index}`,
+                    color: galaxy.colors ? galaxy.colors[0] : currentThemeColor,
+                    floaty: true
+                };
+            }
             const seed = GALAXY_SELECT_CURSOR_REST_SEED + (galaxy.seed || index * 19);
             const restJitter = (galaxyNoise(seed, 2) - 0.5) * 0.54;
             const angle = profile.cursorAngle + restJitter;
@@ -4158,6 +4678,66 @@
             return lines.length;
         }
 
+        function drawGalaxyLayoutEditorOverlay(now, galaxies, selectedIndex) {
+            if (!galaxyLayoutEditMode) return;
+            updateGalaxyLayoutEditorHover();
+            galaxyCtx.save();
+            galaxyCtx.textAlign = 'center';
+            galaxyCtx.textBaseline = 'middle';
+            galaxyCtx.lineWidth = 1;
+
+            for (let i = 0; i < galaxies.length; i++) {
+                const galaxy = galaxies[i];
+                const slot = getGalaxySelectSlot(i);
+                const selected = i === selectedIndex;
+                const hot = i === galaxyLayoutHoverIndex || (galaxyLayoutDragState.active && i === galaxyLayoutDragState.index);
+                const radius = getGalaxySelectRenderRadius(i, selected);
+                const color = (galaxy && galaxy.colors && galaxy.colors[0]) || currentThemeColor;
+                galaxyCtx.globalAlpha = hot ? 0.9 : 0.46;
+                galaxyCtx.strokeStyle = hot ? colorWithAlpha('#ffffff', 0.86) : colorWithAlpha(color, 0.58);
+                galaxyCtx.setLineDash(hot ? [] : [5, 5]);
+                galaxyCtx.beginPath();
+                galaxyCtx.arc(slot.x, slot.y, Math.max(24, radius * 0.72), 0, Math.PI * 2);
+                galaxyCtx.stroke();
+                galaxyCtx.setLineDash([]);
+                galaxyCtx.fillStyle = hot ? '#ffffff' : colorWithAlpha('#dcecff', 0.72);
+                galaxyCtx.shadowColor = color;
+                galaxyCtx.shadowBlur = glowEnabled && hot ? 8 : 0;
+                galaxyCtx.font = `bold ${hot ? 12 : 10}px Courier New`;
+                galaxyCtx.fillText(String(i + 1), slot.x, slot.y - Math.max(30, radius * 0.78));
+                if (hot) {
+                    const profile = GALAXY_SELECT_LAYOUT[i];
+                    galaxyCtx.font = `bold 9px Courier New`;
+                    galaxyCtx.fillStyle = colorWithAlpha('#dcecff', 0.76);
+                    galaxyCtx.fillText(
+                        `S ${formatGalaxyLayoutNumber(profile.scale)}  R ${formatGalaxyLayoutNumber(profile.axis)}`,
+                        slot.x,
+                        slot.y + Math.max(30, radius * 0.76)
+                    );
+                }
+            }
+
+            const panelW = Math.min(500, width * 0.70);
+            const panelH = 40;
+            const panelX = width / 2 - panelW / 2;
+            const panelY = height * 0.145;
+            galaxyCtx.globalAlpha = 1;
+            galaxyCtx.shadowBlur = 0;
+            galaxyCtx.fillStyle = 'rgba(2, 8, 18, 0.72)';
+            galaxyCtx.fillRect(panelX, panelY, panelW, panelH);
+            galaxyCtx.strokeStyle = colorWithAlpha('#8ff7ff', 0.42);
+            galaxyCtx.strokeRect(panelX + 0.5, panelY + 0.5, panelW, panelH);
+            galaxyCtx.font = `bold 12px 'Electrolize', sans-serif`;
+            galaxyCtx.fillStyle = '#dcecff';
+            galaxyCtx.fillText('LAYOUT EDIT', width / 2, panelY + 14);
+            galaxyCtx.font = `10px 'Electrolize', sans-serif`;
+            galaxyCtx.fillStyle = 'rgba(202,229,255,0.66)';
+            galaxyCtx.fillText('DRAG MOVE  |  WHEEL SCALE  |  SHIFT+WHEEL ROTATE  |  layout copy/reset', width / 2, panelY + 29);
+            galaxyCtx.restore();
+            galaxyCtx.globalAlpha = 1;
+            galaxyCtx.shadowBlur = 0;
+        }
+
         function drawGalaxySelectWorldLayerDirect(now, selectedIndex) {
             const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [getGalaxyDefinition(0)];
             drawGalaxySelectBackground(now);
@@ -4165,14 +4745,29 @@
                 const galaxy = galaxies[i];
                 const slot = getGalaxySelectSlot(i);
                 const selected = i === selectedIndex;
-                const radius = getGalaxySelectRenderRadius(i, selected);
-                drawGalaxyGlyphSprite(galaxy, slot.x, slot.y, radius, selected, now, i);
+                const highlight = getGalaxySelectHighlightAmount(i, selected, now);
+                const radius = getGalaxySelectRenderRadius(i, selected, highlight);
+                drawGalaxyGlyphSprite(galaxy, slot.x, slot.y, radius, selected, now, i, {
+                    highlightAmount: selected ? 1 : 0
+                });
 
                 if (selected) {
                     const cursorTarget = getGalaxyCursorTarget(slot, radius, galaxy, i, now);
-                    drawGalaxyCursorGuide(cursorTarget, galaxy.colors ? galaxy.colors[0] : currentThemeColor, now);
+                    if (cursorTarget && !cursorTarget.suppressGuide) {
+                        drawGalaxyCursorGuide(cursorTarget, galaxy.colors ? galaxy.colors[0] : currentThemeColor, now);
+                    }
                 }
             }
+        }
+
+        function addSortedGradientStops(gradient, stops) {
+            stops
+                .map(stop => ({
+                    offset: Math.max(0, Math.min(1, stop.offset)),
+                    color: stop.color
+                }))
+                .sort((a, b) => a.offset - b.offset)
+                .forEach(stop => gradient.addColorStop(stop.offset, stop.color));
         }
 
         function drawGalaxySelectUiLayer(now, galaxies, selectedIndex) {
@@ -4193,22 +4788,56 @@
                 const galaxy = galaxies[i];
                 const slot = getGalaxySelectSlot(i);
                 const selected = i === selectedIndex;
-                const radius = getGalaxySelectRenderRadius(i, selected);
+                const highlight = getGalaxySelectHighlightAmount(i, selected, now);
+                const radius = getGalaxySelectRenderRadius(i, selected, highlight);
 
                 const survivorRoute = galaxy && galaxy.mode === 'survivor';
                 const hubRoute = galaxy && galaxy.mode === 'shipHub';
-                const labelY = survivorRoute ? slot.y - radius - 30 : slot.y + radius + (hubRoute ? 34 : 42);
-                galaxyCtx.font = `bold ${selected ? 18 : 14}px 'Electrolize', sans-serif`;
-                galaxyCtx.fillStyle = selected
-                    ? (galaxy.available ? '#ffffff' : 'rgba(210,220,235,0.58)')
-                    : (galaxy.available ? 'rgba(202,229,255,0.72)' : 'rgba(140,150,165,0.45)');
-                galaxyCtx.shadowColor = galaxy.colors ? galaxy.colors[0] : currentThemeColor;
-                galaxyCtx.shadowBlur = glowEnabled && selected ? 12 : 0;
-                galaxyCtx.fillText(galaxy.title || galaxy.name, slot.x, labelY);
+                const crawlerRoute = galaxy && galaxy.mode === 'matrixCrawler';
+                const labelY = (survivorRoute || hubRoute) ? slot.y - radius - 30 : slot.y + radius + 42;
+                const labelText = galaxy.title || galaxy.name;
+                const titleAlpha = galaxy.available ? (0.62 + highlight * 0.28) : (0.34 + highlight * 0.16);
+                galaxyCtx.font = `bold ${14 + highlight * 4}px 'Electrolize', sans-serif`;
+                const labelWidth = Math.max(70, galaxyCtx.measureText(labelText).width);
+                const titleGradient = galaxyCtx.createLinearGradient(slot.x - labelWidth / 2, labelY, slot.x + labelWidth / 2, labelY);
+                const titleColors = galaxy.colors && galaxy.colors.length ? galaxy.colors : [currentThemeColor, '#ffffff'];
+                const titleNeutral = galaxy.available ? '#dcecff' : '#9da7b8';
+                const titleMix = galaxy.available ? (0.72 - highlight * 0.14) : 0.82;
+                for (let colorIndex = 0; colorIndex < titleColors.length; colorIndex++) {
+                    const stop = titleColors.length === 1 ? 0 : colorIndex / (titleColors.length - 1);
+                    const softenedColor = mixColor(titleColors[colorIndex], titleNeutral, titleMix);
+                    titleGradient.addColorStop(stop, colorWithAlpha(softenedColor, titleAlpha));
+                }
+                galaxyCtx.fillStyle = titleGradient;
+                galaxyCtx.shadowColor = galaxy.colors ? (galaxy.colors[1] || galaxy.colors[0]) : currentThemeColor;
+                galaxyCtx.shadowBlur = glowEnabled ? 9 * highlight : 0;
+                galaxyCtx.fillText(labelText, slot.x, labelY);
+                if (highlight > 0.02) {
+                    const scanPhase = (now * 0.00022 + i * 0.19) % 1;
+                    const scanGradient = galaxyCtx.createLinearGradient(slot.x - labelWidth / 2, labelY, slot.x + labelWidth / 2, labelY);
+                    const scanColor = galaxy.available ? (galaxy.colors ? (galaxy.colors[1] || galaxy.colors[0]) : currentThemeColor) : '#dce2ee';
+                    addSortedGradientStops(scanGradient, [
+                        { offset: 0, color: 'rgba(255,255,255,0)' },
+                        { offset: scanPhase - 0.18, color: 'rgba(255,255,255,0)' },
+                        { offset: scanPhase - 0.04, color: colorWithAlpha(mixColor(scanColor, '#ffffff', 0.48), (galaxy.available ? 0.18 : 0.08) * highlight) },
+                        { offset: scanPhase, color: colorWithAlpha('#ffffff', (galaxy.available ? 0.34 : 0.16) * highlight) },
+                        { offset: scanPhase + 0.13, color: 'rgba(255,255,255,0)' },
+                        { offset: 1, color: 'rgba(255,255,255,0)' }
+                    ]);
+                    galaxyCtx.fillStyle = scanGradient;
+                    galaxyCtx.shadowBlur = glowEnabled ? 6 * highlight : 0;
+                    galaxyCtx.fillText(labelText, slot.x, labelY);
+                }
                 galaxyCtx.shadowBlur = 0;
                 galaxyCtx.font = `bold 11px 'Electrolize', sans-serif`;
-                galaxyCtx.fillStyle = galaxy.available ? colorWithAlpha(galaxy.colors[1] || currentThemeColor, selected ? 0.9 : 0.56) : 'rgba(170,178,190,0.46)';
-                galaxyCtx.fillText(galaxy.available ? (hubRoute ? 'SHIP HUB' : (survivorRoute ? 'SURVIVAL MODE' : 'AVAILABLE')) : 'LOCKED', slot.x, labelY + 20);
+                const statusText = galaxy.available ? (hubRoute ? 'SHIP HUB' : (survivorRoute ? 'SURVIVAL MODE' : (crawlerRoute ? 'ROOM CRAWLER' : 'AVAILABLE'))) : 'LOCKED';
+                galaxyCtx.fillStyle = galaxy.available
+                    ? colorWithAlpha('#8edbff', 0.62 + highlight * 0.24)
+                    : colorWithAlpha('#a9b0bf', 0.48 + highlight * 0.20);
+                galaxyCtx.shadowColor = galaxy.available ? '#42cfff' : '#707989';
+                galaxyCtx.shadowBlur = glowEnabled ? (galaxy.available ? 5 : 2) * highlight : 0;
+                galaxyCtx.fillText(statusText, slot.x, labelY + 20);
+                galaxyCtx.shadowBlur = 0;
 
             }
 
@@ -4236,6 +4865,7 @@
                 galaxyCtx.fillStyle = 'rgba(202, 229, 255, 0.58)';
                 galaxyCtx.fillText('ENTER / SPACE TO SELECT    ESC FOR MENU', width / 2, promptY);
             }
+            drawGalaxyLayoutEditorOverlay(now, galaxies, selectedIndex);
             galaxyCtx.restore();
         }
 
@@ -4250,7 +4880,8 @@
             const galaxy = galaxies[selectedIndex] || galaxies[0];
             if (!galaxy) return null;
             const slot = getGalaxySelectSlot(selectedIndex);
-            const radius = getGalaxySelectRenderRadius(selectedIndex, true);
+            const highlight = getGalaxySelectHighlightAmount(selectedIndex, true, now);
+            const radius = getGalaxySelectRenderRadius(selectedIndex, true, highlight);
             return getGalaxyCursorTarget(slot, radius, galaxy, selectedIndex, now);
         }
 
@@ -4280,6 +4911,13 @@
                 w: right - left + pad * 2,
                 h: bottom - top + pad * 2
             };
+        }
+
+        function fillBossCameraOverscan(fillStyle) {
+            const rect = getBossCameraOverscanRect();
+            ctx.fillStyle = fillStyle;
+            ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+            return rect;
         }
 
         function drawReturnLoadingScreen(now) {
@@ -4372,14 +5010,22 @@
         }
 
         function getGalaxyWarpCamera(progress, targetX, targetY) {
-            const focusT = easeGalaxyWarp(Math.max(0, Math.min(1, progress / 0.48)));
-            const zoomT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.18) / 0.54)));
+            const fadeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.02) / 0.34)));
+            const focusT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.04) / 0.58)));
+            const zoomT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.22) / 0.58)));
+            const surgeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.56) / 0.32)));
+            const handoffT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.80) / 0.18)));
+            const pullX = Math.min(1, focusT * 0.78 + surgeT * 0.18 + handoffT * 0.04);
+            const pullY = Math.min(1, focusT * 0.74 + surgeT * 0.20 + handoffT * 0.06);
             return {
-                focusX: lerpGalaxyWarp(targetX, width / 2, focusT * 0.82),
-                focusY: lerpGalaxyWarp(targetY, height * 0.48, focusT * 0.82),
-                zoom: 1 + focusT * 0.28 + zoomT * 0.24,
+                focusX: lerpGalaxyWarp(targetX, width / 2, pullX),
+                focusY: lerpGalaxyWarp(targetY, height * 0.48, pullY),
+                zoom: 1 + focusT * 0.12 + zoomT * 0.22 + surgeT * 0.42 + handoffT * 0.22,
+                fadeT,
                 focusT,
-                zoomT
+                zoomT,
+                surgeT,
+                handoffT
             };
         }
 
@@ -4397,12 +5043,19 @@
         function prepareGalaxyWarpMenuSnapshot(now = currentFrameNow || performance.now(), selectedIndex = selectedGalaxyIndex) {
             if (width <= 0 || height <= 0) return null;
             const stamp = Math.floor((now || 0) / 50);
+            const selectedShipForSnapshot = typeof getSelectedShipConfig === 'function'
+                ? getSelectedShipConfig()
+                : null;
+            const selectedShipKey = selectedShipForSnapshot && selectedShipForSnapshot.id
+                ? selectedShipForSnapshot.id
+                : '';
             const cache = galaxyWarpMenuSnapshotCache;
             if (
                 cache.canvas &&
                 cache.width === width &&
                 cache.height === height &&
                 cache.selectedIndex === selectedIndex &&
+                cache.shipKey === selectedShipKey &&
                 cache.stamp === stamp
             ) {
                 return cache.canvas;
@@ -4428,6 +5081,7 @@
             cache.width = width;
             cache.height = height;
             cache.selectedIndex = selectedIndex;
+            cache.shipKey = selectedShipKey;
             cache.stamp = stamp;
             return cache.canvas;
         }
@@ -4438,19 +5092,90 @@
         }
 
         function getGalaxyWarpPortalCenter(progress, targetX, targetY) {
-            const firstDrift = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.08) / 0.46)));
-            const finalPull = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.58) / 0.28)));
+            const firstDrift = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.04) / 0.58)));
+            const finalPull = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.56) / 0.32)));
+            const handoffPull = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.80) / 0.18)));
             return {
-                x: lerpGalaxyWarp(targetX, width / 2, Math.min(1, firstDrift * 0.82 + finalPull * 0.18)),
-                y: lerpGalaxyWarp(targetY, height * 0.48, Math.min(1, firstDrift * 0.78 + finalPull * 0.22))
+                x: lerpGalaxyWarp(targetX, width / 2, Math.min(1, firstDrift * 0.78 + finalPull * 0.18 + handoffPull * 0.04)),
+                y: lerpGalaxyWarp(targetY, height * 0.48, Math.min(1, firstDrift * 0.74 + finalPull * 0.20 + handoffPull * 0.06))
             };
         }
 
         function getGalaxyWarpPortalRadius(progress, selectedIndex) {
             const baseRadius = getGalaxySelectRenderRadius(selectedIndex, true);
-            const openT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.10) / 0.66)));
-            const lungeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.62) / 0.26)));
-            return lerpGalaxyWarp(baseRadius * 0.92, Math.max(width, height) * 0.56, openT) * (1 + lungeT * 0.18);
+            const mapZoomT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.04) / 0.58)));
+            const growT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.30) / 0.40)));
+            const surgeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.58) / 0.32)));
+            const handoffT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.82) / 0.16)));
+            const mapMatchedRadius = baseRadius * (1 + mapZoomT * 0.08);
+            const travelRadius = baseRadius * (1.08 + growT * 1.06);
+            const approachRadius = lerpGalaxyWarp(mapMatchedRadius, travelRadius, growT);
+            const finalRadius = Math.max(width, height) * 0.62;
+            return lerpGalaxyWarp(approachRadius, finalRadius, Math.min(1, surgeT * 0.82 + handoffT * 0.18));
+        }
+
+        function drawGalaxyWarpExactGlyphLayer(now, galaxy, selectedIndex, centerX, centerY, spriteRadius, spriteScale, alpha, options = {}) {
+            if (!galaxy || alpha <= 0.01 || spriteScale <= 0.01 || width <= 0 || height <= 0) return;
+
+            const cache = galaxyWarpExactGlyphLayerCache;
+            if (!cache.canvas) cache.canvas = document.createElement('canvas');
+            if (cache.width !== width || cache.height !== height) {
+                cache.canvas.width = width;
+                cache.canvas.height = height;
+                cache.width = width;
+                cache.height = height;
+                cache.drawKey = '';
+                cache.drawn = false;
+            }
+
+            const layerCtx = cache.canvas.getContext('2d', { alpha: true });
+            if (!layerCtx) return;
+
+            const freeze = !!options.freeze && cache.drawn;
+            const frameFps = Math.max(12, Math.min(72, options.fps || 60));
+            const frameMs = 1000 / frameFps;
+            const frameNow = Number.isFinite(options.frameNow) ? options.frameNow : now;
+            const stamp = Math.floor((frameNow || 0) / frameMs);
+            const drawKey = [
+                galaxy && galaxy.id ? galaxy.id : selectedIndex,
+                selectedIndex,
+                Math.round(spriteRadius * 2),
+                stamp
+            ].join('|');
+
+            if (!freeze && cache.drawKey !== drawKey) {
+                const previousCtx = galaxyCtx;
+                galaxyCtx = layerCtx;
+                layerCtx.setTransform(1, 0, 0, 1, 0, 0);
+                layerCtx.clearRect(0, 0, width, height);
+                layerCtx.globalAlpha = 1;
+                layerCtx.globalCompositeOperation = 'source-over';
+                layerCtx.shadowBlur = 0;
+                try {
+                    layerCtx.save();
+                    layerCtx.translate(centerX, centerY);
+                    layerCtx.scale(spriteScale, spriteScale);
+                    drawGalaxyGlyphSpriteDirect(galaxy, 0, 0, spriteRadius, true, now, selectedIndex, {
+                        detail: GALAXY_WARP_FOCUSED_DETAIL,
+                        fontScale: GALAXY_WARP_FOCUSED_FONT_SCALE,
+                        noCache: true
+                    });
+                    layerCtx.restore();
+                } finally {
+                    galaxyCtx = previousCtx;
+                }
+                cache.drawKey = drawKey;
+                cache.drawn = true;
+            }
+
+            if (!cache.drawn) return;
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = alpha;
+            ctx.drawImage(cache.canvas, 0, 0);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
         }
 
         function drawGalaxyWarpPortal(now, progress, selectedIndex, color, centerX, centerY) {
@@ -4458,109 +5183,81 @@
             if (!galaxy) return;
 
             const colors = galaxy.colors || [color, '#ffffff'];
-            const profile = getGalaxyVisualProfile(selectedIndex);
-            const style = getGalaxyRenderStyle(galaxy);
             const radius = getGalaxyWarpPortalRadius(progress, selectedIndex);
-            const enterT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.08) / 0.24)));
-            const growT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.12) / 0.68)));
-            const surgeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.54) / 0.30)));
-            const fadeOut = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.92) / 0.08)));
-            const alpha = enterT * (1 - fadeOut * 0.35);
+            const enterT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.03) / 0.22)));
+            const growT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.16) / 0.56)));
+            const surgeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.58) / 0.32)));
+            const fadeOut = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.94) / 0.06)));
+            const alpha = enterT * (1 - fadeOut * 0.28);
             if (alpha <= 0.01) return;
-
-            const axis = (profile.axis || 0) + Math.sin(now * 0.00012 + (galaxy.seed || selectedIndex)) * 0.06;
-            const tilt = Math.max(0.32, Math.min(0.76, profile.tilt || galaxy.tilt || 0.5));
-            const spinDir = profile.spinDir || 1;
-            const spin = now * 0.00034 * spinDir * (0.9 + surgeT * 2.2);
-            const arms = Math.max(2, Math.min(7, galaxy.arms || 3));
-            const twist = (galaxy.twist || 3) * Math.PI * (1.03 + surgeT * 0.12);
-            const seed = galaxy.seed || selectedIndex * 31;
 
             ctx.save();
             ctx.globalCompositeOperation = 'screen';
-            const aura = ctx.createRadialGradient(centerX, centerY, radius * 0.04, centerX, centerY, radius * 1.16);
-            aura.addColorStop(0, colorWithAlpha('#ffffff', 0.20 * alpha));
-            aura.addColorStop(0.18, colorWithAlpha(colors[2] || colors[1] || '#ffffff', 0.16 * alpha));
-            aura.addColorStop(0.48, colorWithAlpha(colors[1] || colors[0], 0.10 * alpha));
+            const aura = ctx.createRadialGradient(centerX, centerY, radius * 0.06, centerX, centerY, radius * 1.38);
+            aura.addColorStop(0, colorWithAlpha('#ffffff', 0.18 * alpha));
+            aura.addColorStop(0.20, colorWithAlpha(colors[2] || colors[1] || '#ffffff', 0.13 * alpha));
+            aura.addColorStop(0.50, colorWithAlpha(colors[1] || colors[0], 0.08 * alpha));
             aura.addColorStop(1, colorWithAlpha(colors[0] || color, 0));
             ctx.fillStyle = aura;
             ctx.fillRect(0, 0, width, height);
 
-            ctx.translate(centerX, centerY);
-            ctx.rotate(axis);
-            ctx.scale(1, tilt);
             ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-
-            for (let ring = 0; ring < 4; ring++) {
-                const t = ring / 3;
-                const ringRadius = radius * (0.28 + t * (0.64 + growT * 0.20));
-                const ringColor = colors[(ring + 1) % colors.length] || color;
-                ctx.globalAlpha = alpha * (0.13 - t * 0.018) * (0.75 + surgeT * 0.52);
-                ctx.strokeStyle = colorWithAlpha(ringColor, 0.72);
-                ctx.lineWidth = Math.max(1, radius * (0.006 + t * 0.004));
+            for (let ring = 0; ring < 3; ring++) {
+                const ringT = ring / 2;
+                const spin = now * 0.00016 * (ring % 2 ? -1 : 1);
+                const ringRadius = radius * (0.68 + ringT * 0.28 + growT * 0.08);
+                ctx.globalAlpha = alpha * (0.12 + surgeT * 0.10) * (1 - ringT * 0.18);
+                ctx.strokeStyle = colorWithAlpha(colors[(ring + 1) % colors.length] || color, 0.68);
+                ctx.lineWidth = Math.max(1, radius * (0.006 + ringT * 0.004));
                 ctx.beginPath();
-                ctx.ellipse(0, 0, ringRadius * (1.08 + t * 0.18), ringRadius * (0.54 + t * 0.06), spin * (0.6 + t), 0, Math.PI * 2);
+                ctx.ellipse(centerX, centerY, ringRadius * 1.12, ringRadius * 0.44, spin + ringT * 0.72, 0, Math.PI * 2);
                 ctx.stroke();
             }
 
-            const steps = 60;
-            for (let arm = 0; arm < arms; arm++) {
-                const baseAngle = (arm / arms) * Math.PI * 2 + spin;
-                const armColor = colors[arm % colors.length] || color;
-                ctx.globalAlpha = alpha * (0.28 + surgeT * 0.10);
-                ctx.strokeStyle = colorWithAlpha(armColor, style === 'matrixNebula' ? 0.74 : 0.62);
-                ctx.lineWidth = Math.max(1, radius * (0.008 + (arm % 2) * 0.0025));
+            const transitionStart = galaxyWarpTransition && Number.isFinite(galaxyWarpTransition.startedAt)
+                ? galaxyWarpTransition.startedAt
+                : now;
+            const liveTimeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.34) / 0.34)));
+            const spriteNow = lerpGalaxyWarp(transitionStart, now, liveTimeT);
+            const spriteRadius = Math.max(48, getGalaxySelectRenderRadius(selectedIndex, true));
+            const spriteScale = Math.max(0.35, radius / spriteRadius);
+            const crispT = easeGalaxyWarp(Math.max(0, Math.min(1, (spriteScale - 1.24) / 1.18)));
+            const isPrismWarp = galaxy.mode === 'survivor' || getGalaxyRenderStyle(galaxy) === 'prismWake';
+            const freezeStart = isPrismWarp ? 0.66 : 0.76;
+            const fadeStart = isPrismWarp ? 0.70 : 0.80;
+            const fadeDuration = isPrismWarp ? 0.16 : 0.14;
+            const lateGlyphFade = 1 - easeGalaxyWarp(Math.max(0, Math.min(1, (progress - fadeStart) / fadeDuration)));
+            const rasterAlpha = alpha * (0.90 + surgeT * 0.10) * Math.max(0, 1 - crispT) * lateGlyphFade;
+            const exactGlyphAlpha = alpha * crispT * (0.92 + surgeT * 0.08) * lateGlyphFade;
+            if (rasterAlpha > 0.018) {
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.scale(spriteScale, spriteScale);
+                ctx.globalAlpha = rasterAlpha;
+                drawGalaxyGlyphSprite(galaxy, 0, 0, spriteRadius, true, spriteNow, selectedIndex, {
+                    detail: GALAXY_WARP_FOCUSED_DETAIL,
+                    fontScale: GALAXY_WARP_FOCUSED_FONT_SCALE
+                });
+                ctx.globalAlpha = 1;
+                ctx.restore();
+            }
+
+            drawGalaxyWarpExactGlyphLayer(spriteNow, galaxy, selectedIndex, centerX, centerY, spriteRadius, spriteScale, exactGlyphAlpha, {
+                frameNow: now,
+                fps: isPrismWarp ? 42 : 54,
+                freeze: progress >= freezeStart
+            });
+
+            const lensT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.42) / 0.40)));
+            if (lensT > 0.01) {
+                ctx.globalCompositeOperation = 'screen';
+                ctx.globalAlpha = alpha * lensT * (0.12 + surgeT * 0.16);
+                ctx.strokeStyle = colorWithAlpha('#ffffff', 0.42);
+                ctx.lineWidth = Math.max(1, radius * 0.012);
                 ctx.beginPath();
-                for (let s = 0; s < steps; s++) {
-                    const t = s / (steps - 1);
-                    const noise = galaxyNoise(seed + arm * 97, s);
-                    const r = radius * (0.10 + Math.pow(t, 0.72) * 0.91) * (0.96 + (noise - 0.5) * 0.09);
-                    const angle = baseAngle + t * twist + (noise - 0.5) * 0.11;
-                    const x = Math.cos(angle) * r;
-                    const y = Math.sin(angle) * r * (0.78 + Math.sin(t * Math.PI + arm) * 0.05);
-                    if (s === 0) ctx.moveTo(x, y);
-                    else ctx.lineTo(x, y);
-                }
-                ctx.stroke();
-
-                ctx.globalAlpha = alpha * (0.13 + surgeT * 0.08);
-                ctx.lineWidth = Math.max(0.8, radius * 0.005);
-                ctx.strokeStyle = colorWithAlpha('#ffffff', 0.34);
+                ctx.arc(centerX, centerY, radius * (0.18 + lensT * 0.08), 0, Math.PI * 2);
                 ctx.stroke();
             }
-
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            const glyphCount = Math.round(24 + growT * 24);
-            for (let i = 0; i < glyphCount; i++) {
-                const arm = i % arms;
-                const t = Math.pow((i + 1) / glyphCount, 0.70);
-                const noise = galaxyNoise(seed + 2301, i);
-                const a = (arm / arms) * Math.PI * 2 + spin + t * twist + (noise - 0.5) * 0.28;
-                const r = radius * (0.13 + t * 0.86) * (0.88 + galaxyNoise(seed + 2327, i) * 0.22);
-                const depth = 0.56 + Math.sin(a + spin) * 0.44;
-                const x = Math.cos(a) * r * (0.92 + depth * 0.12);
-                const y = Math.sin(a) * r * (0.72 + depth * 0.16);
-                const fontSize = Math.max(7, Math.min(22, radius * (0.028 + (1 - t) * 0.026 + depth * 0.012)));
-                const glyph = getGalaxyGlyph(galaxy, { glyphIndex: Math.floor(noise * 4096), glyph: i % 4 === 0 ? '*' : '.' }, '.');
-                ctx.font = `bold ${Math.round(fontSize)}px Courier New`;
-                ctx.globalAlpha = alpha * Math.min(0.9, 0.20 + depth * 0.38 + surgeT * 0.16);
-                ctx.fillStyle = noise > 0.92 ? '#ffffff' : mixGalaxyColor(colors, depth * 0.52 + (1 - t) * 0.28);
-                ctx.fillText(glyph, x, y);
-            }
-
-            ctx.globalAlpha = alpha * (0.76 + surgeT * 0.24);
-            ctx.fillStyle = colors[2] || '#ffffff';
-            ctx.shadowColor = colors[1] || color;
-            ctx.shadowBlur = glowEnabled ? Math.min(34, radius * 0.12) : 0;
-            ctx.font = `bold ${Math.round(Math.max(16, Math.min(54, radius * 0.16)))}px Courier New`;
-            ctx.fillText(getGalaxyCoreGlyph(galaxy, '@'), 0, 0);
-            ctx.globalAlpha = alpha * 0.92;
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = '#01040b';
-            ctx.font = `bold ${Math.round(Math.max(9, Math.min(26, radius * 0.075)))}px Courier New`;
-            ctx.fillText(getGalaxyCoreVoidGlyph(galaxy, '.'), 0, 0);
 
             ctx.restore();
             ctx.globalAlpha = 1;
@@ -4606,52 +5303,112 @@
             ctx.restore();
         }
 
+        function drawGalaxyWarpVoidBackdrop(now, progress, color, centerX, centerY) {
+            const revealT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.18) / 0.44)));
+            const surgeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.58) / 0.32)));
+            const fadeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.88) / 0.12)));
+            const alphaScale = revealT * (1 - fadeT * 0.42);
+            if (alphaScale <= 0.01) return;
+
+            const diagonal = Math.max(1, Math.hypot(width, height));
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const dustCount = 36;
+            for (let i = 0; i < dustCount; i++) {
+                const noiseA = galaxyNoise(5201, i);
+                const noiseB = galaxyNoise(5213, i);
+                const noiseC = galaxyNoise(5227, i);
+                const angle = noiseA * Math.PI * 2 + now * (0.000025 + noiseC * 0.000035);
+                const pull = revealT * (0.08 + noiseB * 0.18) + surgeT * (0.10 + noiseC * 0.22);
+                const radius = diagonal * (0.10 + noiseB * 0.52) * (1 - pull);
+                const drift = Math.sin(now * 0.00034 + i) * diagonal * 0.006;
+                const x = centerX + Math.cos(angle) * radius + Math.cos(angle + Math.PI / 2) * drift;
+                const y = centerY + Math.sin(angle) * radius * (0.68 + noiseC * 0.22) + Math.sin(angle + Math.PI / 2) * drift;
+                const bright = noiseC > 0.82;
+                ctx.globalAlpha = alphaScale * (bright ? 0.18 : 0.07) * (0.70 + surgeT * 0.55);
+                ctx.fillStyle = bright ? '#ffffff' : colorWithAlpha(color, 0.92);
+                ctx.font = `bold ${bright ? 8 : 6}px Courier New`;
+                ctx.fillText(bright ? '+' : '.', x, y);
+            }
+
+            const traceCount = 12;
+            ctx.lineCap = 'round';
+            for (let i = 0; i < traceCount; i++) {
+                const noise = galaxyNoise(5301, i);
+                const angle = (i / traceCount) * Math.PI * 2 + (noise - 0.5) * 0.42;
+                const inner = diagonal * (0.08 + noise * 0.10);
+                const outer = inner + diagonal * (0.10 + surgeT * 0.16);
+                ctx.globalAlpha = alphaScale * (0.025 + surgeT * 0.08) * (0.55 + noise * 0.45);
+                ctx.strokeStyle = i % 3 === 0 ? colorWithAlpha('#ffffff', 0.35) : colorWithAlpha(color, 0.48);
+                ctx.lineWidth = 0.8 + surgeT * 1.2 * noise;
+                ctx.beginPath();
+                ctx.moveTo(centerX + Math.cos(angle) * inner, centerY + Math.sin(angle) * inner);
+                ctx.lineTo(centerX + Math.cos(angle) * outer, centerY + Math.sin(angle) * outer);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
         function drawGalaxyWarpMap(now, targetX, targetY, camera, selectedIndex, progress) {
-            const menuFade = 1 - easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.05) / 0.34)));
+            const fadeT = camera && Number.isFinite(camera.fadeT)
+                ? camera.fadeT
+                : easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.02) / 0.34)));
+            const menuFade = Math.max(0, 1 - fadeT);
             if (menuFade > 0.01) {
                 const snapshot = prepareGalaxyWarpMenuSnapshot(galaxyWarpTransition && galaxyWarpTransition.startedAt ? galaxyWarpTransition.startedAt : now, selectedIndex);
                 ctx.save();
                 ctx.translate(camera.focusX, camera.focusY);
-                ctx.scale(camera.zoom, camera.zoom);
+                ctx.scale(1 + (camera.focusT || 0) * 0.08, 1 + (camera.focusT || 0) * 0.08);
                 ctx.translate(-targetX, -targetY);
-                ctx.globalAlpha = 1;
+                ctx.globalAlpha = menuFade;
                 if (snapshot) ctx.drawImage(snapshot, 0, 0);
                 else drawGalaxySelectBaseLayerDirect(now, selectedIndex);
                 ctx.restore();
-                if (menuFade < 0.99) {
-                    ctx.save();
-                    ctx.globalAlpha = Math.min(0.92, (1 - menuFade) * 0.86);
-                    ctx.fillStyle = '#01040b';
-                    ctx.fillRect(0, 0, width, height);
-                    ctx.restore();
-                }
+            }
+            if (fadeT > 0.001) {
+                ctx.save();
+                ctx.globalAlpha = Math.min(0.88, fadeT * 0.62);
+                ctx.fillStyle = '#01040b';
+                ctx.fillRect(0, 0, width, height);
+                ctx.restore();
             }
             ctx.globalAlpha = 1;
             ctx.globalCompositeOperation = 'source-over';
         }
 
         function drawGalaxyWarpStreaks(now, progress, color, centerX, centerY) {
-            const eased = easeGalaxyWarp(progress);
+            const eased = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.20) / 0.52)));
+            const surgeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.58) / 0.32)));
+            const fadeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.90) / 0.10)));
+            if (eased <= 0.01) return;
             const streakCount = GALAXY_WARP_STREAK_COUNT;
+            const diagonal = Math.max(1, Math.hypot(width, height));
             ctx.save();
             ctx.globalCompositeOperation = 'screen';
             ctx.lineCap = 'round';
             for (let i = 0; i < streakCount; i++) {
                 const noiseA = galaxyNoise(1201, i);
-                const noiseB = galaxyNoise(1409 + i, 3);
-                const angle = (i / streakCount) * Math.PI * 2 + now * 0.00012 + (noiseA - 0.5) * 0.22;
-                const inner = 20 + eased * 18 + noiseB * 64;
-                const length = 36 + eased * (160 + noiseA * 240);
+                const noiseB = galaxyNoise(1409, i);
+                const flow = (now * (0.00008 + surgeT * 0.00020) + noiseB) % 1;
+                const angle = (i / streakCount) * Math.PI * 2 + (noiseA - 0.5) * 0.30;
+                const inner = diagonal * (0.045 + flow * 0.18);
+                const length = diagonal * (0.055 + eased * 0.13 + surgeT * 0.12) * (0.58 + noiseA * 0.62);
                 const outer = inner + length;
                 const sx = centerX + Math.cos(angle) * inner;
                 const sy = centerY + Math.sin(angle) * inner;
                 const ex = centerX + Math.cos(angle) * outer;
                 const ey = centerY + Math.sin(angle) * outer;
-                const alpha = Math.sin(Math.min(1, progress) * Math.PI) * (0.1 + noiseA * 0.32);
+                const alpha = (1 - fadeT * 0.55) * (0.06 + eased * 0.18 + surgeT * 0.16) * (0.35 + noiseA * 0.65);
                 ctx.strokeStyle = i % 5 === 0
-                    ? colorWithAlpha('#ffffff', 0.08 + eased * 0.18)
-                    : colorWithAlpha(color, 0.1 + eased * 0.2);
-                ctx.lineWidth = 0.8 + eased * 2.4 * noiseA;
+                    ? colorWithAlpha('#ffffff', 0.22 + surgeT * 0.16)
+                    : colorWithAlpha(color, 0.20 + surgeT * 0.24);
+                ctx.lineWidth = 0.6 + eased * 1.2 + surgeT * 2.4 * noiseA;
                 ctx.globalAlpha = alpha;
                 ctx.beginPath();
                 ctx.moveTo(sx, sy);
@@ -4663,32 +5420,217 @@
             ctx.globalCompositeOperation = 'source-over';
         }
 
+        function cubicGalaxyWarpPoint(p0, p1, p2, p3, t) {
+            const clamped = Math.max(0, Math.min(1, t));
+            const inv = 1 - clamped;
+            const a = inv * inv * inv;
+            const b = 3 * inv * inv * clamped;
+            const c = 3 * inv * clamped * clamped;
+            const d = clamped * clamped * clamped;
+            return {
+                x: p0.x * a + p1.x * b + p2.x * c + p3.x * d,
+                y: p0.y * a + p1.y * b + p2.y * c + p3.y * d
+            };
+        }
+
+        function getGalaxyWarpShipRouteMode(transition) {
+            const galaxy = getGalaxyWarpSelectedGalaxy(transition && transition.galaxyIndex || 0);
+            const style = galaxy ? getGalaxyRenderStyle(galaxy) : '';
+            return galaxy && (galaxy.mode === 'survivor' || style === 'prismWake')
+                ? 'survivor'
+                : 'campaign';
+        }
+
+        function getGalaxyWarpShipAccentColor(transition, fallback = currentThemeColor) {
+            if (transition && transition.shipColor) return transition.shipColor;
+            const galaxy = getGalaxyWarpSelectedGalaxy(transition && transition.galaxyIndex || 0);
+            return (galaxy && galaxy.colors && galaxy.colors[0]) || fallback || currentThemeColor;
+        }
+
+        function getGalaxyWarpShipLandingTarget(routeMode) {
+            if (routeMode === 'survivor') {
+                const hudH = typeof HUD_HEIGHT === 'number' ? HUD_HEIGHT : 0;
+                return {
+                    x: width / 2,
+                    y: Math.max(90, (height - hudH) * 0.52),
+                    scale: typeof SURVIVOR_PLAYER_RENDER_SCALE === 'number' ? SURVIVOR_PLAYER_RENDER_SCALE : 0.66
+                };
+            }
+            return {
+                x: width / 2,
+                y: height + Math.max(72, height * 0.08),
+                scale: 0.40
+            };
+        }
+
         function getGalaxyWarpShipPose(progress, transition, portalCenter, portalRadius) {
-            const targetX = transition.toX || width / 2;
-            const targetY = transition.toY || height * 0.35;
-            const fromX = Number.isFinite(transition.fromX) ? transition.fromX : targetX - 80;
-            const fromY = Number.isFinite(transition.fromY) ? transition.fromY : targetY + 20;
+            const safeTransition = transition || {};
+            const targetX = safeTransition.toX || width / 2;
+            const targetY = safeTransition.toY || height * 0.35;
+            const fromX = Number.isFinite(safeTransition.fromX) ? safeTransition.fromX : targetX - 80;
+            const fromY = Number.isFinite(safeTransition.fromY) ? safeTransition.fromY : targetY + 20;
             const centerX = portalCenter.x;
             const centerY = portalCenter.y;
-            const angleFromCenter = Math.atan2(fromY - centerY, fromX - centerX);
-            const entryDistance = Math.max(58, portalRadius * 0.58);
-            const entryX = centerX + Math.cos(angleFromCenter) * entryDistance;
-            const entryY = centerY + Math.sin(angleFromCenter) * entryDistance * 0.72;
-            const driftT = easeGalaxyWarp(Math.max(0, Math.min(1, progress / 0.46)));
-            const dashT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.42) / 0.25)));
-            const lockT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.64) / 0.18)));
-            const orbit = Math.sin(progress * Math.PI * 3.8) * (1 - dashT) * 10;
-            let x = lerpGalaxyWarp(fromX, entryX, driftT);
-            let y = lerpGalaxyWarp(fromY, entryY, driftT);
-            const nx = -Math.sin(angleFromCenter);
-            const ny = Math.cos(angleFromCenter);
-            x += nx * orbit;
-            y += ny * orbit;
-            x = lerpGalaxyWarp(x, centerX, dashT);
-            y = lerpGalaxyWarp(y, centerY, dashT);
-            x = lerpGalaxyWarp(x, centerX, lockT);
-            y = lerpGalaxyWarp(y, centerY, lockT);
-            return { x, y, entryX, entryY, centerX, centerY, dashT, driftT, lockT };
+            const routeMode = getGalaxyWarpShipRouteMode(safeTransition);
+            const landing = getGalaxyWarpShipLandingTarget(routeMode);
+            const side = fromX < landing.x ? -1 : 1;
+            const travelT = easeGalaxyWarp(Math.max(0, Math.min(1, progress / 0.96)));
+            let p1;
+            let p2;
+
+            if (routeMode === 'survivor') {
+                const parkDrop = Math.max(90, Math.min(210, height * 0.18));
+                p1 = {
+                    x: lerpGalaxyWarp(fromX, centerX - side * Math.min(width * 0.16, Math.max(70, portalRadius * 0.16)), 0.55),
+                    y: Math.max(fromY, centerY + parkDrop * 0.58)
+                };
+                p2 = {
+                    x: landing.x,
+                    y: landing.y + parkDrop
+                };
+            } else {
+                p1 = {
+                    x: centerX + (fromX - centerX) * 0.42 - side * Math.min(width * 0.10, Math.max(56, portalRadius * 0.10)),
+                    y: centerY + (fromY - centerY) * 0.22
+                };
+                p2 = {
+                    x: landing.x,
+                    y: Math.max(height * 0.64, centerY + Math.min(height * 0.24, Math.max(90, portalRadius * 0.12)))
+                };
+            }
+
+            const p0 = { x: fromX, y: fromY };
+            const p3 = { x: landing.x, y: landing.y };
+            const point = cubicGalaxyWarpPoint(p0, p1, p2, p3, travelT);
+            const driftT = easeGalaxyWarp(Math.max(0, Math.min(1, progress / 0.42)));
+            const commitT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.34) / 0.38)));
+            const plungeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.66) / 0.28)));
+            const pathPulse = Math.sin(progress * Math.PI * 2.2) * (1 - commitT) * Math.min(10, portalRadius * 0.035);
+            const dx = p3.x - p0.x;
+            const dy = p3.y - p0.y;
+            const dist = Math.max(1, Math.hypot(dx, dy));
+            const nx = -dy / dist;
+            const ny = dx / dist;
+            const x = point.x + nx * pathPulse;
+            const y = point.y + ny * pathPulse;
+            return {
+                x,
+                y,
+                entryX: p1.x,
+                entryY: p1.y,
+                commitX: p2.x,
+                commitY: p2.y,
+                centerX,
+                centerY,
+                finalX: p3.x,
+                finalY: p3.y,
+                finalScale: landing.scale,
+                routeMode,
+                dashT: commitT,
+                driftT,
+                commitT,
+                lockT: plungeT,
+                plungeT,
+                travelT
+            };
+        }
+
+        function drawGalaxyWarpShipExhaust(progress, transition, color, pose, rot, scale, fade, portalCenter, portalRadius) {
+            const routeMode = pose.routeMode || getGalaxyWarpShipRouteMode(transition);
+            const galaxy = getGalaxyWarpSelectedGalaxy(transition && transition.galaxyIndex || 0);
+            const galaxyColors = galaxy && galaxy.colors ? galaxy.colors : [color, currentThemeColor, '#8ff7ff'];
+            const shipAccent = getGalaxyWarpShipAccentColor(transition, color);
+            const ionColors = [
+                shipAccent,
+                galaxyColors[1],
+                galaxyColors[2],
+                color,
+                routeMode === 'survivor' ? '#9bffcf' : '#8ff7ff',
+                routeMode === 'survivor' ? '#ff8fd8' : '#fff4b8'
+            ].filter(Boolean);
+            const speedT = Math.max(0, Math.min(1, pose.commitT * 0.55 + pose.plungeT * 0.65 + pose.travelT * 0.40));
+            const engineAlpha = fade * (0.38 + speedT * 0.62);
+            if (engineAlpha <= 0.01) return;
+
+            const behindX = -Math.sin(rot);
+            const behindY = Math.cos(rot);
+            const sideX = Math.cos(rot);
+            const sideY = Math.sin(rot);
+            const engineX = pose.x + behindX * (17 * scale + 6 + speedT * 7);
+            const engineY = pose.y + behindY * (17 * scale + 6 + speedT * 7);
+            const particleChars = typeof EXHAUST_PARTICLE_CHARS !== 'undefined' ? EXHAUST_PARTICLE_CHARS : ['*', '+', '.', ':'];
+            const moteChars = ['.', ':', '+', '*'];
+            const trailWindow = routeMode === 'survivor'
+                ? (0.20 + speedT * 0.12)
+                : (0.16 + speedT * 0.10);
+            const effectQuality = typeof getVisualQualityScale === 'function' ? getVisualQualityScale('effects') : 1;
+            const particleCount = Math.max(10, Math.round((routeMode === 'survivor' ? 22 : 18) * effectQuality));
+
+            if (progress < 0.36 && pauseMenuShipCursor && pauseMenuShipCursor.trail && pauseMenuShipCursor.trail.length) {
+                drawPauseMenuShipTrail(0.016, 1 - easeGalaxyWarp(progress / 0.36), {
+                    ionize: true,
+                    color,
+                    ionColors
+                });
+            }
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const coreRadius = 26 + speedT * 32;
+            const core = ctx.createRadialGradient(engineX, engineY, 0, engineX, engineY, coreRadius);
+            core.addColorStop(0, colorWithAlpha('#ffffff', 0.20 * engineAlpha));
+            core.addColorStop(0.24, colorWithAlpha('#fff4b8', 0.16 * engineAlpha));
+            core.addColorStop(0.52, colorWithAlpha(ionColors[0] || color, 0.12 * engineAlpha));
+            core.addColorStop(0.72, colorWithAlpha(ionColors[1] || color, 0.08 * engineAlpha));
+            core.addColorStop(1, colorWithAlpha(color, 0));
+            ctx.fillStyle = core;
+            ctx.globalAlpha = 1;
+            ctx.beginPath();
+            ctx.arc(engineX, engineY, coreRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            for (let i = 0; i < particleCount; i++) {
+                const age = i / Math.max(1, particleCount - 1);
+                const sampleProgress = Math.max(0, progress - age * trailWindow);
+                const sampleCenter = getGalaxyWarpPortalCenter(sampleProgress, transition.toX || width / 2, transition.toY || height * 0.35);
+                const sampleRadius = getGalaxyWarpPortalRadius(sampleProgress, transition.galaxyIndex || 0);
+                const samplePose = getGalaxyWarpShipPose(sampleProgress, transition, sampleCenter, sampleRadius);
+                const noiseA = galaxyNoise(8101 + (transition.galaxyIndex || 0) * 17, i + Math.floor(progress * 420));
+                const noiseB = galaxyNoise(8123 + (transition.galaxyIndex || 0) * 19, i);
+                const lane = (noiseA - 0.5) * (9 + age * 42 + speedT * 18);
+                const back = 10 + age * (34 + speedT * 86) + noiseB * 18;
+                const px = samplePose.x + behindX * back + sideX * lane;
+                const py = samplePose.y + behindY * back + sideY * lane;
+                const life = Math.max(0, 1 - age);
+                const fieldMote = age > 0.50 && i % 3 === 0;
+                const hotFleck = age < 0.34 && i % 4 !== 0;
+                const alpha = engineAlpha * life * life * (fieldMote ? 0.32 : 0.60);
+                if (alpha <= 0.006) continue;
+                const charList = fieldMote ? moteChars : particleChars;
+                const char = charList[(i + Math.floor(progress * 97)) % charList.length];
+                const fontSize = Math.max(5, (fieldMote ? 6 : 8) + life * (8 + speedT * 5) + noiseB * 4);
+                const themedColor = ionColors[(i + Math.floor(age * 8)) % Math.max(1, ionColors.length)] || color;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = i % 7 === 0
+                    ? '#ffffff'
+                    : colorWithAlpha(hotFleck ? '#fff4b8' : themedColor, fieldMote ? 0.72 : 0.94);
+                if (glowEnabled) {
+                    ctx.shadowColor = ctx.fillStyle;
+                    ctx.shadowBlur = (fieldMote ? 3 : 6) + life * (fieldMote ? 5 : 9);
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+                ctx.font = `bold ${fontSize}px Courier New`;
+                ctx.fillText(char, px | 0, py | 0);
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = 'source-over';
         }
 
         function drawGalaxyWarpShip(progress, transition, color, portalCenter, portalRadius) {
@@ -4699,35 +5641,17 @@
             const previousPose = getGalaxyWarpShipPose(previousProgress, transition, previousCenter, previousRadius);
             const travelRot = Math.atan2(pose.y - previousPose.y, pose.x - previousPose.x) + Math.PI / 2;
             const fromRot = Number.isFinite(transition.fromRot) ? transition.fromRot : travelRot;
-            const turnT = easeGalaxyWarp(Math.min(1, progress / 0.32));
+            const turnT = easeGalaxyWarp(Math.min(1, progress / 0.42));
             const rot = fromRot + normalizePauseCursorAngle(travelRot - fromRot) * turnT;
-            const fade = Math.max(0, Math.min(1, (0.88 - progress) / 0.18));
+            const fade = 1 - easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.90) / 0.10)));
             const startScale = Number.isFinite(transition.fromScale) ? transition.fromScale : 0.24;
-            const scale = startScale * (1 + pose.driftT * 0.18 + pose.dashT * 0.68) * (0.72 + fade * 0.28);
+            const targetScale = pose.routeMode === 'survivor'
+                ? Math.max(startScale, pose.finalScale || startScale * 2.35)
+                : startScale * (1.18 + pose.travelT * 0.82);
+            const scale = lerpGalaxyWarp(startScale, targetScale, easeGalaxyWarp(Math.min(1, progress / 0.92))) * (0.72 + fade * 0.28);
+            const shipAccent = getGalaxyWarpShipAccentColor(transition, color);
 
-            ctx.save();
-            ctx.globalCompositeOperation = 'screen';
-            ctx.lineCap = 'round';
-            const trailSteps = 14;
-            for (let i = 0; i < trailSteps; i++) {
-                const t = i / Math.max(1, trailSteps - 1);
-                const sampleProgress = Math.max(0, progress - (1 - t) * (0.28 + pose.dashT * 0.14));
-                const sampleCenter = getGalaxyWarpPortalCenter(sampleProgress, transition.toX || width / 2, transition.toY || height * 0.35);
-                const sampleRadius = getGalaxyWarpPortalRadius(sampleProgress, transition.galaxyIndex || 0);
-                const samplePose = getGalaxyWarpShipPose(sampleProgress, transition, sampleCenter, sampleRadius);
-                const trailAlpha = fade * (0.02 + t * 0.17) * (0.75 + pose.dashT * 0.55);
-                ctx.globalAlpha = trailAlpha;
-                ctx.strokeStyle = i % 3 === 0 ? colorWithAlpha('#ffffff', 0.38) : colorWithAlpha(color, 0.56);
-                ctx.lineWidth = 0.8 + t * (2.6 + pose.dashT * 3.4);
-                ctx.beginPath();
-                ctx.moveTo(samplePose.x, samplePose.y);
-                ctx.lineTo(
-                    samplePose.x - Math.cos(rot - Math.PI / 2) * (18 + t * (56 + pose.dashT * 120)),
-                    samplePose.y - Math.sin(rot - Math.PI / 2) * (18 + t * (56 + pose.dashT * 120))
-                );
-                ctx.stroke();
-            }
-            ctx.restore();
+            drawGalaxyWarpShipExhaust(progress, transition, shipAccent, pose, rot, scale, fade, portalCenter, portalRadius);
 
             if (fade <= 0.01) return;
             ctx.save();
@@ -4744,7 +5668,7 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#f6fbff';
-            ctx.shadowColor = color;
+            ctx.shadowColor = shipAccent;
             ctx.shadowBlur = glowEnabled ? 18 : 0;
             drawPlayerShip(PAUSE_CURSOR_SHIP, 'center');
             ctx.restore();
@@ -4752,25 +5676,106 @@
             ctx.shadowBlur = 0;
         }
 
+        function drawGalaxyWarpEntryAperture(now, progress, transition, color, portalCenter, portalRadius, foreground = false) {
+            const enterT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.66) / 0.20)));
+            const igniteT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.74) / 0.14)));
+            const fadeT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.94) / 0.06)));
+            const amount = enterT * (1 - fadeT * 0.75);
+            if (amount <= 0.01) return;
+
+            const selectedIndex = transition.galaxyIndex || 0;
+            const galaxy = getGalaxyWarpSelectedGalaxy(selectedIndex);
+            const colors = galaxy && galaxy.colors ? galaxy.colors : [color, '#ffffff'];
+            const accentA = colors[0] || color;
+            const accentB = colors[1] || color;
+            const accentC = colors[2] || '#ffffff';
+            const pose = getGalaxyWarpShipPose(progress, transition, portalCenter, portalRadius);
+            const lockT = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.72) / 0.18)));
+            const gateX = lerpGalaxyWarp(pose.x, portalCenter.x, 0.34 + lockT * 0.46);
+            const gateY = lerpGalaxyWarp(pose.y, portalCenter.y, 0.34 + lockT * 0.46);
+            const apertureR = Math.max(48, Math.min(Math.max(width, height) * 0.24, portalRadius * (0.12 + igniteT * 0.075)));
+            const spin = now * 0.0011;
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.lineCap = 'round';
+
+            if (!foreground) {
+                const bloom = ctx.createRadialGradient(gateX, gateY, 0, gateX, gateY, apertureR * (2.1 + igniteT * 0.5));
+                bloom.addColorStop(0, colorWithAlpha('#ffffff', amount * (0.18 + igniteT * 0.10)));
+                bloom.addColorStop(0.18, colorWithAlpha(accentC, amount * 0.14));
+                bloom.addColorStop(0.38, colorWithAlpha(accentB, amount * 0.12));
+                bloom.addColorStop(1, colorWithAlpha(accentA, 0));
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = bloom;
+                ctx.fillRect(0, 0, width, height);
+
+                const core = ctx.createRadialGradient(gateX, gateY, 0, gateX, gateY, apertureR * 0.68);
+                core.addColorStop(0, colorWithAlpha('#ffffff', amount * (0.28 + igniteT * 0.16)));
+                core.addColorStop(0.36, colorWithAlpha(accentC, amount * 0.16));
+                core.addColorStop(1, colorWithAlpha(accentB, 0));
+                ctx.fillStyle = core;
+                ctx.beginPath();
+                ctx.arc(gateX, gateY, apertureR * 0.72, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const ringAlpha = amount * (foreground ? 0.22 : 0.13) * (0.78 + igniteT * 0.36);
+            for (let ring = 0; ring < 3; ring++) {
+                const ringT = ring / 2;
+                const ringR = apertureR * (0.54 + ringT * 0.38 + igniteT * 0.05);
+                ctx.globalAlpha = ringAlpha * (1 - ringT * 0.25);
+                ctx.strokeStyle = colorWithAlpha(ring === 1 ? accentC : (ring ? accentB : accentA), 0.62);
+                ctx.lineWidth = Math.max(1, apertureR * (0.006 + ringT * 0.003));
+                ctx.beginPath();
+                ctx.ellipse(gateX, gateY, ringR * (1.0 + ringT * 0.10), ringR * (0.54 + ringT * 0.07), spin * (ring % 2 ? -0.7 : 0.9) + ringT * 0.62, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            if (foreground && igniteT > 0.05) {
+                const tickCount = 12;
+                const tickR = apertureR * (0.50 + igniteT * 0.12);
+                for (let i = 0; i < tickCount; i++) {
+                    const noise = galaxyNoise(8101, i);
+                    const angle = (i / tickCount) * Math.PI * 2 + spin * 0.72 + (noise - 0.5) * 0.10;
+                    const inner = tickR * (0.88 + noise * 0.05);
+                    const outer = inner + apertureR * (0.08 + noise * 0.05);
+                    ctx.globalAlpha = amount * igniteT * (0.10 + noise * 0.16);
+                    ctx.strokeStyle = i % 4 === 0 ? colorWithAlpha('#ffffff', 0.68) : colorWithAlpha(accentB, 0.62);
+                    ctx.lineWidth = 1 + noise * 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(gateX + Math.cos(angle) * inner, gateY + Math.sin(angle) * inner * 0.68);
+                    ctx.lineTo(gateX + Math.cos(angle) * outer, gateY + Math.sin(angle) * outer * 0.68);
+                    ctx.stroke();
+                }
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
         function drawGalaxyWarpFlash(progress, color, centerX, centerY) {
-            const ringT = Math.max(0, Math.min(1, (progress - 0.42) / 0.46));
-            const flashT = Math.max(0, Math.min(1, (progress - 0.72) / 0.22));
+            const ringT = Math.max(0, Math.min(1, (progress - 0.50) / 0.42));
+            const flashT = Math.max(0, Math.min(1, (progress - 0.80) / 0.18));
             ctx.save();
             ctx.globalCompositeOperation = 'screen';
             if (ringT > 0) {
-                const radius = 24 + ringT * Math.max(width, height) * 0.42;
-                ctx.globalAlpha = Math.sin(ringT * Math.PI) * 0.34;
+                const easedRing = easeGalaxyWarp(ringT);
+                const radius = 28 + easedRing * Math.max(width, height) * 0.48;
+                ctx.globalAlpha = Math.sin(ringT * Math.PI) * 0.24;
                 ctx.strokeStyle = colorWithAlpha(color, 0.65);
-                ctx.lineWidth = 3 + ringT * 12;
+                ctx.lineWidth = 2 + easedRing * 10;
                 ctx.beginPath();
-                ctx.ellipse(centerX, centerY, radius * 1.15, radius * 0.46, Math.sin(progress * Math.PI * 2) * 0.38, 0, Math.PI * 2);
+                ctx.ellipse(centerX, centerY, radius * 1.16, radius * 0.44, Math.sin(progress * Math.PI * 2) * 0.32, 0, Math.PI * 2);
                 ctx.stroke();
             }
             if (flashT > 0) {
-                const glow = ctx.createRadialGradient(centerX, centerY, 4, centerX, centerY, Math.max(width, height) * 0.72);
-                glow.addColorStop(0, colorWithAlpha('#ffffff', 0.28 * flashT));
-                glow.addColorStop(0.22, colorWithAlpha(color, 0.22 * flashT));
-                glow.addColorStop(0.72, colorWithAlpha('#6aa8ff', 0.07 * flashT));
+                const easedFlash = easeGalaxyWarp(flashT);
+                const glow = ctx.createRadialGradient(centerX, centerY, 4, centerX, centerY, Math.max(width, height) * 0.76);
+                glow.addColorStop(0, colorWithAlpha('#ffffff', 0.24 * easedFlash));
+                glow.addColorStop(0.22, colorWithAlpha(color, 0.20 * easedFlash));
+                glow.addColorStop(0.72, colorWithAlpha('#6aa8ff', 0.06 * easedFlash));
                 glow.addColorStop(1, colorWithAlpha('#ffffff', 0));
                 ctx.fillStyle = glow;
                 ctx.globalAlpha = 1;
@@ -4841,9 +5846,12 @@
             drawGalaxyWarpMap(now, targetX, targetY, camera, transition.galaxyIndex || 0, progress);
             ctx.restore();
 
+            drawGalaxyWarpVoidBackdrop(now, progress, color, focalPoint.x, focalPoint.y);
             drawGalaxyWarpPortal(now, progress, transition.galaxyIndex || 0, color, focalPoint.x, focalPoint.y);
             drawGalaxyWarpStreaks(now, progress, color, focalPoint.x, focalPoint.y);
+            drawGalaxyWarpEntryAperture(now, progress, transition, color, focalPoint, portalRadius, false);
             drawGalaxyWarpShip(progress, transition, color, focalPoint, portalRadius);
+            drawGalaxyWarpEntryAperture(now, progress, transition, color, focalPoint, portalRadius, true);
             drawGalaxyWarpFlash(progress, color, focalPoint.x, focalPoint.y);
             const handoffStart = typeof GALAXY_WARP_HANDOFF_START === 'number' ? GALAXY_WARP_HANDOFF_START : 0.66;
             const handoffT = Math.max(0, Math.min(1, (progress - handoffStart) / Math.max(0.001, 1 - handoffStart)));
@@ -4857,6 +5865,261 @@
             const alpha = 1 - easeGalaxyWarp(elapsed / GALAXY_WARP_OUTRO_FADE);
             const color = galaxyWarpTransition.color || currentThemeColor;
             drawGalaxyWarpHandoffVeil(alpha, color, width / 2, height / 2, now);
+        }
+
+        function getTerminalDockMetrics(index) {
+            const galaxyIndex = Number.isFinite(index) ? index : selectedGalaxyIndex;
+            const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [getGalaxyDefinition(0)];
+            const galaxy = galaxies[galaxyIndex] || galaxies[0];
+            const slot = getGalaxySelectSlot(galaxyIndex);
+            const radius = getGalaxySelectRenderRadius(galaxyIndex, true);
+            return { galaxyIndex, galaxy, slot, radius };
+        }
+
+        function getTerminalDockShipPose(progress, transition, metrics) {
+            const phase = transition && transition.phase === 'exit' ? 'exit' : 'enter';
+            const t = easeGalaxyWarp(Math.max(0, Math.min(1, progress)));
+            const slot = metrics.slot;
+            const radius = metrics.radius;
+            let start;
+            let p1;
+            let p2;
+            let end;
+            let scale;
+            let alpha;
+
+            if (phase === 'exit') {
+                start = { x: slot.x + radius * 0.30, y: slot.y + radius * 0.02 };
+                p1 = { x: slot.x + radius * 0.62, y: slot.y - radius * 0.08 };
+                p2 = { x: slot.x + radius * 1.32, y: slot.y - radius * 0.38 };
+                end = {
+                    x: Math.min(width - 54, slot.x + radius * 1.98),
+                    y: Math.max(100, slot.y - radius * 0.44)
+                };
+                scale = lerpGalaxyWarp(0.11, 0.25, easeGalaxyWarp(Math.min(1, progress / 0.82)));
+                alpha = easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.10) / 0.26)));
+            } else {
+                start = {
+                    x: Number.isFinite(transition && transition.fromX) ? transition.fromX : slot.x - radius * 1.55,
+                    y: Number.isFinite(transition && transition.fromY) ? transition.fromY : slot.y
+                };
+                p1 = { x: start.x + radius * 0.50, y: start.y - radius * 0.08 };
+                p2 = { x: slot.x - radius * 1.12, y: slot.y + radius * 0.10 };
+                end = { x: slot.x - radius * 0.34, y: slot.y };
+                const fromScale = Number.isFinite(transition && transition.fromScale) ? transition.fromScale : 0.23;
+                scale = lerpGalaxyWarp(fromScale, 0.11, easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.58) / 0.28))));
+                alpha = 1 - easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.82) / 0.16)));
+            }
+
+            const point = cubicGalaxyWarpPoint(start, p1, p2, end, t);
+            const sampleT = Math.max(0, t - 0.02);
+            const previous = cubicGalaxyWarpPoint(start, p1, p2, end, sampleT);
+            const travelRot = Math.atan2(point.y - previous.y, point.x - previous.x) + Math.PI / 2;
+            const fromRot = Number.isFinite(transition && transition.fromRot) ? transition.fromRot : travelRot;
+            const rotBlend = phase === 'exit'
+                ? easeGalaxyWarp(Math.min(1, progress / 0.26))
+                : easeGalaxyWarp(Math.min(1, progress / 0.42));
+            const rot = fromRot + normalizePauseCursorAngle(travelRot - fromRot) * rotBlend;
+            return {
+                x: point.x,
+                y: point.y,
+                rot,
+                scale,
+                alpha,
+                phase,
+                t,
+                start,
+                p1,
+                p2,
+                end
+            };
+        }
+
+        function drawTerminalDockWake(pose, transition, metrics, color, now) {
+            const alphaBase = Math.max(0, Math.min(1, pose.alpha || 0));
+            if (alphaBase <= 0.01) return;
+
+            const lastNow = Number.isFinite(transition._trailLastNow)
+                ? transition._trailLastNow
+                : now - 16;
+            const dt = Math.min(0.05, Math.max(0.001, (now - lastNow) / 1000));
+            transition._trailLastNow = now;
+
+            const sampleT = Math.max(0, Math.min(1, (pose.t || 0) - 0.018));
+            const previous = cubicGalaxyWarpPoint(pose.start, pose.p1, pose.p2, pose.end, sampleT);
+            const frameSpeed = Math.hypot(pose.x - previous.x, pose.y - previous.y) / Math.max(0.001, dt);
+            const speedRatio = Math.min(0.58, Math.max(0.08, frameSpeed / 420));
+            const cursor = {
+                x: pose.x,
+                y: pose.y,
+                rot: pose.rot,
+                scale: pose.scale,
+                speed: frameSpeed,
+                dt
+            };
+
+            drawPauseMenuShipTrail(dt, alphaBase);
+            emitPauseMenuShipExhaustTrail(cursor, now, speedRatio * 0.75, 0.46, GALAXY_CURSOR_TRAIL_MAX);
+        }
+
+        function drawTerminalDockGate(metrics, progress, phase, color, now) {
+            const slot = metrics.slot;
+            const radius = metrics.radius;
+            const side = phase === 'exit' ? 1 : -1;
+            const pulse = 0.5 + Math.sin(now * 0.006) * 0.5;
+            const openT = phase === 'exit'
+                ? easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.08) / 0.30)))
+                : 1 - easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.72) / 0.22)));
+            const gateX = slot.x + side * radius * 0.42;
+            const gateY = slot.y;
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.lineCap = 'round';
+            ctx.globalAlpha = 0.18 + pulse * 0.12;
+            ctx.strokeStyle = colorWithAlpha(color, 0.78);
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(gateX, gateY - radius * (0.36 + openT * 0.08));
+            ctx.lineTo(gateX, gateY + radius * (0.36 + openT * 0.08));
+            ctx.stroke();
+
+            const arcW = radius * (0.34 + openT * 0.18);
+            ctx.globalAlpha = 0.12 + openT * 0.22;
+            ctx.beginPath();
+            ctx.ellipse(gateX, gateY, arcW, radius * 0.31, 0, -Math.PI * 0.5, Math.PI * 0.5);
+            ctx.stroke();
+
+            for (let i = 0; i < 6; i++) {
+                const n = galaxyNoise(9401, i + Math.floor(now * 0.018));
+                ctx.globalAlpha = (0.04 + openT * 0.12) * (0.55 + n * 0.45);
+                ctx.fillStyle = i % 3 === 0 ? '#ffffff' : color;
+                ctx.font = `bold ${6 + (i % 2) * 2}px Courier New`;
+                ctx.fillText(i % 2 ? '+' : '.', gateX + side * (8 + n * radius * 0.20), gateY + (n - 0.5) * radius * 0.68);
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.shadowBlur = 0;
+        }
+
+        function drawTerminalDockShip(pose, transition, color) {
+            if (pose.alpha <= 0.01) return;
+            const shipConfig = typeof PLAYER_SHIP_TYPES !== 'undefined'
+                ? PLAYER_SHIP_TYPES[transition.shipIndex] || getSelectedShipConfig()
+                : getSelectedShipConfig();
+            ctx.save();
+            ctx.globalAlpha = pose.alpha;
+            ctx.translate(pose.x, pose.y);
+            ctx.rotate(pose.rot);
+            ctx.scale(pose.scale, pose.scale);
+            PAUSE_CURSOR_SHIP.x = 0;
+            PAUSE_CURSOR_SHIP.y = 0;
+            PAUSE_CURSOR_SHIP.vx = 0;
+            PAUSE_CURSOR_SHIP.vy = 0;
+            PAUSE_CURSOR_SHIP.shipId = shipConfig && shipConfig.id ? shipConfig.id : 'arrowhead';
+            PAUSE_CURSOR_SHIP._renderLayoutCache = null;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = shipConfig && shipConfig.previewColor ? shipConfig.previewColor : '#f6fbff';
+            ctx.shadowColor = color;
+            ctx.shadowBlur = glowEnabled ? 16 : 0;
+            drawPlayerShip(PAUSE_CURSOR_SHIP, 'center');
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+        }
+
+        function getTerminalDockFocus(progress, phase) {
+            const focusIn = phase === 'exit'
+                ? 1 - easeGalaxyWarp(Math.max(0, Math.min(1, (progress - 0.74) / 0.24)))
+                : easeGalaxyWarp(Math.max(0, Math.min(1, progress / 0.72)));
+            const peak = phase === 'exit' ? 0.095 : 0.125;
+            return {
+                t: focusIn,
+                scale: 1 + focusIn * peak,
+                dim: focusIn * (phase === 'exit' ? 0.34 : 0.42),
+                bloom: focusIn * (phase === 'exit' ? 0.18 : 0.24)
+            };
+        }
+
+        function drawTerminalDockFocusField(metrics, progress, phase, color, now, focus) {
+            const amount = Math.max(0, Math.min(1, focus.t || 0));
+            if (amount <= 0.01) return;
+            const slot = metrics.slot;
+            const radius = metrics.radius;
+            const pulse = 0.5 + Math.sin(now * 0.0048) * 0.5;
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = colorWithAlpha('#01040b', focus.dim);
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.globalCompositeOperation = 'screen';
+            const bloomRadius = radius * (2.0 + amount * 1.85);
+            const bloom = ctx.createRadialGradient(slot.x, slot.y, radius * 0.12, slot.x, slot.y, bloomRadius);
+            bloom.addColorStop(0, colorWithAlpha('#ffffff', focus.bloom * 0.38));
+            bloom.addColorStop(0.26, colorWithAlpha(color, focus.bloom));
+            bloom.addColorStop(0.68, colorWithAlpha('#8ff7ff', focus.bloom * 0.22));
+            bloom.addColorStop(1, colorWithAlpha(color, 0));
+            ctx.fillStyle = bloom;
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.lineCap = 'round';
+            for (let i = 0; i < 12; i++) {
+                const n = galaxyNoise(9701 + metrics.galaxyIndex * 13, i);
+                const angle = (i / 12) * Math.PI * 2 + now * 0.00022 * (i % 2 ? -1 : 1);
+                const inner = radius * (0.74 + n * 0.32 + amount * 0.12);
+                const outer = inner + radius * (0.18 + amount * 0.34) * (0.45 + n);
+                ctx.globalAlpha = amount * (0.026 + pulse * 0.018) * (0.55 + n * 0.45);
+                ctx.strokeStyle = i % 4 === 0 ? colorWithAlpha('#ffffff', 0.38) : colorWithAlpha(color, 0.52);
+                ctx.lineWidth = 0.8 + amount * 1.2 * n;
+                ctx.beginPath();
+                ctx.moveTo(slot.x + Math.cos(angle) * inner, slot.y + Math.sin(angle) * inner * 0.62);
+                ctx.lineTo(slot.x + Math.cos(angle) * outer, slot.y + Math.sin(angle) * outer * 0.62);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        function drawTerminalDockTransition(now) {
+            const transition = terminalDockTransition || {};
+            const phase = transition.phase === 'exit' ? 'exit' : 'enter';
+            const duration = phase === 'exit'
+                ? (typeof TERMINAL_DOCK_EXIT_DURATION === 'number' ? TERMINAL_DOCK_EXIT_DURATION : 1.02)
+                : (typeof TERMINAL_DOCK_ENTER_DURATION === 'number' ? TERMINAL_DOCK_ENTER_DURATION : 1.05);
+            const progress = Math.max(0, Math.min(1, ((now || performance.now()) - (transition.startedAt || now || performance.now())) / 1000 / duration));
+            const metrics = getTerminalDockMetrics(transition.galaxyIndex);
+            const color = transition.color || (metrics.galaxy && metrics.galaxy.colors && metrics.galaxy.colors[0]) || '#8ff7ff';
+            const selectedIndex = Number.isFinite(transition.galaxyIndex) ? transition.galaxyIndex : selectedGalaxyIndex;
+            const focus = getTerminalDockFocus(progress, phase);
+
+            drawGalaxySelectBaseLayerDirect(now, selectedIndex);
+            drawTerminalDockFocusField(metrics, progress, phase, color, now, focus);
+
+            const pose = getTerminalDockShipPose(progress, transition, metrics);
+            ctx.save();
+            ctx.translate(metrics.slot.x, metrics.slot.y);
+            ctx.scale(focus.scale, focus.scale);
+            ctx.translate(-metrics.slot.x, -metrics.slot.y);
+            drawTerminalDockWake(pose, transition, metrics, color, now);
+            drawTerminalDockShip(pose, transition, color);
+
+            drawTerminalDockGate(metrics, progress, phase, color, now);
+            drawGalaxyGlyphSprite(metrics.galaxy, metrics.slot.x, metrics.slot.y, metrics.radius, true, now, metrics.galaxyIndex);
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = Math.sin(progress * Math.PI) * 0.07;
+            ctx.fillStyle = colorWithAlpha(color, 0.56);
+            ctx.fillRect(0, 0, width, height);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
         }
 
         function formatRunDuration(seconds) {
@@ -4877,6 +6140,7 @@
             const panelH = Math.min(height * 0.52, 330);
             const panelX = centerX - panelW / 2;
             const panelY = centerY - panelH / 2 - Math.min(24, height * 0.03);
+            const backdrop = getBossCameraOverscanRect();
 
             ctx.save();
             const veil = ctx.createRadialGradient(centerX, centerY, Math.max(8, panelW * 0.12), centerX, centerY, Math.max(width, height) * 0.74);
@@ -4884,25 +6148,25 @@
             veil.addColorStop(0.46, 'rgba(4, 8, 18, 0.72)');
             veil.addColorStop(1, 'rgba(1, 3, 8, 0.9)');
             ctx.fillStyle = veil;
-            ctx.fillRect(0, 0, width, height);
+            ctx.fillRect(backdrop.x, backdrop.y, backdrop.w, backdrop.h);
 
             const wash = ctx.createLinearGradient(0, panelY, 0, panelY + panelH);
             wash.addColorStop(0, colorWithAlpha(dangerColor, 0.08));
             wash.addColorStop(0.5, colorWithAlpha('#0a1026', 0.08));
             wash.addColorStop(1, colorWithAlpha(deepDanger, 0.12));
             ctx.fillStyle = wash;
-            ctx.fillRect(0, 0, width, height);
+            ctx.fillRect(backdrop.x, backdrop.y, backdrop.w, backdrop.h);
 
             ctx.globalCompositeOperation = 'screen';
             ctx.lineWidth = 1;
             for (let i = 0; i < 24; i++) {
                 const y = panelY - 82 + i * 15 + Math.sin(now * 0.002 + i) * 2;
-                if (y < 0 || y > height) continue;
+                if (y < backdrop.y || y > backdrop.y + backdrop.h) continue;
                 ctx.globalAlpha = 0.018 + (i % 5 === 0 ? 0.026 : 0);
                 ctx.strokeStyle = i % 5 === 0 ? '#ffffff' : dangerColor;
                 ctx.beginPath();
-                ctx.moveTo(width * 0.18, y);
-                ctx.lineTo(width * 0.82, y);
+                ctx.moveTo(backdrop.x + backdrop.w * 0.18, y);
+                ctx.lineTo(backdrop.x + backdrop.w * 0.82, y);
                 ctx.stroke();
             }
 
@@ -4938,13 +6202,11 @@
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.font = `bold 11px 'Electrolize', sans-serif`;
-            ctx.fillStyle = colorWithAlpha('#ffd6e4', 0.76);
-            ctx.fillText('FLIGHT RECORDER // SIGNAL LOST', centerX, panelY + 33);
 
-            const titleY = panelY + panelH * 0.33;
+            const titleY = panelY + panelH * 0.30;
             const titleText = 'YOU DIED';
-            ctx.font = `bold ${Math.max(38, Math.min(68, width * 0.066))}px 'Electrolize', sans-serif`;
+            const titleSize = Math.max(38, Math.min(68, width * 0.066));
+            ctx.font = `bold ${titleSize}px 'Electrolize', sans-serif`;
             ctx.lineJoin = 'round';
             ctx.globalAlpha = 0.86;
             ctx.strokeStyle = 'rgba(2, 4, 12, 0.95)';
@@ -4961,14 +6223,73 @@
             ctx.fillText(titleText, centerX, titleY);
             ctx.shadowBlur = 0;
 
-            ctx.font = `bold 13px 'Electrolize', sans-serif`;
-            ctx.fillStyle = colorWithAlpha(mixColor(currentThemeColor, '#ffffff', 0.48), 0.86);
-            ctx.fillText('RUN TERMINATED - BLACK BOX PARTIAL', centerX, titleY + 45);
+            const hint = currentHint || 'Flight Advisory: Avoid hostile projectiles before impact.';
+            const hintText = String(hint);
+            const hintColon = hintText.indexOf(':');
+            const hintTitle = (hintColon > 0 ? hintText.slice(0, hintColon) : 'Flight Advisory').trim();
+            const hintBody = (hintColon > 0 ? hintText.slice(hintColon + 1) : hintText).trim();
+            const msgW = Math.min(panelW - 112, 360);
+            const msgX = centerX - msgW / 2;
+            const msgY = titleY + Math.max(36, titleSize * 0.62);
+            const msgBodyFont = `500 15px 'Segoe UI', 'Inter', sans-serif`;
+            const msgLineH = 19;
+            ctx.font = msgBodyFont;
+            const hintLines = wrapPauseText(hintBody, msgW - 40, 2);
+            const msgH = 38 + hintLines.length * msgLineH;
+            const scanT = ((now * 0.055) % Math.max(1, msgW + 72)) - 36;
+            const panelPulse = 0.5 + Math.sin(now * 0.0022) * 0.5;
+
+            const msgFill = ctx.createLinearGradient(msgX, msgY, msgX, msgY + msgH);
+            msgFill.addColorStop(0, 'rgba(8, 18, 34, 0.82)');
+            msgFill.addColorStop(0.52, 'rgba(2, 7, 18, 0.9)');
+            msgFill.addColorStop(1, 'rgba(8, 4, 20, 0.86)');
+            ctx.fillStyle = msgFill;
+            ctx.fillRect(msgX, msgY, msgW, msgH);
+            ctx.strokeStyle = colorWithAlpha('#8ff7ff', 0.34 + panelPulse * 0.12);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(msgX + 0.5, msgY + 0.5, msgW, msgH);
+            ctx.strokeStyle = colorWithAlpha(dangerColor, 0.28);
+            ctx.strokeRect(msgX + 5.5, msgY + 5.5, msgW - 11, msgH - 11);
+
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = 0.16;
+            ctx.fillStyle = colorWithAlpha('#8ff7ff', 0.78);
+            ctx.fillRect(msgX + 9, msgY + 8, msgW - 18, 1);
+            ctx.fillRect(msgX + 9, msgY + msgH - 9, msgW - 18, 1);
+            ctx.globalAlpha = 0.18 + panelPulse * 0.08;
+            ctx.fillStyle = colorWithAlpha(dangerColor, 0.62);
+            ctx.fillRect(msgX + scanT, msgY + 6, 30, 1.5);
+            ctx.fillRect(msgX + msgW - 50, msgY + 14, 20, 1);
+            ctx.fillRect(msgX + 22, msgY + msgH - 16, 24, 1);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+
+            ctx.textAlign = 'left';
+            ctx.font = `600 10px 'Segoe UI', 'Inter', sans-serif`;
+            const chipW = Math.min(msgW - 22, Math.max(84, ctx.measureText(hintTitle).width + 24));
+            const chipX = msgX + 13;
+            const chipY = msgY - 9;
+            ctx.fillStyle = 'rgba(4, 12, 24, 0.96)';
+            ctx.fillRect(chipX, chipY, chipW, 19);
+            ctx.strokeStyle = colorWithAlpha('#8ff7ff', 0.58 + panelPulse * 0.14);
+            ctx.strokeRect(chipX + 0.5, chipY + 0.5, chipW, 19);
+            ctx.fillStyle = colorWithAlpha('#bff7ff', 0.95);
+            ctx.fillText(hintTitle, chipX + 12, chipY + 13);
+
+            ctx.font = msgBodyFont;
+            ctx.fillStyle = colorWithAlpha('#f2fbff', 0.95);
+            ctx.shadowColor = colorWithAlpha('#8ff7ff', 0.52);
+            ctx.shadowBlur = glowEnabled ? 2 : 0;
+            for (let i = 0; i < hintLines.length; i++) {
+                ctx.fillText(hintLines[i], msgX + 20, msgY + 32 + i * msgLineH);
+            }
+            ctx.shadowBlur = 0;
+            ctx.textAlign = 'center';
 
             const promptW = Math.min(panelW - 86, 330);
             const promptH = 40;
             const promptX = centerX - promptW / 2;
-            const promptY = panelY + panelH * 0.63;
+            const promptY = Math.max(panelY + panelH * 0.64, msgY + msgH + 24);
             ctx.fillStyle = 'rgba(2, 8, 18, 0.78)';
             ctx.fillRect(promptX, promptY, promptW, promptH);
             ctx.strokeStyle = colorWithAlpha(dangerColor, 0.46 + pulse * 0.18);
@@ -4987,23 +6308,6 @@
             ctx.shadowBlur = glowEnabled ? 8 : 0;
             ctx.fillText('PRESS [SPACE] TO RETRY', centerX, promptY + promptH / 2 + 1);
             ctx.shadowBlur = 0;
-
-            const hint = currentHint || 'Pro tip: dodging the bullets is traditionally considered good aviation.';
-            const hintLines = wrapPauseText(hint, panelW - 80, 2);
-            ctx.font = `14px 'Electrolize', sans-serif`;
-            ctx.fillStyle = colorWithAlpha('#ffd9a8', 0.86);
-            for (let i = 0; i < hintLines.length; i++) {
-                ctx.fillText(hintLines[i], centerX, panelY + panelH - 50 + i * 18);
-            }
-
-            ctx.textAlign = 'left';
-            ctx.font = `bold 10px Courier New`;
-            ctx.globalAlpha = 0.18 + pulse * 0.07;
-            ctx.fillStyle = '#ffffff';
-            const readouts = ['0xDEAD', 'NO CARRIER', 'HP: 00', 'REBOOT?'];
-            for (let i = 0; i < readouts.length; i++) {
-                ctx.fillText(readouts[i], panelX + 24 + i * 92, panelY + panelH - 18);
-            }
             ctx.restore();
             ctx.globalAlpha = 1;
             ctx.globalCompositeOperation = 'source-over';
@@ -5017,8 +6321,7 @@
             wash.addColorStop(0, 'rgba(255,255,255,0.08)');
             wash.addColorStop(0.42, 'rgba(106,168,255,0.08)');
             wash.addColorStop(1, 'rgba(0,0,0,0.12)');
-            ctx.fillStyle = wash;
-            ctx.fillRect(0, 0, width, height);
+            fillBossCameraOverscan(wash);
 
             const pulse = 0.72 + Math.sin(now * 0.002) * 0.18;
             ctx.textAlign = 'center';
@@ -5097,7 +6400,7 @@
                     ctx.shadowBlur = 0;
                 } else {
                     ctx.fillStyle = 'rgba(255,255,255,0.14)';
-                    ctx.font = `bold 22px Courier New`;
+                    ctx.font = `bold 20px Courier New`;
                     ctx.fillText('.', cx + cell / 2, cy + cell / 2);
                 }
             }
@@ -5119,8 +6422,7 @@
             overlay.addColorStop(0, 'rgba(3, 8, 18, 0.38)');
             overlay.addColorStop(0.55, 'rgba(6, 14, 30, 0.62)');
             overlay.addColorStop(1, 'rgba(2, 5, 12, 0.74)');
-            ctx.fillStyle = overlay;
-            ctx.fillRect(0, 0, width, height);
+            fillBossCameraOverscan(overlay);
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -5205,22 +6507,23 @@
             const accent = (runCompleteTransition && runCompleteTransition.color) || currentThemeColor;
             ctx.save();
             ctx.globalCompositeOperation = 'source-over';
+            const backdrop = getBossCameraOverscanRect();
             if (slowmo > 0.01) {
                 ctx.globalAlpha = 0.035 * slowmo;
                 ctx.fillStyle = accent;
-                ctx.fillRect(0, 0, width, height);
+                ctx.fillRect(backdrop.x, backdrop.y, backdrop.w, backdrop.h);
                 ctx.globalAlpha = 0.08 * slowmo;
                 ctx.strokeStyle = colorWithAlpha('#ffffff', 0.55);
                 ctx.lineWidth = 1;
                 const spacing = 54;
-                const yStart = ((now * 0.018) % spacing) - spacing;
-                for (let y = yStart; y < height + spacing; y += spacing) {
+                const yStart = backdrop.y + ((now * 0.018) % spacing) - spacing;
+                for (let y = yStart; y < backdrop.y + backdrop.h + spacing; y += spacing) {
                     const wobbleX = Math.sin(now * 0.0022 + y * 0.025) * 18 * slowmo;
                     ctx.beginPath();
-                    ctx.moveTo(-20, y);
-                    ctx.lineTo(width * 0.32 + wobbleX, y + 3);
-                    ctx.lineTo(width * 0.68 - wobbleX, y - 3);
-                    ctx.lineTo(width + 20, y);
+                    ctx.moveTo(backdrop.x - 20, y);
+                    ctx.lineTo(backdrop.x + backdrop.w * 0.32 + wobbleX, y + 3);
+                    ctx.lineTo(backdrop.x + backdrop.w * 0.68 - wobbleX, y - 3);
+                    ctx.lineTo(backdrop.x + backdrop.w + 20, y);
                     ctx.stroke();
                 }
             }
@@ -5232,7 +6535,7 @@
                 overlay.addColorStop(1, colorWithAlpha('#01040b', 0.94 * fade));
                 ctx.globalAlpha = 1;
                 ctx.fillStyle = overlay;
-                ctx.fillRect(0, 0, width, height);
+                ctx.fillRect(backdrop.x, backdrop.y, backdrop.w, backdrop.h);
 
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -5336,7 +6639,7 @@
             ctx.fillStyle = currentFieldBgColor;
             ctx.fillRect(0, 0, width | 0, height | 0);
             const renderNow = currentFrameNow;
-            const allowScreenShake = gameState !== 'PAUSED' && gameState !== 'LEVELUP';
+            const allowScreenShake = gameState !== 'PAUSED' && gameState !== 'LEVELUP' && gameState !== 'GAMEOVER';
             if (!allowScreenShake) {
                 shake = 0;
                 wobble = 0;
@@ -5358,7 +6661,13 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             const survivorModeVisual = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
-            const fieldStep = survivorModeVisual ? 2 : 1;
+            const backgroundQuality = typeof getVisualQualityScale === 'function' ? getVisualQualityScale('background') : 1;
+            let fieldStep = survivorModeVisual ? 2 : 1;
+            if (backgroundQuality < 0.85) {
+                fieldStep = Math.max(fieldStep, survivorModeVisual ? 3 : 2);
+            } else if (backgroundQuality > 1.05 && survivorModeVisual) {
+                fieldStep = 1;
+            }
             const fieldWrapH = height + CELL_SIZE * 2;
             const fieldOverscanY = bossCameraActive
                 ? Math.ceil((1 / Math.max(0.5, bossCameraScale) - 1) * (height - HUD_HEIGHT) * 0.58) + CELL_SIZE * 2
@@ -5403,12 +6712,18 @@
 
             if (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT') {
                 drawGalaxySelectScreen(renderNow, false);
+            } else if (gameState === 'PAUSED' && pauseReturnState === 'MATRIX_CRAWLER') {
+                if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
             } else if (gameState === 'GALAXY_SELECT') {
                 drawGalaxySelectScreen(renderNow);
             } else if (gameState === 'RETURN_LOADING') {
                 drawReturnLoadingScreen(renderNow);
             } else if (gameState === 'GALAXY_WARP') {
                 drawGalaxyWarpTransition(renderNow);
+            } else if (gameState === 'TERMINAL_DOCK') {
+                drawTerminalDockTransition(renderNow);
+            } else if (gameState === 'MATRIX_CRAWLER') {
+                if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
             } else if (gameState === 'START' || gameState === 'LAUNCHING' || gameState === 'SHIP_SELECT') {
                 let alpha = titleAlpha;
                 if (gameState === 'LAUNCHING') {
@@ -6469,8 +7784,7 @@
                 ctx.globalCompositeOperation = 'source-over';
 
                 if (boss && boss.isGlitch && boss.transitionFlash > 0) {
-                    ctx.fillStyle = `rgba(255, 255, 255, ${boss.transitionFlash / 0.3})`;
-                    ctx.fillRect(0, 0, width, height);
+                    fillBossCameraOverscan(`rgba(255, 255, 255, ${boss.transitionFlash / 0.3})`);
                 }
 
                 ctx.globalCompositeOperation = 'lighter';

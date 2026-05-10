@@ -1506,10 +1506,17 @@
             return lines;
         }
 
+        const CONSOLE_GALAXY_ROUTE_SLOTS = Object.freeze({
+            1: { mode: 'campaign', galaxyId: 'neon-rift', label: 'SHMUP' },
+            2: { mode: 'survivor', galaxyId: 'prism-wake', label: 'PRISM WAKE' },
+            3: { mode: 'matrixCrawler', galaxyId: 'void-circuit', label: 'MATRIX NEBULA' }
+        });
+
         function buildConsoleWaveHelpLines() {
             const bossWaves = [];
             const runWaveLimit = getConsoleRunWaveLimit();
             const survivorWaveLimit = getConsoleSurvivorWaveLimit();
+            const matrixLevelLimit = getConsoleMatrixCrawlerLevelLimit();
             for (let i = 1; i <= runWaveLimit; i++) {
                 const waveDef = typeof WaveManager.getWaveDefinitionForWave === 'function'
                     ? WaveManager.getWaveDefinitionForWave(i)
@@ -1517,11 +1524,13 @@
                 if (waveDef && waveDef.isBoss) bossWaves.push(String(i));
             }
             return [
-                `wave/w <target> : jump to run wave 1-${runWaveLimit}`,
-                'Galaxy target is optional: g1, g2, etc.',
+                `wave/w <target> : jump to console route target`,
+                `g1w<n> SHMUP wave 1-${runWaveLimit}`,
+                `g2w<n> Prism Wake survivor wave 1-${survivorWaveLimit}`,
+                `g3w<n> Matrix floor 1-${matrixLevelLimit}`,
                 `Boss waves: ${bossWaves.join(', ')}`,
-                `sw/ws <n> : jump Prism Wake survivor wave 1-${survivorWaveLimit}`,
-                'Examples: wave 15 | wave g1w13 | w w12g2 | g2 w10'
+                'Matrix rooms: g3w1b boss | g3w1i item | g3w2 floor 2',
+                'Examples: wave 15 | g1w13 | g2w10 | g3w1b'
             ];
         }
 
@@ -1529,9 +1538,10 @@
             const limit = getConsoleSurvivorWaveLimit();
             return [
                 `sw/ws <n> : jump Prism Wake survivor wave 1-${limit}`,
+                `g2w<n> also jumps Prism Wake survivor wave 1-${limit}`,
                 'Boss slots are every 5 waves: sw 5, ws 10, sw 15...',
                 'sw 5 or ws 5 starts the first survivor boss immediately',
-                'Examples: sw 1 | ws 5 | sw30 | ws30'
+                'Examples: sw 1 | ws 5 | sw30 | g2w10'
             ];
         }
 
@@ -1544,17 +1554,33 @@
             ];
         }
 
+        function buildConsoleLayoutHelpLines() {
+            if (typeof getGalaxyLayoutEditorHelpLines === 'function') {
+                return getGalaxyLayoutEditorHelpLines();
+            }
+            return [
+                'layout on/off : toggle galaxy layout editor',
+                'Drag nodes to move them',
+                'Wheel over node : scale',
+                'Shift + wheel over node : rotate',
+                'layout copy : copy layout block',
+                'layout reset : restore default coordinates'
+            ];
+        }
+
         function buildConsoleGeneralHelpLines() {
             return [
                 'Commands:',
-                'help [wave|sw|ws|lvl|wep|remwep]',
-                'wave/w <n|g1w13|w12g2> or bare g2 w10',
+                'help [wave|sw|ws|lvl|wep|remwep|layout]',
+                'wave/w <n|g1w13|g2w10|g3w1b>',
+                'g1 SHMUP | g2 Prism Wake | g3 Matrix crawler',
                 'sw/ws <n> : Prism Wake survivor wave',
                 'mu/music : open mini music player',
                 'lvl [n]',
                 'wep <n|weapon name>',
                 'remwep/rwep <active slot|weapon name>',
                 'gm [on|off]',
+                'layout on/off/copy/reset',
                 'mu or music',
                 'Try: help wep'
             ];
@@ -1588,6 +1614,13 @@
             return 40;
         }
 
+        function getConsoleMatrixCrawlerLevelLimit() {
+            if (typeof getMatrixCrawlerConsoleLevelLimit === 'function') {
+                return getMatrixCrawlerConsoleLevelLimit();
+            }
+            return 20;
+        }
+
         function getLastConsoleRegexInt(text, regex) {
             let value = null;
             let match;
@@ -1603,6 +1636,72 @@
             if (typeof getGalaxyDefinition === 'function') return getGalaxyDefinition(galaxyIndex);
             if (typeof GALAXY_DEFINITIONS !== 'undefined') return GALAXY_DEFINITIONS[galaxyIndex] || null;
             return galaxyIndex === 0 ? { name: 'GALAXY 1', title: 'GALAXY 1', available: true } : null;
+        }
+
+        function findConsoleGalaxyIndexById(galaxyId) {
+            if (!galaxyId || typeof GALAXY_DEFINITIONS === 'undefined') return -1;
+            return GALAXY_DEFINITIONS.findIndex(galaxy => galaxy && galaxy.id === galaxyId);
+        }
+
+        function findConsoleGalaxyIndexByMode(mode) {
+            if (!mode || typeof GALAXY_DEFINITIONS === 'undefined') return -1;
+            return GALAXY_DEFINITIONS.findIndex(galaxy => galaxy && galaxy.mode === mode);
+        }
+
+        function isConsoleCampaignGalaxy(galaxy) {
+            return !!(galaxy && galaxy.available !== false && !galaxy.mode);
+        }
+
+        function getConsoleFallbackGalaxyIndexForMode(mode) {
+            if (mode === 'survivor') return findConsoleGalaxyIndexByMode('survivor');
+            if (mode === 'matrixCrawler') return findConsoleGalaxyIndexByMode('matrixCrawler');
+            if (mode === 'campaign' && typeof GALAXY_DEFINITIONS !== 'undefined') {
+                const current = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : 0;
+                if (isConsoleCampaignGalaxy(getConsoleGalaxyDefinition(current))) return current;
+                const firstCampaign = GALAXY_DEFINITIONS.findIndex(galaxy => isConsoleCampaignGalaxy(galaxy));
+                if (firstCampaign >= 0) return firstCampaign;
+            }
+            return 0;
+        }
+
+        function getConsoleDefaultCampaignGalaxyIndex() {
+            const current = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : 0;
+            if (isConsoleCampaignGalaxy(getConsoleGalaxyDefinition(current))) return current;
+            const route = getConsoleRouteSlot(1);
+            return route && Number.isFinite(route.galaxyIndex) ? route.galaxyIndex : 0;
+        }
+
+        function getConsoleRouteSlot(galaxyNumber) {
+            const route = CONSOLE_GALAXY_ROUTE_SLOTS[galaxyNumber];
+            if (!route) return null;
+            let galaxyIndex = findConsoleGalaxyIndexById(route.galaxyId);
+            if (galaxyIndex < 0) galaxyIndex = getConsoleFallbackGalaxyIndexForMode(route.mode);
+            const galaxy = getConsoleGalaxyDefinition(galaxyIndex);
+            return {
+                ...route,
+                galaxyNumber,
+                galaxyIndex,
+                galaxy
+            };
+        }
+
+        function getConsoleMatrixCrawlerRoomTarget(raw) {
+            const lowered = (raw || '').toLowerCase();
+            if (/\b(?:boss|b)\b/.test(lowered)) return 'boss';
+            if (/\b(?:item|treasure|cache|i)\b/.test(lowered)) return 'treasure';
+            const compact = lowered.replace(/[\s,;:/_-]+/g, '');
+            const suffixPatterns = [
+                /g(?:alaxy)?[1-9]\d*w(?:ave)?[1-9]\d*([a-z]+)$/,
+                /w(?:ave)?[1-9]\d*([a-z]+)$/
+            ];
+            for (const pattern of suffixPatterns) {
+                const match = compact.match(pattern);
+                if (!match || !match[1]) continue;
+                const suffix = match[1];
+                if (suffix.startsWith('b')) return 'boss';
+                if (suffix.startsWith('i') || suffix.startsWith('t') || suffix.startsWith('c')) return 'treasure';
+            }
+            return null;
         }
 
         function isBareConsoleWaveTarget(commandLine) {
@@ -1638,29 +1737,69 @@
                 }
             }
 
-            let galaxyIndex = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : 0;
-            if (typeof isSurvivorGalaxy === 'function' && isSurvivorGalaxy(galaxyIndex)) {
-                galaxyIndex = 0;
-            }
+            let routeMode = 'campaign';
+            let routeSlotNumber = null;
+            let routeLabel = 'SHMUP';
+            let galaxyIndex = getConsoleDefaultCampaignGalaxyIndex();
             let galaxySpecified = false;
             if (galaxyNumber !== null) {
                 galaxySpecified = true;
-                galaxyIndex = galaxyNumber - 1;
-                const galaxy = getConsoleGalaxyDefinition(galaxyIndex);
+                const route = getConsoleRouteSlot(galaxyNumber);
+                if (!route) {
+                    return { ok: false, message: `Console route G${galaxyNumber} is not mapped. Use g1, g2, or g3.` };
+                }
+                galaxyIndex = route.galaxyIndex;
+                routeMode = route.mode;
+                routeSlotNumber = route.galaxyNumber;
+                routeLabel = route.label;
+                const galaxy = route.galaxy;
                 if (!galaxy) {
-                    return { ok: false, message: `Galaxy ${galaxyNumber} does not exist.` };
+                    return { ok: false, message: `${routeLabel || `G${galaxyNumber}`} is unavailable.` };
                 }
                 if (galaxy.available === false) {
-                    return { ok: false, message: `${galaxy.title || galaxy.name || `Galaxy ${galaxyNumber}`} is locked.` };
+                    return { ok: false, message: `${galaxy.title || galaxy.name || routeLabel || `G${galaxyNumber}`} is locked.` };
                 }
+            }
+
+            if (routeMode === 'survivor') {
+                const limit = getConsoleSurvivorWaveLimit();
+                if (!waveNumber || waveNumber < 1 || waveNumber > limit) {
+                    return { ok: false, message: `Usage: g2w1-g2w${limit} or sw 1-${limit}` };
+                }
+                return {
+                    ok: true,
+                    waveNumber,
+                    galaxyIndex,
+                    galaxySpecified,
+                    routeMode,
+                    routeSlotNumber,
+                    routeLabel
+                };
+            }
+
+            if (routeMode === 'matrixCrawler') {
+                const levelLimit = getConsoleMatrixCrawlerLevelLimit();
+                if (!waveNumber || waveNumber < 1 || waveNumber > levelLimit) {
+                    return { ok: false, message: `Usage: g3w1-g3w${levelLimit}, g3w1b, or g3w1i` };
+                }
+                return {
+                    ok: true,
+                    waveNumber,
+                    galaxyIndex,
+                    galaxySpecified,
+                    routeMode,
+                    routeSlotNumber,
+                    routeLabel,
+                    roomTarget: getConsoleMatrixCrawlerRoomTarget(raw)
+                };
             }
 
             const runWaveLimit = getConsoleRunWaveLimitForGalaxy(galaxyIndex);
             if (!waveNumber || waveNumber < 1 || waveNumber > runWaveLimit) {
-                return { ok: false, message: `Usage: wave 1-${runWaveLimit}, wave g1w13, or w w12g2` };
+                return { ok: false, message: `Usage: wave 1-${runWaveLimit}, g1w13, g2w10, or g3w1b` };
             }
 
-            return { ok: true, waveNumber, galaxyIndex, galaxySpecified };
+            return { ok: true, waveNumber, galaxyIndex, galaxySpecified, routeMode, routeSlotNumber, routeLabel };
         }
 
         function parseConsoleSurvivorWaveTarget(argString) {
@@ -1704,7 +1843,11 @@
             return Math.max(10, Math.round(10 + n * 9 + n * n * 5));
         }
 
-        function beginLevelUpOffer() {
+        function beginLevelUpOffer(options = {}) {
+            const previousState = gameState === 'LEVELUP'
+                ? (levelUpReturnState || 'PLAYING')
+                : (gameState === 'PAUSED' ? (pauseReturnState || 'PLAYING') : gameState);
+            levelUpReturnState = options.returnState || previousState || 'PLAYING';
             clearPauseVolumePreview();
             gameState = 'LEVELUP';
             applyCurrentVolume(LEVELUP_VOLUME_SCALE);
@@ -1714,7 +1857,7 @@
             keys[' '] = false;
             keys.arrowdown = false;
             keys.shift = false;
-            offeredOptions = drawOptions(POWERUP_POOL, 3, player.level);
+            offeredOptions = options.offeredOptions || drawOptions(POWERUP_POOL, 3, player.level);
         }
 
         function queueConsoleLevelUps(levelCount) {
@@ -1808,9 +1951,29 @@
                     return false;
                 }
 
+                if (parsedTarget.routeMode === 'survivor') {
+                    if (typeof jumpToSurvivorWave !== 'function') {
+                        pushConsoleNotification('Survivor mode is unavailable.', 'error');
+                        return false;
+                    }
+                    const result = jumpToSurvivorWave(parsedTarget.waveNumber);
+                    pushConsoleNotification(result.message, result.ok ? 'success' : 'error');
+                    return result.ok;
+                }
+
+                if (parsedTarget.routeMode === 'matrixCrawler') {
+                    if (typeof jumpToMatrixCrawlerLevel !== 'function') {
+                        pushConsoleNotification('Matrix crawler is unavailable.', 'error');
+                        return false;
+                    }
+                    const result = jumpToMatrixCrawlerLevel(parsedTarget.waveNumber, parsedTarget.roomTarget);
+                    pushConsoleNotification(result.message, result.ok ? 'success' : 'error');
+                    return result.ok;
+                }
+
                 const previousGalaxyIndex = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : 0;
                 const targetWave = parsedTarget.waveNumber;
-                if (parsedTarget.galaxySpecified && parsedTarget.galaxyIndex !== previousGalaxyIndex) {
+                if (parsedTarget.galaxyIndex !== previousGalaxyIndex) {
                     currentGalaxyIndex = parsedTarget.galaxyIndex;
                     selectedGalaxyIndex = parsedTarget.galaxyIndex;
                     if (typeof WaveManager.prepareGalaxyRun === 'function') {
@@ -1830,6 +1993,9 @@
                 if (typeof isSurvivorModeActive === 'function' && isSurvivorModeActive()) {
                     if (typeof endSurvivorRun === 'function') endSurvivorRun();
                     else if (typeof setActiveGameMode === 'function') setActiveGameMode('campaign');
+                } else if (typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive()) {
+                    if (typeof endMatrixCrawlerRun === 'function') endMatrixCrawlerRun();
+                    if (typeof setActiveGameMode === 'function') setActiveGameMode('campaign');
                 } else if (typeof setActiveGameMode === 'function') {
                     setActiveGameMode('campaign');
                 }
@@ -1858,10 +2024,11 @@
                     startMusic();
                 }
                 const galaxy = getConsoleGalaxyDefinition(parsedTarget.galaxyIndex);
-                const galaxyLabel = parsedTarget.galaxySpecified && galaxy
-                    ? ` (${galaxy.shortName || galaxy.name || `G${parsedTarget.galaxyIndex + 1}`})`
+                const slotLabel = parsedTarget.routeSlotNumber ? `G${parsedTarget.routeSlotNumber}` : `G${parsedTarget.galaxyIndex + 1}`;
+                const galaxyLabel = galaxy
+                    ? ` (${galaxy.shortName || galaxy.name || parsedTarget.routeLabel || slotLabel})`
                     : '';
-                pushConsoleNotification(`Jumped to G${parsedTarget.galaxyIndex + 1} W${targetWave}${galaxyLabel}.`, 'success');
+                pushConsoleNotification(`Jumped to ${slotLabel} W${targetWave}${galaxyLabel}.`, 'success');
                 return true;
             }
 
@@ -1951,6 +2118,58 @@
                 return true;
             }
 
+            if (command === 'layout' || command === 'galaxylayout' || command === 'glayout') {
+                const mode = argString.toLowerCase();
+                if (!mode || mode === 'help' || mode === '?') {
+                    setConsoleReference(buildConsoleLayoutHelpLines());
+                    pushConsoleNotification('Showing galaxy layout editor help.', 'info');
+                    return false;
+                }
+                if (mode === 'on' || mode === 'edit' || mode === 'start') {
+                    if (typeof setGalaxyLayoutEditorEnabled !== 'function') {
+                        pushConsoleNotification('Galaxy layout editor is unavailable.', 'error');
+                        return false;
+                    }
+                    setGalaxyLayoutEditorEnabled(true);
+                    setConsoleReference(buildConsoleLayoutHelpLines());
+                    pushConsoleNotification('Galaxy layout editor ON. Drag nodes on the map.', 'success');
+                    return true;
+                }
+                if (mode === 'off' || mode === 'stop') {
+                    if (typeof setGalaxyLayoutEditorEnabled === 'function') setGalaxyLayoutEditorEnabled(false);
+                    pushConsoleNotification('Galaxy layout editor OFF.', 'info');
+                    return true;
+                }
+                if (mode === 'copy' || mode === 'export') {
+                    if (typeof formatGalaxySelectLayoutForFile !== 'function') {
+                        pushConsoleNotification('Galaxy layout export is unavailable.', 'error');
+                        return false;
+                    }
+                    const layoutText = formatGalaxySelectLayoutForFile();
+                    setConsoleReference(layoutText.split('\n'));
+                    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                        navigator.clipboard.writeText(layoutText)
+                            .then(() => pushConsoleNotification('Galaxy layout copied to clipboard.', 'success'))
+                            .catch(() => pushConsoleNotification('Layout printed above; clipboard was blocked.', 'warn'));
+                    } else {
+                        pushConsoleNotification('Layout printed above; clipboard unavailable.', 'warn');
+                    }
+                    return false;
+                }
+                if (mode === 'reset') {
+                    if (typeof resetGalaxySelectLayoutDraft === 'function') {
+                        resetGalaxySelectLayoutDraft();
+                        pushConsoleNotification('Galaxy layout reset to file defaults.', 'success');
+                        return true;
+                    }
+                    pushConsoleNotification('Galaxy layout reset is unavailable.', 'error');
+                    return false;
+                }
+                pushConsoleNotification(`Unknown layout mode: ${argString}`, 'error');
+                setConsoleReference(buildConsoleLayoutHelpLines());
+                return false;
+            }
+
             if (command === 'help') {
                 const topic = argString.toLowerCase();
                 if (!topic) {
@@ -1985,6 +2204,11 @@
                         'Use menu controls to seek, change tracks, pause, and adjust volume'
                     ]);
                     pushConsoleNotification('Showing music player help.', 'info');
+                    return false;
+                }
+                if (topic === 'layout' || topic === 'galaxylayout' || topic === 'glayout') {
+                    setConsoleReference(buildConsoleLayoutHelpLines());
+                    pushConsoleNotification('Showing galaxy layout editor help.', 'info');
                     return false;
                 }
                 pushConsoleNotification(`Unknown help topic: ${argString}`, 'error');

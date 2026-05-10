@@ -16,6 +16,7 @@
         const SURVIVOR_FAR_STAR_COUNT = 76;
         const SURVIVOR_MID_STAR_COUNT = 156;
         const SURVIVOR_NEAR_STAR_COUNT = 76;
+        const SURVIVOR_CONTROL_DECAL_DURATION = 22;
         const SURVIVOR_NEAR_STAR_GLYPHS = '✤✥✦✧✩✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽❇❈❉❊❋';
         const SURVIVOR_NEAR_STAR_SPRING = 18;
         const SURVIVOR_NEAR_STAR_DAMPING = 8.5;
@@ -50,6 +51,13 @@
         const SURVIVOR_GHOST_SIGNAL_STORM_INTERVAL = 0.92;
         const SURVIVOR_GHOST_SIGNAL_WRAITH_INTERVAL = 0.84;
         const SURVIVOR_GHOST_SIGNAL_MACHINE_RELAY_COUNT = 5;
+        const SURVIVOR_FIREWALL_PATTERN_DURATION = 4.0;
+        const SURVIVOR_FIREWALL_RING_INTERVAL = 0.92;
+        const SURVIVOR_FIREWALL_CINDER_INTERVAL = 0.34;
+        const SURVIVOR_FIREWALL_CORE_RING_INTERVAL = 1.08;
+        const SURVIVOR_FIREWALL_FIRESTORM_INTERVAL = 0.20;
+        const SURVIVOR_FIREWALL_CURTAIN_INTERVAL = 0.74;
+        const SURVIVOR_FIREWALL_SUNDIAL_INTERVAL = 1.05;
         const SURVIVOR_BEAM_RANGE_MULT = 1.08;
         const SURVIVOR_BEAM_DAMAGE_MULT = 0.72;
         const SURVIVOR_BEAM_WIDTH_MULT = 0.92;
@@ -234,7 +242,8 @@
                 aimAngle: PLAYER_FIRE_FORWARD_ANGLE,
                 cameraScale: SURVIVOR_CAMERA_SCALE,
                 hordePulse: 0,
-                autoFireHintTimer: 3.5,
+                autoFireHintTimer: SURVIVOR_CONTROL_DECAL_DURATION,
+                controlDecal: null,
                 playerTurnAfterimages: [],
                 turnAfterimageCooldown: 0,
                 stars: [],
@@ -362,6 +371,11 @@
                 y: center.y + (y - player.y) * scale,
                 scale
             };
+        }
+
+        function survivorEaseOutCubic(t) {
+            const clamped = Math.max(0, Math.min(1, t || 0));
+            return 1 - Math.pow(1 - clamped, 3);
         }
 
         function survivorScreenToWorld(x, y) {
@@ -606,6 +620,10 @@
             if (!survivorState.active) return;
             const safeDt = Math.max(0, Math.min(0.05, dt || 0));
             const hostileDt = typeof getHostileDt === 'function' ? getHostileDt(safeDt) : safeDt;
+            if (survivorState.autoFireHintTimer > 0) {
+                survivorState.autoFireHintTimer = Math.max(0, survivorState.autoFireHintTimer - safeDt);
+                if (survivorState.autoFireHintTimer <= 0) survivorState.controlDecal = null;
+            }
             if (boss && boss.isSurvivorBoss && boss.phase === 'DEFEAT') {
                 updateSurvivorBossDeathCinematic(safeDt);
                 updateSurvivorParticles(safeDt);
@@ -797,6 +815,10 @@
 
         function applySurvivorBeamDamageToTarget(target, damage, stats, beamOrigin, beamAngle, hitIndex) {
             if (!target || damage <= 0) return;
+            if (isSurvivorBossDamageShielded(target)) {
+                target.flashTimer = Math.max(target.flashTimer || 0, 0.05);
+                return;
+            }
             const phaseStacks = stats.phaseNeedle ? Math.min(hitIndex, Math.max(1, stats.phaseMaxStacks || 3)) : 0;
             const finalDamage = damage * Math.pow(stats.phaseDamageRamp || 1.16, phaseStacks);
             target.hp -= finalDamage;
@@ -1184,6 +1206,12 @@
                 if (dist < 70) damageSurvivorPlayer(18);
                 return;
             }
+            if (boss.survivorBossType === 'overheatingFirewall') {
+                updateSurvivorFirewallBoss(boss, hostileDt);
+                const dist = Math.hypot(player.x - boss.x, player.y - boss.y);
+                if (dist < 74) damageSurvivorPlayer(18);
+                return;
+            }
             updateSurvivorBossStageState(boss, hostileDt);
             if (boss.survivorBossType === 'overheatingFirewall') updateSurvivorFirewallAmbient(boss, hostileDt);
             boss.attackTimer -= hostileDt;
@@ -1480,6 +1508,11 @@
                 boss.animFrame = ((boss.animFrame || 0) + hostileDt * 60) % 300;
             }
 
+            if (boss.survivorBossType === 'ghostSignal' && boss.timer >= 5.0 && !boss.introAddsSpawned) {
+                boss.introAddsSpawned = true;
+                spawnSurvivorBossAdds(boss, 2, 'scout', '#dbe7ff');
+            }
+
             disturbSurvivorStarsForBossIntro(boss, progress, depth, hostileDt);
 
             if (layerSlot > (boss.introLayerPulse || 0)) {
@@ -1652,6 +1685,7 @@
                 bossObj.signalStageTransitionTimer = 0;
                 bossObj.signalStageTransitionDuration = SURVIVOR_GHOST_SIGNAL_STAGE_TWO_TRANSITION_DURATION;
                 bossObj.isVulnerable = true;
+                bossObj.attackTimer = 999;
             } else if (def.type === 'overheatingFirewall') {
                 bossObj.stage = 1;
                 bossObj.stageTwoStarted = false;
@@ -1659,7 +1693,13 @@
                 bossObj.isVulnerable = true;
                 bossObj.firestormAngle = 0;
                 bossObj.firewallCurtainFlip = false;
+                bossObj.firewallPattern = 0;
+                bossObj.firewallPatternTimer = 0;
+                bossObj.firewallFireTimer = 0.24;
+                bossObj.firewallCinderLane = 0;
                 bossObj.smokeTimer = 0;
+                bossObj.animFrame = 0;
+                bossObj.attackTimer = 999;
             }
         }
 
@@ -1682,6 +1722,10 @@
                 source.attackTimer = Math.min(source.attackTimer || 0, 0.55);
                 source.coreTimer = 0.2;
                 source.firestormAngle = 0;
+                source.firewallPattern = 0;
+                source.firewallPatternTimer = 0;
+                source.firewallFireTimer = 0.18;
+                if (typeof dissolveSurvivorBossBullets === 'function') dissolveSurvivorBossBullets('#ffb347');
                 spawnSurvivorBossAdds(source, 2, 'armored', '#ff9a6c');
                 addShake(14);
                 emitSurvivorBossBurst(source, '#ff8a18', 34, ['*', '✦', '·', '░']);
@@ -2051,7 +2095,7 @@
             source.signalMachineCooldown = 0;
         }
 
-        function dissolveSurvivorGhostSignalBullets(color = '#c8ffff') {
+        function dissolveSurvivorBossBullets(color = '#c8ffff') {
             for (const b of enemyBullets) {
                 if (!b || !b.isSurvivorBullet || b.isDissolvingProjectile) continue;
                 if (typeof beginProjectileLifetimeDissolve === 'function') {
@@ -2064,6 +2108,10 @@
                     });
                 }
             }
+        }
+
+        function dissolveSurvivorGhostSignalBullets(color = '#c8ffff') {
+            dissolveSurvivorBossBullets(color);
         }
 
         function beginSurvivorGhostSignalStageTwoTransition(source) {
@@ -2437,6 +2485,212 @@
             }
         }
 
+        function getSurvivorAngleDelta(a, b) {
+            if (typeof getAngleDelta === 'function') return getAngleDelta(a, b);
+            let delta = (a - b) % (Math.PI * 2);
+            if (delta > Math.PI) delta -= Math.PI * 2;
+            if (delta < -Math.PI) delta += Math.PI * 2;
+            return delta;
+        }
+
+        function getSurvivorVisibleWorldBounds(margin = 0) {
+            const cameraScale = Math.max(0.001, survivorState.cameraScale || SURVIVOR_CAMERA_SCALE);
+            const halfW = width / (2 * cameraScale) + margin;
+            const halfH = Math.max(1, height - HUD_HEIGHT) / (2 * cameraScale) + margin;
+            return {
+                left: player.x - halfW,
+                right: player.x + halfW,
+                top: player.y - halfH,
+                bottom: player.y + halfH,
+                halfW,
+                halfH
+            };
+        }
+
+        function pushSurvivorFirewallBullet(x, y, angle, speed, options = {}) {
+            return pushSurvivorBossBullet(x, y, angle, speed, options.color || '#ff8a18', {
+                char: options.char || (options.isLargeFlame ? '\u274B' : '*'),
+                life: options.life ?? 4.8,
+                hitboxScale: options.hitboxScale ?? (options.isLargeFlame ? 1.04 : 0.82),
+                decay: options.decay || 0,
+                isHuge: !!options.isHuge,
+                isFirewallBullet: true,
+                isLargeFlame: !!options.isLargeFlame,
+                firewallBulletType: options.firewallBulletType || (options.isLargeFlame ? 'flame' : 'spark')
+            });
+        }
+
+        function getSurvivorFirewallCoreY(source) {
+            return source.y + (typeof FIREWALL_BOSS_CORE_OFFSET_Y === 'number' ? FIREWALL_BOSS_CORE_OFFSET_Y : 0);
+        }
+
+        function fireSurvivorFirewallRing(source, count, speed, options = {}) {
+            const coreY = getSurvivorFirewallCoreY(source);
+            const offset = (source.firestormAngle || 0) * (options.phaseRate || 0.45) + (options.offset || 0);
+            for (let i = 0; i < count; i++) {
+                const a = offset + (i / count) * Math.PI * 2;
+                pushSurvivorFirewallBullet(source.x, coreY, a, speed + (i % 2) * (options.speedStep || 0), {
+                    color: i % 4 === 0 ? (options.coreColor || '#ffdd66') : (options.color || '#ff8a18'),
+                    char: options.char || (i % 3 === 0 ? '\u274B' : '*'),
+                    life: options.life ?? 4.6,
+                    hitboxScale: options.hitboxScale ?? 0.86,
+                    isLargeFlame: options.isLargeFlame ?? (i % 3 === 0),
+                    firewallBulletType: 'flame'
+                });
+            }
+        }
+
+        function fireSurvivorFirewallCinderRain(source, count = 1) {
+            const bounds = getSurvivorVisibleWorldBounds(58);
+            const columns = 9;
+            source.firewallCinderLane = ((source.firewallCinderLane || 0) + 3) % columns;
+            for (let i = 0; i < count; i++) {
+                const lane = (source.firewallCinderLane + i * 4) % columns;
+                const x = bounds.left + (lane + 0.5) / columns * (bounds.right - bounds.left) + (Math.random() - 0.5) * 42;
+                const y = bounds.top - 24 - Math.random() * 70;
+                const targetX = player.x + (lane - (columns - 1) / 2) * 16;
+                const targetY = player.y + 210 + Math.random() * 70;
+                const a = Math.atan2(targetY - y, targetX - x);
+                pushSurvivorFirewallBullet(x, y, a, 188 + Math.random() * 42, {
+                    color: Math.random() > 0.45 ? '#e38914' : '#ff6600',
+                    char: '*',
+                    life: 5.6,
+                    hitboxScale: 0.9,
+                    isHuge: true,
+                    firewallBulletType: 'cinder'
+                });
+            }
+        }
+
+        function fireSurvivorFirewallCurtain(source) {
+            const bounds = getSurvivorVisibleWorldBounds(44);
+            const columns = 11;
+            source.firewallCurtainFlip = !source.firewallCurtainFlip;
+            const gapX = Math.max(bounds.left + 120, Math.min(bounds.right - 120, player.x + (source.firewallCurtainFlip ? -72 : 72)));
+            for (let i = 0; i < columns; i++) {
+                const x = bounds.left + (i + 0.5) / columns * (bounds.right - bounds.left);
+                if (Math.abs(x - gapX) < 92) continue;
+                const y = bounds.top - 34 - (i % 3) * 18;
+                const a = Math.PI / 2 + Math.sin(i * 1.7 + (source.firestormAngle || 0)) * 0.13;
+                pushSurvivorFirewallBullet(x, y, a, 196 + (i % 3) * 18, {
+                    color: i % 2 === 0 ? '#e38914' : '#e01926',
+                    char: '\u274B',
+                    life: 5.8,
+                    hitboxScale: 1.0,
+                    isLargeFlame: true,
+                    firewallBulletType: 'flame'
+                });
+            }
+        }
+
+        function fireSurvivorFirewallSundial(source) {
+            const coreY = getSurvivorFirewallCoreY(source);
+            const count = 20;
+            const aim = Math.atan2(player.y - coreY, player.x - source.x);
+            for (let i = 0; i < count; i++) {
+                const a = (i / count) * Math.PI * 2 + (source.firestormAngle || 0) * 0.36;
+                if (Math.abs(getSurvivorAngleDelta(a, aim)) < 0.18) continue;
+                const speed = 164 + (i % 2) * 28;
+                pushSurvivorFirewallBullet(source.x, coreY, a, speed, {
+                    color: i % 5 === 0 ? '#ffdd66' : '#ff7840',
+                    char: i % 5 === 0 ? '*' : '\u274B',
+                    life: 5.2,
+                    hitboxScale: i % 5 === 0 ? 0.82 : 0.96,
+                    isLargeFlame: i % 5 !== 0,
+                    firewallBulletType: i % 5 === 0 ? 'spark' : 'flame'
+                });
+            }
+        }
+
+        function advanceSurvivorFirewallPattern(source, hostileDt) {
+            source.firewallPatternTimer = (source.firewallPatternTimer || 0) + hostileDt;
+            if (source.firewallPatternTimer < SURVIVOR_FIREWALL_PATTERN_DURATION) return;
+            source.firewallPatternTimer %= SURVIVOR_FIREWALL_PATTERN_DURATION;
+            source.firewallPattern = ((source.firewallPattern || 0) + 1) % 3;
+            source.firewallFireTimer = 0.12;
+        }
+
+        function updateSurvivorFirewallAttacks(source, hostileDt) {
+            advanceSurvivorFirewallPattern(source, hostileDt);
+            source.firewallFireTimer = (source.firewallFireTimer || 0) - hostileDt;
+            if (source.firewallFireTimer > 0) return;
+            const stageTwo = (source.stage || 1) >= 2;
+            const pattern = (source.firewallPattern || 0) % 3;
+
+            if (stageTwo) {
+                if (pattern === 0) {
+                    for (let i = 0; i < 2; i++) {
+                        const a = (source.firestormAngle || 0) + i * Math.PI + Math.sin((source.firestormAngle || 0) * 0.7) * 0.25;
+                        pushSurvivorFirewallBullet(source.x, getSurvivorFirewallCoreY(source), a, 218, {
+                            color: '#e38914',
+                            char: '\u274B',
+                            life: 4.8,
+                            hitboxScale: 0.98,
+                            isLargeFlame: true,
+                            firewallBulletType: 'flame'
+                        });
+                        pushSurvivorFirewallBullet(source.x, getSurvivorFirewallCoreY(source), a + 0.28, 182, {
+                            color: '#ffdd66',
+                            char: '*',
+                            life: 4.9,
+                            hitboxScale: 0.82,
+                            firewallBulletType: 'spark'
+                        });
+                    }
+                    source.firewallFireTimer = SURVIVOR_FIREWALL_FIRESTORM_INTERVAL;
+                } else if (pattern === 1) {
+                    fireSurvivorFirewallCurtain(source);
+                    source.firewallFireTimer = SURVIVOR_FIREWALL_CURTAIN_INTERVAL;
+                } else {
+                    fireSurvivorFirewallSundial(source);
+                    source.firewallFireTimer = SURVIVOR_FIREWALL_SUNDIAL_INTERVAL;
+                }
+                return;
+            }
+
+            if (pattern === 0) {
+                fireSurvivorFirewallRing(source, 14, 174, { color: '#ff8a18', coreColor: '#ffdd66', life: 4.7 });
+                source.firewallFireTimer = SURVIVOR_FIREWALL_RING_INTERVAL;
+            } else if (pattern === 1) {
+                fireSurvivorFirewallCinderRain(source, 1);
+                source.firewallFireTimer = SURVIVOR_FIREWALL_CINDER_INTERVAL;
+            } else {
+                fireSurvivorFirewallRing(source, 18, 138, {
+                    color: '#ff7840',
+                    coreColor: '#fff2a8',
+                    life: 5.2,
+                    phaseRate: 0.62,
+                    speedStep: 16,
+                    isLargeFlame: true
+                });
+                source.firewallFireTimer = SURVIVOR_FIREWALL_CORE_RING_INTERVAL;
+            }
+        }
+
+        function updateSurvivorFirewallBoss(source, hostileDt) {
+            source.driftTimer = (source.driftTimer || 0) + hostileDt;
+            source.animFrame = ((source.animFrame || 0) + hostileDt * 60) % 300;
+            updateSurvivorBossStageState(source, hostileDt);
+
+            const stageTwo = (source.stage || 1) >= 2;
+            source.firestormAngle = (source.firestormAngle || 0) + (stageTwo ? 0.16 : 0.07) * hostileDt * 60;
+            const targetX = player.x + Math.sin(source.driftTimer * (stageTwo ? 0.72 : 0.5)) * (stageTwo ? 230 : 170);
+            const targetY = player.y - (stageTwo ? 350 : 330) + Math.sin(source.driftTimer * (stageTwo ? 0.66 : 0.42)) * (stageTwo ? 24 : 18);
+            const steer = Math.min(1, hostileDt * (stageTwo ? 2.1 : 1.65));
+            source.vx += (targetX - source.x) * steer * 0.34;
+            source.vy += (targetY - source.y) * steer * 0.34;
+            source.vx *= Math.pow(0.88, hostileDt * 60);
+            source.vy *= Math.pow(0.88, hostileDt * 60);
+            source.x += source.vx * hostileDt;
+            source.y += source.vy * hostileDt;
+
+            if (typeof applyWakeForce === 'function') {
+                applyWakeForce(source.x, getSurvivorFirewallCoreY(source), stageTwo ? 260 : 215, stageTwo ? 9 : 6);
+            }
+            updateSurvivorFirewallAmbient(source, hostileDt);
+            updateSurvivorFirewallAttacks(source, hostileDt);
+        }
+
         function runSurvivorBossAttack(source) {
             const pattern = source.attackIndex++ % 3;
             const type = source.survivorBossType || 'nullPhantom';
@@ -2709,7 +2963,7 @@
         function spawnSurvivorBossAdds(source, count, kind, color) {
             const base = Math.atan2(player.y - source.y, player.x - source.x) + Math.PI;
             for (let i = 0; i < count && enemies.length < SURVIVOR_ENEMY_CAP; i++) {
-                spawnSurvivorEnemy(kind, {
+                const minion = spawnSurvivorEnemy(kind, {
                     angle: base + (i - (count - 1) / 2) * 0.32 + (Math.random() - 0.5) * 0.18,
                     distance: SURVIVOR_SPAWN_RADIUS + 60 + Math.random() * 90,
                     color,
@@ -2717,6 +2971,11 @@
                     speedMult: 0.92,
                     sidestepMult: 1.25
                 });
+                if (minion) {
+                    minion.isBossMinion = true;
+                    minion.bossMinionOwner = source.name || source.survivorBossType || true;
+                    minion.suppressWaveAccounting = true;
+                }
             }
         }
 
@@ -2835,10 +3094,34 @@
             }
         }
 
+        function isSurvivorBossDamageShielded(target) {
+            return !!(target &&
+                target.isSurvivorBoss &&
+                target.phase === 'ACTIVE' &&
+                target.survivorBossType === 'overheatingFirewall' &&
+                !target.isVulnerable);
+        }
+
         function applySurvivorProjectileDirectHit(p, target, dt) {
             const stats = p.stats || {};
             if (!target) return false;
             if (target.isSurvivorBoss && target.phase !== 'ACTIVE') return false;
+            if (isSurvivorBossDamageShielded(target)) {
+                target.flashTimer = Math.max(target.flashTimer || 0, 0.08);
+                if (debris.length < 620) {
+                    debris.push({
+                        x: p.x,
+                        y: p.y,
+                        vx: (Math.random() - 0.5) * 80,
+                        vy: (Math.random() - 0.5) * 80,
+                        char: '.',
+                        color: '#ff6a18',
+                        life: 0.16,
+                        isImpact: true
+                    });
+                }
+                return !stats.plasmaCloud;
+            }
             const alreadyHit = Array.isArray(p.pierceHits) && p.pierceHits.includes(target);
             if (stats.plasmaCloud) {
                 const cloudGrowth = typeof getPlasmaCloudGrowthFactor === 'function' ? getPlasmaCloudGrowthFactor(p) : 1;
@@ -2998,6 +3281,10 @@
 
         function damageSurvivorTarget(projectile, target) {
             if (target && target.isSurvivorBoss && target.phase !== 'ACTIVE') return;
+            if (isSurvivorBossDamageShielded(target)) {
+                target.flashTimer = Math.max(target.flashTimer || 0, 0.08);
+                return;
+            }
             const damage = Math.max(0, projectile.damage || 1);
             target.hp -= damage;
             target.flashTimer = 0.12;
@@ -3557,9 +3844,186 @@
             drawSurvivorModeReadout(renderNow, dt);
         }
 
+        function getSurvivorControlDecal(center, fieldH, cameraScale) {
+            const parallax = 0.28;
+            if (!survivorState.controlDecal) {
+                const targetScreenX = width / 2;
+                const targetScreenY = Math.max(88, Math.min(fieldH - 58, fieldH * 0.82));
+                survivorState.controlDecal = {
+                    x: player.x * parallax + (targetScreenX - center.x) / Math.max(0.001, cameraScale),
+                    y: player.y * parallax + (targetScreenY - center.y) / Math.max(0.001, cameraScale),
+                    parallax,
+                    seed: (survivorState.worldSeed || 0) + 611
+                };
+            }
+            return survivorState.controlDecal;
+        }
+
+        function drawSurvivorControlPairDecal(pair, x, y, alpha, fontSize) {
+            const keyFont = `bold ${fontSize}px 'Electrolize', sans-serif`;
+            const actionFont = `bold ${Math.max(10, fontSize - 1)}px 'Electrolize', sans-serif`;
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'left';
+
+            ctx.font = keyFont;
+            const keyPadX = Math.round(fontSize * 0.62);
+            const keyW = Math.ceil(ctx.measureText(pair.key).width + keyPadX * 2);
+            const keyH = Math.max(20, Math.round(fontSize * 1.72));
+            const keyY = y - keyH / 2;
+            ctx.globalAlpha = alpha * 0.24;
+            ctx.fillStyle = colorWithAlpha('#071326', 0.84);
+            ctx.fillRect(x, keyY, keyW, keyH);
+            ctx.globalAlpha = alpha * 0.44;
+            ctx.strokeStyle = colorWithAlpha(pair.color || '#8ff7ff', 0.86);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x + 0.5, keyY + 0.5, keyW, keyH);
+
+            ctx.globalAlpha = alpha * 0.92;
+            ctx.fillStyle = '#f2fbff';
+            if (glowEnabled) {
+                ctx.shadowColor = pair.color || '#8ff7ff';
+                ctx.shadowBlur = 5 * alpha;
+            }
+            ctx.fillText(pair.key, x + keyPadX, y + 1);
+            ctx.shadowBlur = 0;
+
+            const actionX = x + keyW + Math.round(fontSize * 0.55);
+            ctx.font = actionFont;
+            ctx.globalAlpha = alpha * 0.78;
+            ctx.fillStyle = pair.color || '#8ff7ff';
+            ctx.fillText(pair.action, actionX, y + 1);
+            ctx.globalAlpha = 1;
+            return actionX + ctx.measureText(pair.action).width - x;
+        }
+
+        function drawSurvivorControlDecal(renderNow, center, fieldH, cameraScale) {
+            const timer = survivorState.autoFireHintTimer || 0;
+            if (timer <= 0.01) return;
+            const decal = getSurvivorControlDecal(center, fieldH, cameraScale);
+            const life = Math.max(0, Math.min(1, timer / SURVIVOR_CONTROL_DECAL_DURATION));
+            const age = SURVIVOR_CONTROL_DECAL_DURATION - timer;
+            const introAlpha = survivorEaseOutCubic(Math.max(0, Math.min(1, age / 0.72)));
+            const fadeAlpha = life > 0.52 ? 1 : survivorEaseOutCubic(Math.max(0, Math.min(1, life / 0.52)));
+            const fizzle = 1 - Math.max(0, Math.min(1, life / 0.58));
+            const baseAlpha = 0.72 * introAlpha * fadeAlpha;
+            if (baseAlpha <= 0.01) return;
+
+            const parallax = decal.parallax || 0.28;
+            const x = center.x + ((decal.x || 0) - player.x * parallax) * cameraScale;
+            const y = center.y + ((decal.y || 0) - player.y * parallax) * cameraScale;
+            if (x < -260 || x > width + 260 || y < -80 || y > fieldH + 80) return;
+
+            const pairs = (typeof survivorEightWayAimEnabled === 'undefined' || survivorEightWayAimEnabled)
+                ? [
+                    { key: 'WASD', action: 'MOVE', color: '#8ff7ff' },
+                    { key: 'ARROWS', action: 'AIM', color: '#9fb8ff' },
+                    { key: 'SPACE', action: 'BOMB', color: '#ffe66d' },
+                    { key: 'SHIFT', action: 'FOCUS', color: '#ff8fd8' }
+                ]
+                : [
+                    { key: 'WASD', action: 'MOVE', color: '#8ff7ff' },
+                    { key: 'LEFT/RIGHT', action: 'TURN', color: '#9fb8ff' },
+                    { key: 'SPACE', action: 'BOMB', color: '#ffe66d' },
+                    { key: 'SHIFT', action: 'FOCUS', color: '#ff8fd8' }
+                ];
+
+            ctx.save();
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            const maxW = Math.min(width * 0.84, 760);
+            let fontSize = width < 860 ? 12 : 13;
+            let gap = Math.round(fontSize * 1.18);
+            const sep = '::';
+            const measurePair = (pair) => {
+                ctx.font = `bold ${fontSize}px 'Electrolize', sans-serif`;
+                const keyW = ctx.measureText(pair.key).width + Math.round(fontSize * 0.62) * 2;
+                ctx.font = `bold ${Math.max(10, fontSize - 1)}px 'Electrolize', sans-serif`;
+                return keyW + Math.round(fontSize * 0.55) + ctx.measureText(pair.action).width;
+            };
+            let totalW = 0;
+            for (let i = 0; i < pairs.length; i++) {
+                totalW += measurePair(pairs[i]);
+                if (i < pairs.length - 1) {
+                    ctx.font = `bold ${fontSize}px Courier New`;
+                    totalW += gap * 2 + ctx.measureText(sep).width;
+                }
+            }
+            if (totalW > maxW) {
+                fontSize = Math.max(10, Math.floor(fontSize * maxW / totalW));
+                gap = Math.round(fontSize * 1.18);
+                totalW = 0;
+                for (let i = 0; i < pairs.length; i++) {
+                    totalW += measurePair(pairs[i]);
+                    if (i < pairs.length - 1) {
+                        ctx.font = `bold ${fontSize}px Courier New`;
+                        totalW += gap * 2 + ctx.measureText(sep).width;
+                    }
+                }
+            }
+
+            const panelH = Math.max(30, Math.round(fontSize * 2.25));
+            const panelX = x - totalW / 2 - 18;
+            const panelY = y - panelH / 2;
+            const panelW = totalW + 36;
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = baseAlpha * 0.18;
+            ctx.fillStyle = '#020712';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = baseAlpha * 0.20;
+            ctx.strokeStyle = colorWithAlpha('#8ff7ff', 0.56);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(panelX + 8, panelY + 3);
+            ctx.lineTo(panelX + panelW - 8, panelY + 3);
+            ctx.moveTo(panelX + 8, panelY + panelH - 3);
+            ctx.lineTo(panelX + panelW - 8, panelY + panelH - 3);
+            ctx.stroke();
+
+            let cursorX = x - totalW / 2;
+            for (let i = 0; i < pairs.length; i++) {
+                const pairW = drawSurvivorControlPairDecal(pairs[i], cursorX, y, baseAlpha, fontSize);
+                cursorX += pairW;
+                if (i < pairs.length - 1) {
+                    cursorX += gap;
+                    ctx.font = `bold ${fontSize}px Courier New`;
+                    ctx.globalAlpha = baseAlpha * 0.46;
+                    ctx.fillStyle = colorWithAlpha('#9fb8ff', 0.78);
+                    ctx.fillText(sep, cursorX, y + 1);
+                    cursorX += ctx.measureText(sep).width + gap;
+                }
+            }
+
+            if (fizzle > 0.02) {
+                const glyphs = ['.', '+', "'", ':'];
+                const seed = decal.seed || 0;
+                ctx.font = `bold ${Math.max(7, fontSize - 4)}px Courier New`;
+                for (let i = 0; i < 18; i++) {
+                    const n1 = Math.sin(seed + i * 17.31) * 43758.5453;
+                    const n2 = Math.sin(seed + i * 23.77 + 9.2) * 33731.331;
+                    const n3 = Math.sin(seed + i * 31.11 + 2.4) * 27181.13;
+                    const a = n1 - Math.floor(n1);
+                    const b = n2 - Math.floor(n2);
+                    const c = n3 - Math.floor(n3);
+                    const drift = fizzle * (8 + c * 24);
+                    const px = panelX + a * panelW + Math.sin(renderNow * 0.0017 + i) * drift;
+                    const py = panelY + b * panelH - fizzle * (4 + a * 18);
+                    ctx.globalAlpha = baseAlpha * fizzle * (0.10 + c * 0.18);
+                    ctx.fillStyle = c > 0.72 ? '#ffffff' : '#8ff7ff';
+                    ctx.fillText(glyphs[i % glyphs.length], px, py);
+                }
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
         function drawSurvivorWorldBackdrop(renderNow, introBossActive = false) {
             ctx.save();
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            if (typeof setCanvasBaseTransform === 'function') setCanvasBaseTransform(ctx);
+            else ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.fillStyle = colorWithAlpha('#050712', 0.28);
             ctx.fillRect(0, 0, width, height);
             ctx.restore();
@@ -3610,6 +4074,7 @@
             };
             drawIntroPass(0);
             drawLayer('far');
+            drawSurvivorControlDecal(renderNow, center, fieldH, cameraScale);
             drawIntroPass(1);
             drawLayer('mid');
             drawIntroPass(2);
@@ -4349,8 +4814,13 @@
             const depthIntro = !!boss.survivorDepthIntroRendering;
             const rawScale = p.scale * (boss.renderScale || 1);
             const scale = depthIntro ? Math.max(0.035, rawScale) : Math.max(0.54, rawScale);
-            const screenBoss = { ...boss, x: p.x, y: p.y };
-            const layout = getGhostSignalRenderLayout(screenBoss);
+            const oldX = boss.x;
+            const oldY = boss.y;
+            boss.x = p.x;
+            boss.y = p.y;
+            const layout = getGhostSignalRenderLayout(boss);
+            boss.x = oldX;
+            boss.y = oldY;
             const bodyFlash = boss.flashTimer > 0;
             const introActive = boss.phase === 'INTRO';
             const introAlpha = getSurvivorBossIntroAlpha(boss);
@@ -4451,7 +4921,14 @@
             }
 
             const bandCount = 12;
-            const noiseCache = new Map();
+            const noiseSize = Math.max(1, fireLines.length * (bandCount + 1));
+            if (!boss._survivorFirewallNoiseValues || boss._survivorFirewallNoiseValues.length < noiseSize) {
+                boss._survivorFirewallNoiseValues = new Float32Array(noiseSize);
+                boss._survivorFirewallNoiseMarks = new Int32Array(noiseSize);
+            }
+            const noiseValues = boss._survivorFirewallNoiseValues;
+            const noiseMarks = boss._survivorFirewallNoiseMarks;
+            const frameMark = (Math.floor(animFrame) % 100000) + 1;
             let lastRow = -1;
             let hRatio = 0;
             let lastFill = null;
@@ -4466,13 +4943,14 @@
                 const rowLength = fireLines[r] ? fireLines[r].length : fireLines[0].length;
                 const colRatio = c / Math.max(1, rowLength - 1);
                 const band = Math.max(0, Math.min(bandCount, Math.round(colRatio * bandCount)));
-                const cacheKey = `${r}|${band}`;
-                let noise = noiseCache.get(cacheKey);
-                if (noise === undefined) {
+                const cacheKey = r * (bandCount + 1) + band;
+                let noise = noiseValues[cacheKey];
+                if (noiseMarks[cacheKey] !== frameMark) {
                     const sampleC = (band / bandCount) * Math.max(1, rowLength - 1);
                     noise = Math.sin(2 * tAngle - r * 0.5 + sampleC * 0.3) * 0.6 +
                         Math.cos(3 * tAngle - r * 0.3 + sampleC * 0.2) * 0.6;
-                    noiseCache.set(cacheKey, noise);
+                    noiseValues[cacheKey] = noise;
+                    noiseMarks[cacheKey] = frameMark;
                 }
 
                 const flickerHeat = hRatio + noise * (firewallStageTwo ? 0.2 : 0.15) + (firewallStageTwo ? 0.08 : 0);
@@ -4652,15 +5130,6 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
             ctx.font = `bold 13px 'Electrolize', sans-serif`;
-            if (survivorState.autoFireHintTimer > 0) {
-                survivorState.autoFireHintTimer = Math.max(0, survivorState.autoFireHintTimer - (dt || 0));
-                ctx.textAlign = 'center';
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.66)';
-                const aimHint = (typeof survivorEightWayAimEnabled === 'undefined' || survivorEightWayAimEnabled)
-                    ? 'ARROWS AIM | SPACE/B BOMB'
-                    : 'LEFT/RIGHT TURN | SPACE/DOWN/B BOMB';
-                ctx.fillText(`WASD MOVE | ${aimHint} | AUTO-FIRE | SHIFT PRISM FOCUS`, width / 2, height - HUD_HEIGHT - 48);
-            }
             ctx.restore();
         }
 

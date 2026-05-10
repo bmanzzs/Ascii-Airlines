@@ -12,12 +12,13 @@
         musicPlayerGain.gain.value = 1;
         const musicPlayerAnalyser = audioCtx.createAnalyser();
         musicPlayerAnalyser.fftSize = 256;
-        musicPlayerAnalyser.smoothingTimeConstant = 0.54;
+        musicPlayerAnalyser.smoothingTimeConstant = 0.42;
         musicPlayerAnalyser.minDecibels = -96;
         musicPlayerAnalyser.maxDecibels = -18;
         musicPlayerGain.connect(musicPlayerAnalyser);
         musicPlayerAnalyser.connect(gainNode);
         const musicPlayerFrequencyData = new Uint8Array(musicPlayerAnalyser.frequencyBinCount);
+        const musicPlayerTimeDomainData = new Uint8Array(musicPlayerAnalyser.fftSize);
 
         async function loadBuffer(url) {
             try {
@@ -38,6 +39,7 @@
         let currentMusicPlaybackRate = 1;
         let bgmPlayToken = 0;
         let bossPlayToken = 0;
+        let bgmTrackMode = 'none';
         let musicPlayerOpen = false;
         let musicPlayerSelection = 2;
         let musicPlayerTrackIndex = 0;
@@ -51,8 +53,9 @@
         let musicPlayerVolume = 1;
         let musicPlayerMasterOverride = false;
         let musicPlayerVisualizerBars = [];
+        let musicPlayerVisualizerRawPrevious = [];
+        let musicPlayerVisualizerImpulses = [];
         let musicPlayerVisualizerLastTime = 0;
-        let musicPlayerVisualizerPeak = 0.18;
         const MUSIC_PLAYER_TRACKS = [
             { name: 'Main Theme', intro: () => buf1, loop: () => buf2 },
             { name: 'Null Phantom', intro: () => bufVoidIntro, loop: () => bufVoidLoop },
@@ -140,17 +143,18 @@
                 bgmSources.forEach(src => { try { src.stop(); } catch(e){} });
             }
             bgmSources = [];
+            bgmTrackMode = 'none';
         }
 
-        function playBgm(fadeInTime = 0) {
+        function playBgmBuffers(introBuf, loopBuf, fadeInTime = 0, startOffset = 0, mode = 'main', retryFn = null) {
             if (bgmRetryTimeout) { clearTimeout(bgmRetryTimeout); bgmRetryTimeout = null; }
             if (audioCtx.state === 'suspended') audioCtx.resume();
             stopBgm(0);
-            if (!buf1 || !buf2) {
-                bgmRetryTimeout = setTimeout(() => playBgm(fadeInTime), 100);
+            if (!introBuf || !loopBuf) {
+                if (typeof retryFn === 'function') bgmRetryTimeout = setTimeout(retryFn, 100);
                 return;
             }
-            
+
             bgmGain.gain.cancelScheduledValues(audioCtx.currentTime);
             bgmGain.gain.setValueAtTime(fadeInTime > 0 ? 0 : 1, audioCtx.currentTime);
             if (fadeInTime > 0) {
@@ -161,17 +165,19 @@
 
             bgmLastStartTime = audioCtx.currentTime;
             bgmIsPlaying = true;
+            bgmTrackMode = mode;
 
-            const totalIntro = buf1.duration;
-            const loopDur = buf2.duration;
+            const offset = Math.max(0, startOffset || 0);
+            const totalIntro = introBuf.duration;
+            const loopDur = loopBuf.duration;
 
-            if (bgmOffset < totalIntro) {
-                const source1 = audioCtx.createBufferSource(); source1.buffer = buf1; source1.connect(bgmGain);
+            if (offset < totalIntro) {
+                const source1 = audioCtx.createBufferSource(); source1.buffer = introBuf; source1.connect(bgmGain);
                 setSourcePlaybackRate(source1, currentMusicPlaybackRate);
                 source1.onended = () => {
                     if (token !== bgmPlayToken || !bgmIsPlaying) return;
                     const source2 = audioCtx.createBufferSource();
-                    source2.buffer = buf2;
+                    source2.buffer = loopBuf;
                     source2.loop = true;
                     source2.connect(bgmGain);
                     setSourcePlaybackRate(source2, currentMusicPlaybackRate);
@@ -180,15 +186,19 @@
                     bgmLastStartTime = audioCtx.currentTime;
                     try { source2.start(audioCtx.currentTime); } catch(e) {}
                 };
-                source1.start(audioCtx.currentTime, bgmOffset);
+                source1.start(audioCtx.currentTime, offset);
                 bgmSources.push(source1);
             } else {
-                const loopOffset = (bgmOffset - totalIntro) % loopDur;
-                const source2 = audioCtx.createBufferSource(); source2.buffer = buf2; source2.loop = true; source2.connect(bgmGain);
+                const loopOffset = (offset - totalIntro) % loopDur;
+                const source2 = audioCtx.createBufferSource(); source2.buffer = loopBuf; source2.loop = true; source2.connect(bgmGain);
                 setSourcePlaybackRate(source2, currentMusicPlaybackRate);
                 source2.start(audioCtx.currentTime, loopOffset);
                 bgmSources.push(source2);
             }
+        }
+
+        function playBgm(fadeInTime = 0) {
+            playBgmBuffers(buf1, buf2, fadeInTime, bgmOffset, 'main', () => playBgm(fadeInTime));
         }
 
         function stopBossMusic(fadeOutTime = 0) {
@@ -339,6 +349,8 @@
             const count = Math.max(6, Math.min(64, Math.floor(barCount || 32)));
             if (musicPlayerVisualizerBars.length !== count) {
                 musicPlayerVisualizerBars = new Array(count).fill(0);
+                musicPlayerVisualizerRawPrevious = new Array(count).fill(0);
+                musicPlayerVisualizerImpulses = new Array(count).fill(0);
             }
 
             const now = audioCtx.currentTime || 0;
@@ -351,6 +363,8 @@
                 const decay = Math.pow(0.06, dt);
                 for (let i = 0; i < musicPlayerVisualizerBars.length; i++) {
                     musicPlayerVisualizerBars[i] *= decay;
+                    musicPlayerVisualizerRawPrevious[i] *= decay;
+                    musicPlayerVisualizerImpulses[i] *= decay;
                 }
                 return musicPlayerVisualizerBars;
             }
@@ -358,8 +372,6 @@
             musicPlayerAnalyser.getByteFrequencyData(musicPlayerFrequencyData);
             const rawLevels = new Array(count);
             const usableBins = Math.max(8, Math.floor(musicPlayerFrequencyData.length * 0.92));
-            let framePeak = 0;
-            let frameTotal = 0;
             for (let i = 0; i < count; i++) {
                 const start = Math.max(1, Math.floor(Math.pow(i / count, 1.72) * usableBins));
                 const end = Math.max(start + 1, Math.floor(Math.pow((i + 1) / count, 1.72) * usableBins));
@@ -372,33 +384,112 @@
                 }
                 const avg = sum / Math.max(1, end - start);
                 const bandPosition = i / Math.max(1, count - 1);
-                const raw = Math.max(avg * 0.62, peak * 0.58) / 255;
-                const highLift = 0.82 + Math.pow(bandPosition, 1.16) * 1.38;
-                const lowTame = bandPosition < 0.16 ? 0.78 + bandPosition * 1.38 : 1;
-                const level = Math.max(0, raw * highLift * lowTame - 0.015);
+                const raw = Math.max(avg * 0.44, peak * 0.84) / 255;
+                const perceptualLift = 0.94 + Math.pow(bandPosition, 1.38) * 0.58;
+                const lowTame = bandPosition < 0.10 ? 0.90 + bandPosition : 1;
+                const level = Math.max(0, Math.min(1, raw * perceptualLift * lowTame - 0.006));
                 rawLevels[i] = level;
-                framePeak = Math.max(framePeak, level);
-                frameTotal += level;
             }
 
-            const frameAvg = frameTotal / Math.max(1, count);
-            const targetPeak = Math.max(0.1, framePeak, frameAvg * 1.8);
-            const peakRate = targetPeak > musicPlayerVisualizerPeak
-                ? Math.min(1, dt * 16)
-                : Math.min(1, dt * 1.35);
-            musicPlayerVisualizerPeak += (targetPeak - musicPlayerVisualizerPeak) * peakRate;
-            const dynamicScale = Math.max(0.095, musicPlayerVisualizerPeak * 0.88);
-
             for (let i = 0; i < count; i++) {
-                const normalized = Math.max(0, rawLevels[i] / dynamicScale - 0.04);
-                const shaped = Math.max(0, Math.min(1, Math.pow(normalized, 0.72) * 1.08));
+                const raw = rawLevels[i] || 0;
+                const previousRaw = musicPlayerVisualizerRawPrevious[i] || 0;
+                const flux = Math.max(0, raw - previousRaw * 0.82);
+                const impulseTarget = Math.max(0, Math.min(1, Math.pow(flux * 5.4, 0.56)));
+                const previousImpulse = musicPlayerVisualizerImpulses[i] || 0;
+                const impulseRise = Math.min(1, dt * 78);
+                const impulseFall = Math.min(1, dt * 16);
+                const impulse = impulseTarget > previousImpulse
+                    ? previousImpulse + (impulseTarget - previousImpulse) * impulseRise
+                    : previousImpulse + (impulseTarget - previousImpulse) * impulseFall;
+                musicPlayerVisualizerRawPrevious[i] = raw;
+                musicPlayerVisualizerImpulses[i] = impulse;
+
+                const shaped = Math.max(0, Math.min(1, Math.pow(raw, 0.58) * 1.16 + impulse * 0.42));
                 const previous = musicPlayerVisualizerBars[i] || 0;
-                const rise = Math.min(1, dt * 42);
-                const fall = Math.min(1, dt * 20);
+                const rise = Math.min(1, dt * 56);
+                const fall = Math.min(1, dt * 28);
                 musicPlayerVisualizerBars[i] = shaped > previous
                     ? previous + (shaped - previous) * rise
                     : previous + (shaped - previous) * fall;
             }
+            return musicPlayerVisualizerBars;
+        }
+
+        function getMusicPlayerVisualizerWaveform(pointCount = 48) {
+            const count = Math.max(18, Math.min(72, Math.floor(pointCount || 48)));
+            if (musicPlayerVisualizerBars.length !== count) {
+                musicPlayerVisualizerBars = new Array(count).fill(0);
+                musicPlayerVisualizerRawPrevious = new Array(count).fill(0);
+                musicPlayerVisualizerImpulses = new Array(count).fill(0);
+            }
+
+            const now = audioCtx.currentTime || 0;
+            const dt = musicPlayerVisualizerLastTime > 0
+                ? Math.max(0.001, Math.min(0.08, now - musicPlayerVisualizerLastTime))
+                : 1 / 60;
+            musicPlayerVisualizerLastTime = now;
+
+            if (!musicPlayerIsPlaying || musicPlayerVolume <= 0.001) {
+                const decay = Math.pow(0.035, dt);
+                for (let i = 0; i < count; i++) {
+                    musicPlayerVisualizerBars[i] *= decay;
+                    musicPlayerVisualizerRawPrevious[i] *= decay;
+                    musicPlayerVisualizerImpulses[i] *= decay;
+                }
+                musicPlayerVisualizerBars.rms = 0;
+                musicPlayerVisualizerBars.peak = 0;
+                musicPlayerVisualizerBars.impulse = 0;
+                musicPlayerVisualizerBars.impulses = musicPlayerVisualizerImpulses;
+                return musicPlayerVisualizerBars;
+            }
+
+            musicPlayerAnalyser.getByteTimeDomainData(musicPlayerTimeDomainData);
+            const sampleCount = musicPlayerTimeDomainData.length;
+            let sumSq = 0;
+            let peak = 0;
+            let impulseTotal = 0;
+
+            for (let i = 0; i < count; i++) {
+                const t = i / Math.max(1, count - 1);
+                const samplePos = t * Math.max(1, sampleCount - 1);
+                const lo = Math.floor(samplePos);
+                const hi = Math.min(sampleCount - 1, lo + 1);
+                const blend = samplePos - lo;
+                const byteValue = (musicPlayerTimeDomainData[lo] || 128) * (1 - blend) + (musicPlayerTimeDomainData[hi] || 128) * blend;
+                const raw = Math.max(-1, Math.min(1, (byteValue - 128) / 128));
+                const absRaw = Math.abs(raw);
+                const previousRaw = musicPlayerVisualizerRawPrevious[i] || 0;
+                const previousAbs = Math.abs(previousRaw);
+                const direction = absRaw > 0.001 ? Math.sign(raw) : (previousRaw >= 0 ? 1 : -1);
+                const flux = Math.max(0, absRaw - previousAbs * 0.74);
+                const impulseTarget = Math.max(0, Math.min(1, Math.pow(flux * 5.6, 0.56)));
+                const previousImpulse = musicPlayerVisualizerImpulses[i] || 0;
+                const impulseRise = Math.min(1, dt * 64);
+                const impulseFall = Math.min(1, dt * 12);
+                const impulse = impulseTarget > previousImpulse
+                    ? previousImpulse + (impulseTarget - previousImpulse) * impulseRise
+                    : previousImpulse + (impulseTarget - previousImpulse) * impulseFall;
+                const edge = Math.max(-1, Math.min(1, (raw - previousRaw) * 1.45));
+                const compressed = direction * Math.min(1, Math.pow(absRaw, 0.62) * 1.28);
+                const target = Math.max(-1, Math.min(1, compressed * 0.76 + edge * 0.14 + direction * impulse * 0.24));
+                const previous = musicPlayerVisualizerBars[i] || 0;
+                const moveRate = Math.abs(target) > Math.abs(previous)
+                    ? Math.min(1, dt * 52)
+                    : Math.min(1, dt * 22);
+
+                musicPlayerVisualizerBars[i] = previous + (target - previous) * moveRate;
+                musicPlayerVisualizerRawPrevious[i] = raw;
+                musicPlayerVisualizerImpulses[i] = impulse;
+                sumSq += raw * raw;
+                peak = Math.max(peak, absRaw);
+                impulseTotal += impulse;
+            }
+
+            musicPlayerVisualizerBars.rms = Math.max(0, Math.min(1, Math.sqrt(sumSq / Math.max(1, count)) * 2.8));
+            musicPlayerVisualizerBars.peak = Math.max(0, Math.min(1, peak * 1.8));
+            musicPlayerVisualizerBars.impulse = Math.max(0, Math.min(1, impulseTotal / Math.max(1, count) * 1.9));
+            musicPlayerVisualizerBars.impulses = musicPlayerVisualizerImpulses;
             return musicPlayerVisualizerBars;
         }
 
@@ -650,6 +741,32 @@
 
         function resumeMainMusic(fadeInTime = 2.0) {
             playBgm(fadeInTime);
+        }
+
+        function startGalaxySelectMusic(fadeInTime = 0.45) {
+            if (typeof musicPlayerIsPlaying !== 'undefined' && musicPlayerIsPlaying) return false;
+            if (bossMusicTimeout) { clearTimeout(bossMusicTimeout); bossMusicTimeout = null; }
+            stopBossMusic(0);
+            bgmOffset = 0;
+            playBgmBuffers(
+                bufBoss9RoseIntro,
+                bufBoss9RoseLoop,
+                fadeInTime,
+                0,
+                'galaxySelect',
+                () => {
+                    if (typeof gameState !== 'undefined' && (gameState === 'GALAXY_SELECT' || gameState === 'TERMINAL_DOCK' || gameState === 'SHIP_SELECT')) {
+                        startGalaxySelectMusic(fadeInTime);
+                    }
+                }
+            );
+            return true;
+        }
+
+        function ensureGalaxySelectMusic(fadeInTime = 0.35) {
+            if (typeof musicPlayerIsPlaying !== 'undefined' && musicPlayerIsPlaying) return false;
+            if (bgmTrackMode === 'galaxySelect' && bgmIsPlaying) return true;
+            return startGalaxySelectMusic(fadeInTime);
         }
 
         function startVoidWalkerMusic() {

@@ -10,3 +10,10 @@
         let charW = 0, charH = 0;
         const FONT_SIZE = 14;
         let hudWeaponCellSize = 14;
+        let canvasRenderScale = 1;
+
+        function setCanvasBaseTransform(targetCtx) {
+            const target = targetCtx || ctx;
+            const scale = Number.isFinite(canvasRenderScale) ? Math.max(1, canvasRenderScale) : 1;
+            target.setTransform(scale, 0, 0, scale, 0, 0);
+        }

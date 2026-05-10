@@ -51,18 +51,19 @@
             const clampedFilled = Math.max(0, Math.min(totalBlocks, filledBlocks));
             const wrapperClasses = ['hud-meter-bar'];
             if (effectClass) wrapperClasses.push(effectClass);
+            const fillAlphaText = Math.max(0, Math.min(1, glowAlpha)).toFixed(2);
             for (let i = 0; i < totalBlocks; i++) {
                 const isFilled = i < clampedFilled;
                 const ratio = totalBlocks <= 1 ? 1 : i / (totalBlocks - 1);
                 const color = isFilled ? mixColor(fillStart, fillEnd, ratio) : emptyColor;
                 const glow = glowEnabled && isFilled && glowAlpha > 0
                     ? `0 0 ${glowBlur}px ${colorWithAlpha(color, glowAlpha)}`
-                    : 'none';
+                    : '0 0 0 rgba(0, 0, 0, 0)';
                 const blockClasses = ['hud-bar-block'];
                 if (isFilled) blockClasses.push('hud-bar-block-filled');
-                html += `<span class="${blockClasses.join(' ')}" style="color:${color}; text-shadow:${glow}; --bar-idx:${i};">${isFilled ? '█' : '░'}</span>`;
+                html += `<span class="${blockClasses.join(' ')}" style="--hud-block-color:${color}; --hud-block-shadow:${glow}; --bar-idx:${i};"></span>`;
             }
-            return `<span class="${wrapperClasses.join(' ')}" style="--fill-alpha:${Math.max(0, Math.min(1, glowAlpha)).toFixed(2)};">${html}</span>`;
+            return `<span class="${wrapperClasses.join(' ')}" style="--fill-alpha:${fillAlphaText}; --hud-bar-blocks:${totalBlocks};">${html}</span>`;
         }
 
         function ensureHudStructure() {
@@ -141,6 +142,7 @@
             const clampedFilled = Math.max(0, Math.min(totalBlocks, filledBlocks));
             const className = effectClass ? `hud-meter-bar ${effectClass}` : 'hud-meter-bar';
             const fillAlphaText = Math.max(0, Math.min(1, glowAlpha)).toFixed(2);
+            const totalBlocksText = String(totalBlocks);
             if (container.dataset.effectClass !== effectClass) {
                 container.className = className;
                 container.dataset.effectClass = effectClass;
@@ -149,11 +151,14 @@
                 container.style.setProperty('--fill-alpha', fillAlphaText);
                 container.dataset.fillAlpha = fillAlphaText;
             }
+            if (container.dataset.totalBlocks !== totalBlocksText) {
+                container.style.setProperty('--hud-bar-blocks', totalBlocksText);
+                container.dataset.totalBlocks = totalBlocksText;
+            }
 
             while (container.children.length < totalBlocks) {
                 const block = document.createElement('span');
                 block.className = 'hud-bar-block';
-                block.textContent = '░';
                 container.appendChild(block);
             }
             while (container.children.length > totalBlocks) {
@@ -167,9 +172,8 @@
                 const color = isFilled ? mixColor(fillStart, fillEnd, ratio) : emptyColor;
                 const glow = glowEnabled && isFilled && glowAlpha > 0
                     ? `0 0 ${glowBlur}px ${colorWithAlpha(color, glowAlpha)}`
-                    : 'none';
+                    : '0 0 0 rgba(0, 0, 0, 0)';
                 const blockClassName = isFilled ? 'hud-bar-block hud-bar-block-filled' : 'hud-bar-block';
-                const blockText = isFilled ? '█' : '░';
                 const barIdxText = String(i);
                 if (block.dataset.barIdx !== barIdxText) {
                     block.style.setProperty('--bar-idx', barIdxText);
@@ -179,13 +183,13 @@
                     block.className = blockClassName;
                     block.dataset.filled = isFilled ? '1' : '0';
                 }
-                if (block.textContent !== blockText) block.textContent = blockText;
+                if (block.textContent) block.textContent = '';
                 if (block.dataset.color !== color) {
-                    block.style.color = color;
+                    block.style.setProperty('--hud-block-color', color);
                     block.dataset.color = color;
                 }
                 if (block.dataset.glow !== glow) {
-                    block.style.textShadow = glow;
+                    block.style.setProperty('--hud-block-shadow', glow);
                     block.dataset.glow = glow;
                 }
             }
@@ -610,7 +614,7 @@
 
         function syncStatsPanel(forceHide = false) {
             if (!statsPanel) return;
-            const hiddenForState = forceHide || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT') || window.innerHeight < 700 || window.innerWidth < 525;
+            const hiddenForState = forceHide || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT') || window.innerHeight < 700 || window.innerWidth < 525;
             const visible = showStatsPanel && !hiddenForState;
             statsPanel.style.display = visible ? 'block' : 'none';
             if (!visible) {
@@ -651,7 +655,7 @@
                 syncStatsPanel(true);
                 return;
             }
-            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT')) {
+            if (gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT')) {
                 hud.style.display = 'none';
                 hud.style.opacity = 0;
                 hud.style.transform = 'translateY(calc(100% + 6px))';
@@ -673,7 +677,12 @@
 
             ensureHudStructure();
 
-            const scoreText = score.toString().padStart(6, '0');
+            const matrixHud = typeof getMatrixCrawlerHudSnapshot === 'function' && typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive()
+                ? getMatrixCrawlerHudSnapshot()
+                : null;
+            const scoreText = matrixHud
+                ? `${String(matrixHud.coins || 0).padStart(2, '0')} CR`
+                : score.toString().padStart(6, '0');
             if (scoreText !== lastHudScoreText) {
                 const scoreValueNode = hudRefs.scoreValue;
                 if (scoreValueNode) scoreValueNode.textContent = scoreText;
@@ -724,10 +733,13 @@
             let hpColor = '#00ff44';
             if (hpRatio < 0.3) hpColor = '#cc0000';
             else if (hpRatio <= 0.6) hpColor = '#ff8800';
-            const hpBlocks = Math.ceil(hpRatio * HUD_BAR_BLOCKS);
+            const matrixHpSegments = matrixHud ? Math.max(1, Math.ceil((player.maxHp || 1) / 10)) : HUD_BAR_BLOCKS;
+            const hpBlocks = matrixHud ? Math.ceil(Math.max(0, player.hp || 0) / 10) : Math.ceil(hpRatio * HUD_BAR_BLOCKS);
             const hpFull = hpRatio >= 0.999;
             
-            const xpRatio = Math.max(0, Math.min(1, player.xp / player.xpNeeded));
+            const xpRatio = matrixHud
+                ? Math.max(0, Math.min(1, (matrixHud.roomsCleared || 0) / Math.max(1, matrixHud.totalCombatRooms || 1)))
+                : Math.max(0, Math.min(1, player.xp / player.xpNeeded));
             const xpPerc = Math.min(HUD_BAR_BLOCKS, Math.floor(xpRatio * HUD_BAR_BLOCKS));
             const xpFull = xpRatio >= 0.999;
 
@@ -754,13 +766,26 @@
             const waveNumber = survivorHud && typeof getSurvivorWaveNumber === 'function'
                 ? getSurvivorWaveNumber()
                 : Math.max(1, WaveManager.currentWave);
-            const waveText = survivorHud ? `${survivorTimeText}|${waveNumber}` : (boss ? 'BOSS' : waveNumber);
-            const waveMainText = survivorHud ? `${survivorTimeText}  WAVE ${waveNumber}` : (boss ? 'BOSS' : `WAVE ${waveNumber}`);
-            const waveInfo = getHudWaveModifierInfo(waveNumber);
+            const waveText = matrixHud
+                ? `${matrixHud.roomType}:${matrixHud.roomsCleared}`
+                : (survivorHud ? `${survivorTimeText}|${waveNumber}` : (boss ? 'BOSS' : waveNumber));
+            const waveMainText = matrixHud
+                ? (matrixHud.roomTitle || 'SIM CHAMBER')
+                : (survivorHud ? `${survivorTimeText}  WAVE ${waveNumber}` : (boss ? 'BOSS' : `WAVE ${waveNumber}`));
+            const waveInfo = matrixHud
+                ? {
+                    id: `matrix-${matrixHud.roomType || 'room'}`,
+                    label: 'MATRIX ROUTE',
+                    desc: `${matrixHud.roomsCleared || 0}/${matrixHud.totalCombatRooms || 1} chambers clear`,
+                    color: matrixHud.roomType === 'boss' ? '#ff5e8a' : (matrixHud.roomType === 'shop' ? '#8ff7ff' : '#41ff93')
+                }
+                : getHudWaveModifierInfo(waveNumber);
             const survivorWaveAge = survivorHud && typeof SURVIVOR_WAVE_STYLE_DURATION === 'number'
                 ? (survivorState.elapsed || 0) % SURVIVOR_WAVE_STYLE_DURATION
                 : 999;
-            const noticeFresh = survivorHud
+            const noticeFresh = matrixHud
+                ? false
+                : survivorHud
                 ? survivorWaveAge < 1.4
                 : !!(waveSignalNotice &&
                 waveSignalNotice.waveNumber === waveNumber &&
@@ -773,10 +798,11 @@
                 hpColor,
                 Math.round(hpRatio * 100),
                 hpFull ? 1 : 0,
-                glowEnabled ? 1 : 0
+                glowEnabled ? 1 : 0,
+                matrixHud ? matrixHpSegments : 0
             ].join('~');
             if (hpSignature !== lastHudHpSignature) {
-                syncMeterBar(hudRefs.hpBar, hpBlocks, HUD_BAR_BLOCKS, hpColor, hpColor, '#46544d', {
+                syncMeterBar(hudRefs.hpBar, hpBlocks, matrixHpSegments, matrixHud ? '#ff6f9c' : hpColor, matrixHud ? '#ffd4e1' : hpColor, matrixHud ? '#341723' : '#46544d', {
                     effectClass: hpFull ? 'is-hp is-full' : 'is-hp',
                     glowAlpha: hpRatio * 0.8,
                     glowBlur: 8
@@ -850,7 +876,7 @@
                 weaponSignature
             ].join('~');
             if (staticSignature !== lastHudStaticSignature) {
-                if (hudRefs.levelText) hudRefs.levelText.textContent = `LVL ${player.level}`;
+                if (hudRefs.levelText) hudRefs.levelText.textContent = matrixHud ? `BOT ${player.level}` : `LVL ${player.level}`;
                 syncHudWavePanel(waveMainText, waveInfo, noticeFresh);
                 syncWeaponGrid(currentThemeColor);
                 lastHudStaticSignature = staticSignature;

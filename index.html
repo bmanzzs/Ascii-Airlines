@@ -18,6 +18,7 @@
     - js/player.js: Player model, weapons, upgrades, beams, and console command helpers.
     - js/entities-input.js: Entity arrays, input listeners, particles, and spatial hash state.
     - js/combat-systems.js: Explosions, projectiles, resize, reset, and utility systems.
+    - js/matrix-crawler.js: Matrix Nebula room crawler mode.
     - js/physics.js: Main simulation update loop.
     - js/ui-render.js: Menus, overlays, title sequence, and canvas rendering.
     - js/hud.js: HUD DOM construction and incremental HUD updates.
@@ -165,13 +166,14 @@
             padding-left: calc(8px * var(--hud-ui-scale));
         }
         .hud-meter-bar {
-            font-family: 'Courier New', Courier, monospace;
-            font-size: calc(8px * var(--hud-ui-scale));
-            line-height: 1;
-            white-space: nowrap;
-            display: inline-flex;
-            align-items: center;
+            display: grid;
+            grid-template-columns: repeat(var(--hud-bar-blocks, 20), minmax(0, 1fr));
+            grid-auto-flow: column;
+            column-gap: 0;
+            row-gap: 0;
+            align-items: stretch;
             width: 100%;
+            height: calc(11px * var(--hud-ui-scale));
             min-width: 0;
             overflow: hidden;
             box-sizing: border-box;
@@ -186,15 +188,25 @@
             --fill-alpha: 0.4;
         }
         .hud-bar-block {
-            display: inline-block;
-            opacity: 0.88;
+            display: block;
+            min-width: 0;
+            width: 100%;
+            height: 100%;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 42%, rgba(0, 0, 0, 0.14)),
+                var(--hud-block-color, #1a1a1a);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.13),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+                var(--hud-block-shadow, 0 0 0 rgba(0, 0, 0, 0));
+            opacity: 0.86;
         }
         .hud-bar-block:not(.hud-bar-block-filled) {
-            opacity: 0.72;
+            opacity: 0.78;
         }
         .hud-bar-block-filled {
-            opacity: calc(0.38 + var(--fill-alpha) * 0.62);
-            will-change: opacity, filter;
+            opacity: 1;
+            will-change: filter;
         }
         .hud-meter-bar.is-full .hud-bar-block-filled {
             animation: hud-meter-full-shimmer 1.35s ease-in-out infinite;
@@ -209,53 +221,42 @@
         }
         @keyframes hud-meter-shimmer {
             0%, 100% {
-                opacity: calc(0.42 + var(--fill-alpha) * 0.58);
                 filter: brightness(1);
             }
             45% {
-                opacity: calc(0.52 + var(--fill-alpha) * 0.72);
                 filter: brightness(calc(1.12 + var(--fill-alpha) * 0.22));
             }
             60% {
-                opacity: calc(0.62 + var(--fill-alpha) * 0.82);
                 filter: brightness(calc(1.22 + var(--fill-alpha) * 0.35));
             }
         }
         @keyframes hud-meter-shimmer-soft {
             0%, 100% {
-                opacity: calc(0.46 + var(--fill-alpha) * 0.5);
                 filter: brightness(1);
             }
             50% {
-                opacity: calc(0.56 + var(--fill-alpha) * 0.6);
                 filter: brightness(calc(1.08 + var(--fill-alpha) * 0.18));
             }
         }
         @keyframes hud-meter-shimmer-bomb-ready {
             0%, 100% {
-                opacity: calc(0.48 + var(--fill-alpha) * 0.54);
                 filter: brightness(1.02);
             }
             42% {
-                opacity: calc(0.58 + var(--fill-alpha) * 0.64);
                 filter: brightness(calc(1.12 + var(--fill-alpha) * 0.2));
             }
             60% {
-                opacity: calc(0.64 + var(--fill-alpha) * 0.7);
                 filter: brightness(calc(1.18 + var(--fill-alpha) * 0.26));
             }
         }
         @keyframes hud-meter-full-shimmer {
             0%, 100% {
-                opacity: calc(0.48 + var(--fill-alpha) * 0.54);
                 filter: brightness(1.02);
             }
             45% {
-                opacity: calc(0.58 + var(--fill-alpha) * 0.64);
                 filter: brightness(calc(1.14 + var(--fill-alpha) * 0.2));
             }
             62% {
-                opacity: calc(0.66 + var(--fill-alpha) * 0.68);
                 filter: brightness(calc(1.22 + var(--fill-alpha) * 0.24));
             }
         }
@@ -769,6 +770,7 @@
     <script src="js/player.js"></script>
     <script src="js/entities-input.js"></script>
     <script src="js/combat-systems.js"></script>
+    <script src="js/matrix-crawler.js"></script>
     <script src="js/survivor-mode.js"></script>
     <script src="js/physics.js"></script>
     <script src="js/ui-render.js"></script>

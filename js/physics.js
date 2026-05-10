@@ -329,8 +329,10 @@
             if (gameState !== 'PLAYING') return;
             const isFirewallTrail = !!b.isFirewallBullet && !isWraith;
             const isGhostTrail = !!isWraith && !isFirewallTrail;
-            const softCap = isFirewallTrail ? FIREWALL_TRAIL_SOFT_CAP : (isGhostTrail ? GHOST_SIGNAL_TRAIL_SOFT_CAP : ELEMENTAL_TRAIL_SOFT_CAP);
-            const hardCap = isFirewallTrail ? FIREWALL_TRAIL_HARD_CAP : (isGhostTrail ? GHOST_SIGNAL_TRAIL_HARD_CAP : ELEMENTAL_TRAIL_HARD_CAP);
+            const effectQuality = typeof getVisualQualityScale === 'function' ? getVisualQualityScale('effects') : 1;
+            const qualityScale = Math.max(0.65, Math.min(1.25, effectQuality));
+            const softCap = Math.round((isFirewallTrail ? FIREWALL_TRAIL_SOFT_CAP : (isGhostTrail ? GHOST_SIGNAL_TRAIL_SOFT_CAP : ELEMENTAL_TRAIL_SOFT_CAP)) * qualityScale);
+            const hardCap = Math.round((isFirewallTrail ? FIREWALL_TRAIL_HARD_CAP : (isGhostTrail ? GHOST_SIGNAL_TRAIL_HARD_CAP : ELEMENTAL_TRAIL_HARD_CAP)) * qualityScale);
             if (thrusterParticles.length > hardCap) return;
             if ((isFirewallTrail || isGhostTrail) && typeof b.trailSkipSeed !== 'number') b.trailSkipSeed = Math.random();
             if (isFirewallTrail && thrusterParticles.length > softCap && b.trailSkipSeed < 0.48) return;
@@ -347,6 +349,7 @@
                 interval = load > 58 ? 0.13 : (load > 36 ? 0.105 : 0.078);
                 if (thrusterParticles.length > softCap) interval *= 1.35;
             }
+            interval /= Math.max(0.72, Math.min(1.18, qualityScale));
             if (b.trailTimer < interval) return;
             b.trailTimer %= interval;
 
@@ -1062,12 +1065,17 @@
                     ? canUseFocusAbilitiesNow()
                     : gameState === 'PLAYING' && !(bossCinematic && bossCinematic.paused));
             }
-            if (gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'VICTORY' || gameState === 'RUN_SCORE') {
+            if (gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE') {
                 if (gameState === 'RETURN_LOADING' || gameState === 'VICTORY' || gameState === 'RUN_SCORE') updateFieldParticles(dt);
                 if (typeof updateCampaignScreens === 'function') updateCampaignScreens(dt);
                 return;
             }
             if (gameState === 'LEVELUP') return;
+
+            if (gameState === 'MATRIX_CRAWLER') {
+                if (typeof updateMatrixCrawler === 'function') updateMatrixCrawler(dt);
+                return;
+            }
 
             if (gameState === 'START') {
                 if (titleAlpha < 1.0) {

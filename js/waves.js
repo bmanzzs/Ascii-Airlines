@@ -8,12 +8,21 @@
         const GALAXY_TWO_RUN_WAVE_LIMIT = 20;
         const GALAXY_RUN_WAVE_LIMIT = GALAXY_ONE_RUN_WAVE_LIMIT;
 
+        function getCampaignRouteGalaxyIndex(galaxyIndex = 0) {
+            if (typeof GALAXY_DEFINITIONS !== 'undefined') {
+                const galaxy = GALAXY_DEFINITIONS[galaxyIndex];
+                if (galaxy && Number.isFinite(galaxy.campaignSourceGalaxyIndex)) return galaxy.campaignSourceGalaxyIndex;
+            }
+            return galaxyIndex;
+        }
+
         function getGalaxyRunWaveLimit(galaxyIndex = 0) {
             if (typeof GALAXY_DEFINITIONS !== 'undefined') {
                 const galaxy = GALAXY_DEFINITIONS[galaxyIndex];
-                if (galaxy && (galaxy.mode === 'survivor' || galaxy.mode === 'shipHub')) return 0;
+                if (galaxy && (galaxy.mode === 'survivor' || galaxy.mode === 'shipHub' || galaxy.mode === 'matrixCrawler')) return 0;
             }
-            return galaxyIndex === 1 ? GALAXY_TWO_RUN_WAVE_LIMIT : GALAXY_ONE_RUN_WAVE_LIMIT;
+            const routeGalaxyIndex = getCampaignRouteGalaxyIndex(galaxyIndex);
+            return routeGalaxyIndex === 1 ? GALAXY_TWO_RUN_WAVE_LIMIT : GALAXY_ONE_RUN_WAVE_LIMIT;
         }
         const GALAXY_DEFINITIONS = Object.freeze([
             {
@@ -37,8 +46,9 @@
                 id: 'void-circuit',
                 title: 'MATRIX NEBULA',
                 name: 'MATRIX NEBULA',
-                desc: 'A green code-cloud route through corrupted math, synthetic dark matter, and falling command rain.',
+                desc: 'A clean simulation labyrinth: room-by-room combat, robot routing, treasure caches, and hostile code chambers.',
                 available: true,
+                mode: 'matrixCrawler',
                 colors: ['#007a3a', '#25b85b', '#f2fff6'],
                 coreColor: '#f2fff6',
                 glyphs: ['0', '1', '|', ':', ';', '.', '/', '\\'],
@@ -104,8 +114,9 @@
                 id: 'red-dwarf',
                 title: 'BITSHIFT DWARF',
                 name: 'BITSHIFT DWARF',
-                desc: 'Locked sector. A compact red processor star rotating through operators and overflow dust.',
-                available: false,
+                desc: 'A compact processor star carrying the former Matrix SHMUP route through operators and overflow dust.',
+                available: true,
+                campaignSourceGalaxyIndex: 1,
                 colors: ['#ff4f4a', '#ff9a73', '#fff1e8'],
                 coreColor: '#fff1e8',
                 glyphs: ['<', '>', '^', 'v', '/', '\\', '0', '1'],
@@ -137,8 +148,8 @@
             },
             {
                 id: 'vector-terminal',
-                title: 'VECTOR TERMINAL',
-                name: 'VECTOR TERMINAL',
+                title: 'TERMINAL',
+                name: 'TERMINAL',
                 desc: 'ASCII Airlines orbital hub: a circuit-lit fleet terminal for choosing your active ship frame.',
                 available: true,
                 mode: 'shipHub',
@@ -1734,11 +1745,16 @@
                 return this.getRunWaveLimitForGalaxy(this.getActiveGalaxyIndex());
             },
             getActiveGalaxyIndex() {
-                if (typeof currentGalaxyIndex === 'number') return currentGalaxyIndex;
-                return this.activeGalaxyIndex || 0;
+                const galaxyIndex = typeof currentGalaxyIndex === 'number' ? currentGalaxyIndex : (this.activeGalaxyIndex || 0);
+                return typeof getCampaignRouteGalaxyIndex === 'function'
+                    ? getCampaignRouteGalaxyIndex(galaxyIndex)
+                    : galaxyIndex;
             },
             prepareGalaxyRun(galaxyIndex = 0) {
                 this.activeGalaxyIndex = galaxyIndex;
+                const routeGalaxyIndex = typeof getCampaignRouteGalaxyIndex === 'function'
+                    ? getCampaignRouteGalaxyIndex(galaxyIndex)
+                    : galaxyIndex;
                 this.currentWave = 0;
                 this.waveDelay = 0;
                 this.hasSpawnedWave = false;
@@ -1746,7 +1762,7 @@
                 this.pendingFormationUnits = 0;
                 this.activeFormationId = 0;
                 this.formationId = 0;
-                this.randomizeEarlyProceduralWaves(galaxyIndex === 1 ? 1.10 : 1);
+                this.randomizeEarlyProceduralWaves(routeGalaxyIndex === 1 ? 1.10 : 1);
                 this.randomizeFlyByAssignments();
                 this.randomizeSignalDrifts();
             },
