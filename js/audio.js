@@ -56,6 +56,7 @@
         let musicPlayerVisualizerRawPrevious = [];
         let musicPlayerVisualizerImpulses = [];
         let musicPlayerVisualizerLastTime = 0;
+        const MUSIC_PLAYER_PREVIOUS_TRACK_GRACE_SECONDS = 3;
         const MUSIC_PLAYER_TRACKS = [
             { name: 'Main Theme', intro: () => buf1, loop: () => buf2 },
             { name: 'Null Phantom', intro: () => bufVoidIntro, loop: () => bufVoidLoop },
@@ -637,6 +638,13 @@
         }
 
         function previousMusicPlayerTrack() {
+            const duration = getMusicPlayerDuration();
+            const current = getMusicPlayerPosition();
+            if (duration > 0 && current >= MUSIC_PLAYER_PREVIOUS_TRACK_GRACE_SECONDS) {
+                musicPlayerPosition = 0;
+                if (musicPlayerIsPlaying) return playMusicPlayerFrom(0);
+                return true;
+            }
             return setMusicPlayerTrack(musicPlayerTrackIndex - 1);
         }
 

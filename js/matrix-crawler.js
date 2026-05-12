@@ -4425,21 +4425,73 @@
             ctx.globalAlpha = (bodyFlash ? 1 : NULL_PHANTOM_BODY_ALPHA) * pose.alpha;
             ctx.shadowColor = bodyFlash ? '#ffffff' : (introActive ? '#c8d0dc' : NULL_PHANTOM_GLOW_COLOR);
             ctx.shadowBlur = glowBlur;
-            for (let r = 0; r < entity.sprite.length; r++) {
-                const row = entity.sprite[r] || '';
-                for (let c = 0; c < row.length; c++) {
-                    const char = row[c];
-                    if (char === ' ') continue;
-                    const glyphPos = getNullPhantomGlyphPosition(layout, r, c);
+            const phantomCells = typeof NULL_PHANTOM_VISIBLE_CELLS !== 'undefined' ? NULL_PHANTOM_VISIBLE_CELLS : null;
+            if (phantomCells) {
+                for (const cell of phantomCells) {
+                    const glyphPos = getNullPhantomGlyphPosition(layout, cell.row, cell.col);
                     ctx.fillStyle = bodyFlash
                         ? '#ffffff'
-                        : (introActive ? '#c8d0dc' : getNullPhantomBodyColor(char, 1, false));
-                    ctx.fillText(char, (glyphPos.x + anchorOffsetX) | 0, (glyphPos.y + anchorOffsetY) | 0);
+                        : (introActive ? '#c8d0dc' : getNullPhantomBodyColor(cell.char, 1, false));
+                    ctx.fillText(cell.char, (glyphPos.x + anchorOffsetX) | 0, (glyphPos.y + anchorOffsetY) | 0);
+                }
+            } else {
+                for (let r = 0; r < entity.sprite.length; r++) {
+                    const row = entity.sprite[r] || '';
+                    for (let c = 0; c < row.length; c++) {
+                        const char = row[c];
+                        if (char === ' ') continue;
+                        const glyphPos = getNullPhantomGlyphPosition(layout, r, c);
+                        ctx.fillStyle = bodyFlash
+                            ? '#ffffff'
+                            : (introActive ? '#c8d0dc' : getNullPhantomBodyColor(char, 1, false));
+                        ctx.fillText(char, (glyphPos.x + anchorOffsetX) | 0, (glyphPos.y + anchorOffsetY) | 0);
+                    }
                 }
             }
             ctx.restore();
             ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
+        }
+
+        function drawMatrixNullPhantomFocusTrail(entity, now, intensity) {
+            if (typeof getNullPhantomRenderLayout !== 'function' || typeof getNullPhantomGlyphPosition !== 'function') return false;
+            const cells = typeof NULL_PHANTOM_VISIBLE_CELLS !== 'undefined' ? NULL_PHANTOM_VISIBLE_CELLS : null;
+            if (!cells || cells.length === 0) return false;
+
+            const pose = getMatrixNullPhantomIntroPose(entity);
+            const oldX = entity.x;
+            const oldY = entity.y;
+            entity.x = pose.x;
+            entity.y = pose.y;
+            const layout = getNullPhantomRenderLayout(entity, Math.max(0.001, pose.scale * (entity.nullPhantomScale || 1)));
+            entity.x = oldX;
+            entity.y = oldY;
+            const anchorOffsetX = pose.x - (layout.visibleLeft + layout.visibleW / 2);
+            const anchorOffsetY = pose.y - (layout.visibleTop + layout.visibleH / 2);
+            const trailColor = entity.flashTimer > 0 ? '#ffffff' : colorWithAlpha(entity.color || '#ff8fd8', 0.86);
+
+            ctx.save();
+            ctx.font = `bold ${Math.max(4, Math.round(layout.fontSize || NULL_PHANTOM_FONT_SIZE))}px Courier New`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = trailColor;
+            ctx.shadowBlur = 0;
+            ctx.globalCompositeOperation = 'screen';
+            for (let layer = 2; layer >= 1; layer--) {
+                const offset = getMatrixCrawlerFocusTrailOffset(entity, layer, 0.024);
+                ctx.save();
+                ctx.globalAlpha *= intensity * (layer === 2 ? 0.08 : 0.13);
+                ctx.translate(offset.x, offset.y);
+                for (const cell of cells) {
+                    const glyphPos = getNullPhantomGlyphPosition(layout, cell.row, cell.col);
+                    ctx.fillText(cell.char, (glyphPos.x + anchorOffsetX) | 0, (glyphPos.y + anchorOffsetY) | 0);
+                }
+                ctx.restore();
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+            return true;
         }
 
         function drawMatrixDistortedGlitchBoss(entity, now) {
@@ -4659,6 +4711,7 @@
                 drawFocusEnemyTrail(entity, flashColor);
                 return;
             }
+            if (entity.type === 'nullPhantom' && drawMatrixNullPhantomFocusTrail(entity, now, intensity)) return;
 
             for (let layer = 2; layer >= 1; layer--) {
                 const offset = getMatrixCrawlerFocusTrailOffset(entity, layer, 0.024);
@@ -5122,6 +5175,7 @@
 
         function drawMatrixCrawlerFocusBulletTrail(b, now) {
             if (!b || typeof drawFocusBulletTrailGlyph !== 'function') return;
+            if (b.isPhantomBullet && typeof drawBossProjectileFast === 'function') return;
             const intensity = getMatrixCrawlerFocusVisualIntensity();
             if (intensity <= 0.04) return;
             const visualRadius = b.visualRadius || b.radius || 6;

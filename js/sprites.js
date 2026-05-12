@@ -129,6 +129,7 @@
         const NULL_PHANTOM_REST_OFFSET_Y = 0.1;
         const NULL_PHANTOM_FOOTPRINT = getSpriteVisibleMetrics(NULL_PHANTOM_LEGACY_SPRITE);
         const NULL_PHANTOM_METRICS = getSpriteVisibleMetrics(NULL_PHANTOM_SOURCE);
+        const NULL_PHANTOM_VISIBLE_CELLS = buildSpriteVisibleCells(NULL_PHANTOM_SOURCE);
         const NULL_PHANTOM_SCALE = Math.min(
             NULL_PHANTOM_FOOTPRINT.width / NULL_PHANTOM_METRICS.width,
             NULL_PHANTOM_FOOTPRINT.height / NULL_PHANTOM_METRICS.height

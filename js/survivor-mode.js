@@ -4696,14 +4696,23 @@
             ctx.shadowColor = bodyFlash ? '#ffffff' : (introActive ? (depthIntro ? '#aeb8c8' : '#ffffff') : NULL_PHANTOM_GLOW_COLOR);
             ctx.shadowBlur = glowBlur;
 
-            for (let r = 0; r < boss.sprite.length; r++) {
-                const row = boss.sprite[r] || '';
-                for (let c = 0; c < row.length; c++) {
-                    const char = row[c];
-                    if (char === ' ') continue;
-                    const glyphPos = getNullPhantomGlyphPosition(layout, r, c);
-                    ctx.fillStyle = bodyFlash ? '#ffffff' : (introActive ? '#c8d0dc' : getNullPhantomBodyColor(char, 1, false));
-                    ctx.fillText(char, glyphPos.x | 0, glyphPos.y | 0);
+            const phantomCells = typeof NULL_PHANTOM_VISIBLE_CELLS !== 'undefined' ? NULL_PHANTOM_VISIBLE_CELLS : null;
+            if (phantomCells) {
+                for (const cell of phantomCells) {
+                    const glyphPos = getNullPhantomGlyphPosition(layout, cell.row, cell.col);
+                    ctx.fillStyle = bodyFlash ? '#ffffff' : (introActive ? '#c8d0dc' : getNullPhantomBodyColor(cell.char, 1, false));
+                    ctx.fillText(cell.char, glyphPos.x | 0, glyphPos.y | 0);
+                }
+            } else {
+                for (let r = 0; r < boss.sprite.length; r++) {
+                    const row = boss.sprite[r] || '';
+                    for (let c = 0; c < row.length; c++) {
+                        const char = row[c];
+                        if (char === ' ') continue;
+                        const glyphPos = getNullPhantomGlyphPosition(layout, r, c);
+                        ctx.fillStyle = bodyFlash ? '#ffffff' : (introActive ? '#c8d0dc' : getNullPhantomBodyColor(char, 1, false));
+                        ctx.fillText(char, glyphPos.x | 0, glyphPos.y | 0);
+                    }
                 }
             }
             ctx.restore();
