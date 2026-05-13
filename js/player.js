@@ -819,47 +819,59 @@
             return t * t * (3 - 2 * t);
         }
 
+        const PLAYER_BOMB_INDICATOR_FRONT_TUCK = 1;
+        const PLAYER_BOMB_INDICATOR_READY_COLOR = '#e8ecec';
+        const PLAYER_BOMB_INDICATOR_READY_GLOW = '#f1f7f5';
+
+        function getPlayerBombIndicatorPoint(layout) {
+            const tuck = PLAYER_BOMB_INDICATOR_FRONT_TUCK;
+            return {
+                x: layout.rearOrigin.x + (layout.body.x - layout.rearOrigin.x) * tuck,
+                y: layout.rearOrigin.y + (layout.body.y - layout.rearOrigin.y) * tuck
+            };
+        }
+
         function getPlayerBombIndicatorOrigin(ship = player, facing = getPlayerFacing(ship)) {
             const layout = getPlayerRenderLayout(ship, facing);
-            const cueSize = Math.max(46, Math.round(layout.body.fontSize * 0.54));
+            const cuePoint = getPlayerBombIndicatorPoint(layout);
             return {
-                x: layout.rearOrigin.x,
-                y: layout.rearOrigin.y - cueSize * 0.31,
+                x: cuePoint.x,
+                y: cuePoint.y,
                 layout
             };
         }
 
-        function getPlayerBombIndicatorVisual(now = (typeof currentFrameNow === 'number' ? currentFrameNow : performance.now())) {
+        function getPlayerBombIndicatorVisual() {
             const total = Math.max(0.001, getPlayerBombCooldownTotal());
             const charge = clampValue(1 - Math.max(0, player.bombTimer) / total, 0, 1);
-            const readyBreath = 0.5 + Math.sin(now * 0.0022) * 0.5;
-            const readyColor = blendPlayerCueHex('#f08d92', '#ffd0cc', readyBreath);
-            const readyBlend = smoothPlayerCueStep(0.94, 1, charge);
-            const chargeTone = Math.pow(charge, 0.72);
-            const baseChargeColor = blendPlayerCueHex('#32213f', '#f08d92', chargeTone);
-            const chargeColor = readyBlend > 0 ? blendPlayerCueHex(baseChargeColor, readyColor, readyBlend) : baseChargeColor;
-            const color = charge >= 1 ? readyColor : chargeColor;
-            const alpha = 0.5 + smoothPlayerCueStep(0, 1, charge) * 0.5;
-            const glowColor = charge >= 1 ? color : blendPlayerCueHex('#4c2b55', '#ffaaa2', chargeTone);
-            const glow = charge >= 1 ? 10 + readyBreath * 10 : 4 + charge * 8;
+            const readyBlend = smoothPlayerCueStep(0.86, 1, charge);
+            const grayValue = Math.round(smoothPlayerCueStep(0, 0.8, charge) * 78);
+            const cooldownColor = `#${grayValue.toString(16).padStart(2, '0').repeat(3)}`;
+            const color = readyBlend > 0
+                ? blendPlayerCueHex(cooldownColor, PLAYER_BOMB_INDICATOR_READY_COLOR, readyBlend)
+                : cooldownColor;
+            const alpha = charge >= 1 ? 1 : 0.64 + smoothPlayerCueStep(0, 0.82, charge) * 0.22 + readyBlend * 0.14;
+            const glowColor = charge >= 1
+                ? PLAYER_BOMB_INDICATOR_READY_GLOW
+                : blendPlayerCueHex('#050505', '#4f5354', smoothPlayerCueStep(0, 0.8, charge));
+            const glow = charge >= 1 ? 10 : 2 + smoothPlayerCueStep(0, 0.8, charge) * 5 + readyBlend * 3;
             return {
                 charge,
                 ready: charge >= 1,
                 color,
                 glowColor,
                 alpha,
-                glow,
-                breath: readyBreath
+                glow
             };
         }
 
         function drawPlayerBombReadyCue(layout, ship, renderOrigin = null) {
             if (ship !== player || (gameState !== 'PLAYING' && gameState !== 'MATRIX_CRAWLER')) return;
-            const now = typeof currentFrameNow === 'number' ? currentFrameNow : performance.now();
-            const visual = getPlayerBombIndicatorVisual(now);
+            const visual = getPlayerBombIndicatorVisual();
             const cueSize = Math.max(46, Math.round(layout.body.fontSize * 0.54));
-            const cueX = layout.rearOrigin.x;
-            const cueY = layout.rearOrigin.y - cueSize * 0.31;
+            const cuePoint = getPlayerBombIndicatorPoint(layout);
+            const cueX = cuePoint.x;
+            const cueY = cuePoint.y;
             const renderCueX = renderOrigin ? cueX - renderOrigin.x : cueX;
             const renderCueY = renderOrigin ? cueY - renderOrigin.y : cueY;
 
@@ -1406,6 +1418,18 @@
         }
 
         function applyPowerup(opt) {
+            const matrixCrawlerPowerupMode = typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive();
+            if (matrixCrawlerPowerupMode && opt.id === 'hull'
+                && typeof getMatrixCrawlerHeartCount === 'function'
+                && typeof setMatrixCrawlerMaxHearts === 'function') {
+                setMatrixCrawlerMaxHearts(getMatrixCrawlerHeartCount() + 1, { healHearts: 1 });
+                return;
+            }
+            if (matrixCrawlerPowerupMode && (opt.id === 'repair' || opt.id === 'bioscrap' || opt.id === 'bioleech')
+                && typeof healMatrixCrawlerPlayer === 'function') {
+                healMatrixCrawlerPlayer(1);
+                return;
+            }
             if (opt.id === 'afterburner') player.modifiers.moveSpeed += opt.value;
             else if (opt.id === 'hull') { 
                 let oldMax = player.maxHp; 
@@ -1437,6 +1461,7 @@
                 applyPlayerModifierGuardrails();
                 const newMax = typeof getFocusMeterMax === 'function' ? getFocusMeterMax() : FOCUS_METER_MAX;
                 if (typeof focusMeter === 'number') focusMeter = Math.min(newMax, focusMeter + Math.max(0, newMax - oldMax));
+                if (matrixCrawlerPowerupMode && typeof applyMatrixCrawlerHeartHealth === 'function') applyMatrixCrawlerHeartHealth({ heal: false });
                 return;
             }
             else if (opt.id === 'recharge_loop') player.modifiers.focusRegen += opt.value;
@@ -1452,6 +1477,7 @@
             else if (opt.id === 'ghost_geometry') player.modifiers.focusSpecterShrink += opt.value;
             else if (opt.id === 'phase_veil') player.modifiers.focusSpecterTransition += opt.value;
             applyPlayerModifierGuardrails();
+            if (matrixCrawlerPowerupMode && typeof applyMatrixCrawlerHeartHealth === 'function') applyMatrixCrawlerHeartHealth({ heal: false });
         }
 
         function pushConsoleHistory(text) {
@@ -1493,8 +1519,8 @@
         }
 
         const CONSOLE_GALAXY_ROUTE_SLOTS = Object.freeze({
-            1: { mode: 'campaign', galaxyId: 'neon-rift', label: 'SHMUP' },
-            2: { mode: 'survivor', galaxyId: 'prism-wake', label: 'PRISM WAKE' },
+            1: { mode: 'campaign', galaxyId: 'neon-rift', label: 'BINARY QUASAR' },
+            2: { mode: 'survivor', galaxyId: 'prism-array', label: 'PRISM ARRAY' },
             3: { mode: 'matrixCrawler', galaxyId: 'void-circuit', label: 'MATRIX NEBULA' }
         });
 
@@ -1511,11 +1537,11 @@
             }
             return [
                 `wave/w <target> : jump to console route target`,
-                `g1w<n> SHMUP wave 1-${runWaveLimit}`,
-                `g2w<n> Prism Wake survivor wave 1-${survivorWaveLimit}`,
-                `g3w<n> Matrix floor 1-${matrixLevelLimit}`,
+                `g1w<n> Binary Quasar bullet run wave 1-${runWaveLimit}`,
+                `g2w<n> Prism Array survival run wave 1-${survivorWaveLimit}`,
+                `g3w<n> Matrix Nebula node crawler floor 1-${matrixLevelLimit}`,
                 `Boss waves: ${bossWaves.join(', ')}`,
-                'Matrix rooms: g3w1b boss | g3w1i item | g3w2 floor 2',
+                'Node crawler rooms: g3w1b boss | g3w1i item | g3w2 floor 2',
                 'Examples: wave 15 | g1w13 | g2w10 | g3w1b'
             ];
         }
@@ -1523,8 +1549,8 @@
         function buildConsoleSurvivorWaveHelpLines() {
             const limit = getConsoleSurvivorWaveLimit();
             return [
-                `sw/ws <n> : jump Prism Wake survivor wave 1-${limit}`,
-                `g2w<n> also jumps Prism Wake survivor wave 1-${limit}`,
+                `sw/ws <n> : jump Prism Array survival run wave 1-${limit}`,
+                `g2w<n> also jumps Prism Array survival run wave 1-${limit}`,
                 'Boss slots are every 5 waves: sw 5, ws 10, sw 15...',
                 'sw 5 or ws 5 starts the first survivor boss immediately',
                 'Examples: sw 1 | ws 5 | sw30 | g2w10'
@@ -1559,8 +1585,8 @@
                 'Commands:',
                 'help [wave|sw|ws|lvl|wep|remwep|layout]',
                 'wave/w <n|g1w13|g2w10|g3w1b>',
-                'g1 SHMUP | g2 Prism Wake | g3 Matrix crawler',
-                'sw/ws <n> : Prism Wake survivor wave',
+                'g1 Binary Quasar | g2 Prism Array | g3 Matrix Nebula',
+                'sw/ws <n> : Prism Array survival run wave',
                 'mu/music : open mini music player',
                 'lvl [n]',
                 'wep <n|weapon name>',
@@ -1725,7 +1751,7 @@
 
             let routeMode = 'campaign';
             let routeSlotNumber = null;
-            let routeLabel = 'SHMUP';
+            let routeLabel = 'BINARY QUASAR';
             let galaxyIndex = getConsoleDefaultCampaignGalaxyIndex();
             let galaxySpecified = false;
             if (galaxyNumber !== null) {
@@ -1950,7 +1976,7 @@
 
                 if (parsedTarget.routeMode === 'matrixCrawler') {
                     if (typeof jumpToMatrixCrawlerLevel !== 'function') {
-                        pushConsoleNotification('Matrix crawler is unavailable.', 'error');
+                        pushConsoleNotification('Node crawler is unavailable.', 'error');
                         return false;
                     }
                     const result = jumpToMatrixCrawlerLevel(parsedTarget.waveNumber, parsedTarget.roomTarget);

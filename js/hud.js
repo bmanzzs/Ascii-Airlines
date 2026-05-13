@@ -634,7 +634,8 @@
 
         function syncStatsPanel(forceHide = false) {
             if (!statsPanel) return;
-            const hiddenForState = forceHide || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT') || window.innerHeight < 700 || window.innerWidth < 525;
+            const hiddenForMatrixCrawlerPlay = gameState === 'MATRIX_CRAWLER' || (gameState === 'DYING' && typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive());
+            const hiddenForState = forceHide || hiddenForMatrixCrawlerPlay || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT') || window.innerHeight < 700 || window.innerWidth < 525;
             const visible = showStatsPanel && !hiddenForState;
             statsPanel.style.display = visible ? 'block' : 'none';
             if (!visible) {

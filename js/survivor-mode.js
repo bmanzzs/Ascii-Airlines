@@ -1,4 +1,4 @@
-        // Prism Wake survivor mode: locked-camera horde survival built on the existing combat assets.
+        // Prism Array survival run: locked-camera horde survival built on the existing combat assets.
         const SURVIVOR_WORLD_W = 4800;
         const SURVIVOR_WORLD_H = 4800;
         const SURVIVOR_CAMERA_SCALE = 0.70;
@@ -1361,7 +1361,7 @@
                 ok: true,
                 waveNumber: targetWave,
                 bossName: bossWave && boss ? boss.name : null,
-                message: `Jumped to Prism Wake SW${targetWave} (${style.label}${bossText}).`
+                message: `Jumped to Prism Array SW${targetWave} (${style.label}${bossText}).`
             };
         }
 

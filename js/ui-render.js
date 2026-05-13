@@ -3110,17 +3110,20 @@
         const GALAXY_SELECT_LOCK_MESSAGES = ['ACCESS DENIED', 'CHECKSUM FAIL', 'PERMISSION 000', 'ROUTE SEALED'];
 
         const GALAXY_SELECT_DEFAULT_LAYOUT = [
-            { x: 0.435, y: 0.448, scale: 1.08, axis: -0.46, tilt: 0.46, spinDir: 1, spinSpeed: 0.96, cursorAngle: -0.72 },
-            { x: 0.54, y: 0.251, scale: 1.16, axis: 0.52, tilt: 0.36, spinDir: -1, spinSpeed: 1.14, cursorAngle: 0.58 },
-            { x: 0.78, y: 0.34, scale: 1.18, axis: -0.03, tilt: 0.57, spinDir: 1, spinSpeed: 0.82, cursorAngle: 0.48 },
-            { x: 0.46, y: 0.74, scale: 0.96, axis: 0.62, tilt: 0.36, spinDir: -1, spinSpeed: 1.02, cursorAngle: 2.38 },
-            { x: 0.84, y: 0.63, scale: 1.25, axis: -0.795, tilt: 0.4, spinDir: 1, spinSpeed: 0.78, cursorAngle: 1.64 },
-            { x: 0.66, y: 0.53, scale: 0.92, axis: 0.3, tilt: 0.6, spinDir: -1, spinSpeed: 1.22, cursorAngle: 0.96 },
-            { x: 0.18, y: 0.37, scale: 0.96, axis: 1.04, tilt: 0.72, spinDir: 1, spinSpeed: 1.42, cursorAngle: 2.36, prism: true },
-            { x: 0.153, y: 0.657, scale: 0.74, axis: 0.005, tilt: 0.42, spinDir: -1, spinSpeed: 0.88, cursorAngle: Math.PI, hub: true }
+            { x: 0.448, y: 0.467, scale: 1.04, axis: -0.535, tilt: 0.46, spinDir: 1, spinSpeed: 0.96, cursorAngle: -0.72 },
+            { x: 0.528, y: 0.259, scale: 1.02, axis: 0.895, tilt: 0.36, spinDir: -1, spinSpeed: 1.14, cursorAngle: 0.58 },
+            { x: 0.791, y: 0.364, scale: 1.02, axis: -0.105, tilt: 0.57, spinDir: 1, spinSpeed: 0.82, cursorAngle: 0.48 },
+            { x: 0.506, y: 0.7, scale: 1.08, axis: 0.32, tilt: 0.36, spinDir: -1, spinSpeed: 1.02, cursorAngle: 2.38 },
+            { x: 0.823, y: 0.692, scale: 1.37, axis: -1.02, tilt: 0.4, spinDir: 1, spinSpeed: 0.78, cursorAngle: 1.64 },
+            { x: 0.632, y: 0.54, scale: 0.88, axis: 0.3, tilt: 0.6, spinDir: -1, spinSpeed: 1.22, cursorAngle: 0.96 },
+            { x: 0.215, y: 0.328, scale: 1.12, axis: 1.04, tilt: 0.72, spinDir: 1, spinSpeed: 1.42, cursorAngle: 2.36, prism: true },
+            { x: 0.168, y: 0.626, scale: 0.7, axis: 0.005, tilt: 0.42, spinDir: -1, spinSpeed: 0.88, cursorAngle: 3.142, hub: true }
         ];
         const GALAXY_SELECT_LAYOUT = GALAXY_SELECT_DEFAULT_LAYOUT.map(profile => ({ ...profile }));
-        const GALAXY_LAYOUT_STORAGE_KEY = 'ascii_galaxy_select_layout_v1';
+        const GALAXY_LAYOUT_STORAGE_KEY = 'ascii_galaxy_select_layout_v2';
+        const GALAXY_LAYOUT_STORAGE_SCHEMA_VERSION = 2;
+        const GALAXY_LAYOUT_DEFAULT_VERSION = '2026-05-13-galaxy-select-layout-2';
+        const GALAXY_LAYOUT_LEGACY_STORAGE_KEYS = ['ascii_galaxy_select_layout_v1'];
         let galaxyLayoutEditMode = false;
         let galaxyLayoutHoverIndex = -1;
         let galaxyLayoutDragState = {
@@ -3303,11 +3306,33 @@
             return applied;
         }
 
+        function clearLegacyGalaxySelectLayoutDrafts() {
+            try {
+                for (const key of GALAXY_LAYOUT_LEGACY_STORAGE_KEYS) {
+                    localStorage.removeItem(key);
+                }
+            } catch (_) {}
+        }
+
+        function parseGalaxySelectLayoutDraft(stored) {
+            const draft = JSON.parse(stored);
+            if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return null;
+            if (draft.schemaVersion !== GALAXY_LAYOUT_STORAGE_SCHEMA_VERSION) return null;
+            if (draft.defaultVersion !== GALAXY_LAYOUT_DEFAULT_VERSION) return null;
+            return Array.isArray(draft.positions) ? draft.positions : null;
+        }
+
         function loadGalaxySelectLayoutDraft() {
             try {
+                clearLegacyGalaxySelectLayoutDrafts();
                 const stored = localStorage.getItem(GALAXY_LAYOUT_STORAGE_KEY);
                 if (!stored) return false;
-                return applyGalaxySelectLayoutPositions(JSON.parse(stored));
+                const positions = parseGalaxySelectLayoutDraft(stored);
+                if (!positions) {
+                    localStorage.removeItem(GALAXY_LAYOUT_STORAGE_KEY);
+                    return false;
+                }
+                return applyGalaxySelectLayoutPositions(positions);
             } catch (_) {
                 return false;
             }
@@ -3321,7 +3346,11 @@
                     scale: Number(profile.scale.toFixed(4)),
                     axis: Number(profile.axis.toFixed(4))
                 }));
-                localStorage.setItem(GALAXY_LAYOUT_STORAGE_KEY, JSON.stringify(positions));
+                localStorage.setItem(GALAXY_LAYOUT_STORAGE_KEY, JSON.stringify({
+                    schemaVersion: GALAXY_LAYOUT_STORAGE_SCHEMA_VERSION,
+                    defaultVersion: GALAXY_LAYOUT_DEFAULT_VERSION,
+                    positions
+                }));
                 return true;
             } catch (_) {
                 return false;
@@ -3337,6 +3366,7 @@
             }
             try {
                 localStorage.removeItem(GALAXY_LAYOUT_STORAGE_KEY);
+                clearLegacyGalaxySelectLayoutDrafts();
             } catch (_) {}
             galaxyLayoutDragState.active = false;
             galaxyLayoutDragState.index = -1;
@@ -3869,8 +3899,8 @@
             return (galaxy && (galaxy.visualStyle || galaxy.id)) || 'spiral';
         }
 
-        function isPrismWakeGalaxySprite(galaxy) {
-            return galaxy && (galaxy.mode === 'survivor' || getGalaxyRenderStyle(galaxy) === 'prismWake');
+        function isPrismArrayGalaxySprite(galaxy) {
+            return galaxy && (galaxy.mode === 'survivor' || getGalaxyRenderStyle(galaxy) === 'prismArray');
         }
 
         function getGalaxySpriteBloomScratch(widthPx, heightPx) {
@@ -3889,11 +3919,12 @@
             return galaxySpriteBloomScratch.ctx ? galaxySpriteBloomScratch : null;
         }
 
-        function applyGalaxySpriteBloom(targetCtx, sourceCanvas, highlightAmount = 1) {
+        function applyGalaxySpriteBloom(targetCtx, sourceCanvas, highlightAmount = 1, strength = 1) {
             if (!targetCtx || !sourceCanvas || !('filter' in targetCtx)) return false;
             const scratch = getGalaxySpriteBloomScratch(sourceCanvas.width, sourceCanvas.height);
             if (!scratch || !scratch.ctx) return false;
             const highlight = clampGalaxySelectHighlight(highlightAmount);
+            const bloomStrength = Math.max(0, strength || 0);
             scratch.ctx.setTransform(1, 0, 0, 1, 0, 0);
             scratch.ctx.clearRect(0, 0, scratch.width, scratch.height);
             scratch.ctx.globalAlpha = 1;
@@ -3903,11 +3934,11 @@
 
             targetCtx.save();
             targetCtx.globalCompositeOperation = 'lighter';
-            targetCtx.globalAlpha = 0.22 + highlight * 0.22;
+            targetCtx.globalAlpha = (0.22 + highlight * 0.22) * bloomStrength;
             targetCtx.filter = `blur(${Math.round(5 + highlight * 3)}px)`;
             targetCtx.drawImage(scratch.canvas, 0, 0);
             targetCtx.filter = 'none';
-            targetCtx.globalAlpha = 0.08 + highlight * 0.08;
+            targetCtx.globalAlpha = (0.08 + highlight * 0.08) * bloomStrength;
             targetCtx.drawImage(scratch.canvas, 0, 0);
             targetCtx.restore();
             return true;
@@ -4145,35 +4176,56 @@
         function drawBinaryQuasarCorePulse(galaxy, radius, selected, now, options = {}) {
             const colors = galaxy && galaxy.colors ? galaxy.colors : ['#dcecff', '#8fa7c9', '#ffffff'];
             const highlight = getGalaxyOptionHighlightAmount(options, selected);
-            const beat = 0.5 + Math.sin(now * 0.0052) * 0.5;
-            const glowBeat = Math.pow(beat, 2.8);
-            const coreSize = radius * 0.027;
+            const seed = galaxy && Number.isFinite(galaxy.seed) ? galaxy.seed : 11;
+            const breath = 0.5 + Math.sin(now * 0.0020 + seed * 0.17) * 0.5;
+            const slowBreath = 0.5 + Math.sin(now * 0.0012 + seed * 0.41) * 0.5;
+            const glowBeat = 0.42 + Math.pow(breath, 1.7) * 0.58;
+            const centerHighlight = highlight * 0.22;
+            const coreRadius = radius * (0.035 + centerHighlight * 0.006 + glowBeat * 0.010);
+            const bloomRadius = radius * (0.25 + centerHighlight * 0.055 + glowBeat * 0.075);
+            const haloRadius = radius * (0.50 + centerHighlight * 0.070 + slowBreath * 0.080);
             galaxyCtx.save();
             galaxyCtx.globalCompositeOperation = 'lighter';
 
-            galaxyCtx.globalAlpha = 0.28 + glowBeat * 0.26 + highlight * 0.16;
-            galaxyCtx.fillStyle = colors[0] || '#dcecff';
+            const halo = galaxyCtx.createRadialGradient(0, 0, radius * 0.07, 0, 0, haloRadius);
+            halo.addColorStop(0, colorWithAlpha(colors[2] || '#ffffff', 0.13 + centerHighlight * 0.06 + slowBreath * 0.03));
+            halo.addColorStop(0.26, colorWithAlpha(colors[0] || '#dcecff', 0.16 + centerHighlight * 0.08 + glowBeat * 0.04));
+            halo.addColorStop(0.56, colorWithAlpha(colors[1] || '#8fa7c9', 0.07 + centerHighlight * 0.05));
+            halo.addColorStop(1, colorWithAlpha(colors[0] || '#dcecff', 0));
+            galaxyCtx.globalAlpha = options.warp ? 0.68 : 1;
+            galaxyCtx.fillStyle = halo;
             galaxyCtx.beginPath();
-            galaxyCtx.arc(0, 0, coreSize * 4.9, 0, Math.PI * 2);
+            galaxyCtx.arc(0, 0, haloRadius, 0, Math.PI * 2);
             galaxyCtx.fill();
 
-            galaxyCtx.globalAlpha = 0.92 + glowBeat * 0.08;
-            galaxyCtx.shadowColor = '#ffffff';
-            galaxyCtx.shadowBlur = glowEnabled && !options.warp ? radius * (0.44 + glowBeat * 0.46 + highlight * 0.08) : 0;
-            galaxyCtx.fillStyle = '#ffffff';
+            const bloom = galaxyCtx.createRadialGradient(0, 0, coreRadius, 0, 0, bloomRadius);
+            bloom.addColorStop(0, colorWithAlpha('#ffffff', 0.34 + glowBeat * 0.20 + centerHighlight * 0.10));
+            bloom.addColorStop(0.18, colorWithAlpha(colors[2] || '#ffffff', 0.26 + glowBeat * 0.12 + centerHighlight * 0.08));
+            bloom.addColorStop(0.44, colorWithAlpha(colors[0] || '#dcecff', 0.18 + centerHighlight * 0.08));
+            bloom.addColorStop(0.76, colorWithAlpha(colors[1] || '#8fa7c9', 0.055 + centerHighlight * 0.035));
+            bloom.addColorStop(1, colorWithAlpha(colors[1] || '#8fa7c9', 0));
+            galaxyCtx.globalAlpha = options.warp ? 0.78 : 1;
+            galaxyCtx.shadowColor = colors[2] || '#ffffff';
+            galaxyCtx.shadowBlur = glowEnabled && !options.warp ? radius * (0.18 + glowBeat * 0.18 + centerHighlight * 0.09) : 0;
+            galaxyCtx.fillStyle = bloom;
             galaxyCtx.beginPath();
-            galaxyCtx.arc(0, 0, Math.max(1.8, coreSize * 1.08), 0, Math.PI * 2);
-            galaxyCtx.fill();
-            galaxyCtx.shadowBlur = glowEnabled && !options.warp ? radius * (0.12 + glowBeat * 0.10) : 0;
-            galaxyCtx.beginPath();
-            galaxyCtx.arc(0, 0, Math.max(1.05, coreSize * 0.64), 0, Math.PI * 2);
+            galaxyCtx.arc(0, 0, bloomRadius, 0, Math.PI * 2);
             galaxyCtx.fill();
 
+            galaxyCtx.save();
+            galaxyCtx.rotate((now * 0.00018 + seed) % (Math.PI * 2));
+            galaxyCtx.scale(1.55 + centerHighlight * 0.18, 0.52 + glowBeat * 0.08);
+            const lens = galaxyCtx.createRadialGradient(0, 0, radius * 0.012, 0, 0, radius * (0.22 + glowBeat * 0.060));
+            lens.addColorStop(0, colorWithAlpha('#ffffff', 0.13 + centerHighlight * 0.06));
+            lens.addColorStop(0.38, colorWithAlpha(colors[0] || '#dcecff', 0.075 + glowBeat * 0.035));
+            lens.addColorStop(1, colorWithAlpha(colors[1] || '#8fa7c9', 0));
+            galaxyCtx.globalAlpha = 0.82;
             galaxyCtx.shadowBlur = 0;
-            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(4, radius * 0.044 * (options.fontScale || 1)), options)}px Courier New`;
-            galaxyCtx.fillStyle = '#ffffff';
-            galaxyCtx.globalAlpha = 0.72 + glowBeat * 0.18;
-            galaxyCtx.fillText('.', 0, -coreSize * 0.10);
+            galaxyCtx.fillStyle = lens;
+            galaxyCtx.beginPath();
+            galaxyCtx.arc(0, 0, radius * (0.25 + glowBeat * 0.065), 0, Math.PI * 2);
+            galaxyCtx.fill();
+            galaxyCtx.restore();
             galaxyCtx.restore();
         }
 
@@ -4923,7 +4975,7 @@
             galaxyCtx.globalCompositeOperation = 'source-over';
         }
 
-        function drawPrismWakeVectorGlyph(size, x, y, angle, variant = 0) {
+        function drawPrismArrayVectorGlyph(size, x, y, angle, variant = 0) {
             const s = Math.max(3, size * 0.54);
             galaxyCtx.save();
             galaxyCtx.translate(x, y);
@@ -4944,7 +4996,7 @@
             galaxyCtx.restore();
         }
 
-        function drawPrismWakeGalaxySprite(galaxy, x, y, radius, selected, now, index, options = {}) {
+        function drawPrismArrayGalaxySprite(galaxy, x, y, radius, selected, now, index, options = {}) {
             const colors = galaxy.colors || ['#61f7ff', '#ffe66d', '#ff5edb', '#7cff9b', '#ffffff'];
             const profile = getGalaxyVisualProfile(index);
             const axis = profile.axis + Math.sin(now * 0.00011 + index) * 0.06;
@@ -4970,8 +5022,8 @@
             galaxyCtx.globalCompositeOperation = 'lighter';
 
             const aura = galaxyCtx.createRadialGradient(0, 0, radius * 0.06, 0, 0, radius * 1.32);
-            aura.addColorStop(0, colorWithAlpha('#ffffff', 0.038 + highlight * 0.030 + glowPulse * 0.008));
-            aura.addColorStop(0.32, colorWithAlpha('#ff5edb', 0.038 + highlight * 0.036 + glowPulse * 0.012));
+            aura.addColorStop(0, colorWithAlpha('#ffffff', 0.038 + highlight * 0.006 + glowPulse * 0.006));
+            aura.addColorStop(0.32, colorWithAlpha('#ff5edb', 0.042 + highlight * 0.014 + glowPulse * 0.010));
             aura.addColorStop(0.62, colorWithAlpha('#61f7ff', 0.032 + highlight * 0.040 + glowPulse * 0.014));
             aura.addColorStop(1, colorWithAlpha('#ffffff', 0));
             galaxyCtx.fillStyle = aura;
@@ -5005,7 +5057,7 @@
                 const gx = Math.cos(angle) * radius * 1.12 * stripePulse;
                 const gy = Math.sin(angle) * radius * 1.12 * stripePulse;
                 if (vectorGlyphs) {
-                    drawPrismWakeVectorGlyph(outerFontSize, gx, gy, angle + Math.PI / 2, i);
+                    drawPrismArrayVectorGlyph(outerFontSize, gx, gy, angle + Math.PI / 2, i);
                 } else {
                     galaxyCtx.fillText(glyphs[i % glyphs.length], gx, gy);
                 }
@@ -5034,40 +5086,41 @@
                     }
                     const color = colors[(ring + i) % Math.max(1, colors.length - 1)];
                     const sparkle = noise > 0.86 ? shimmer * 0.24 : 0;
-                    const centerDamp = 0.30 + ringT * 0.70;
+                    const centerDamp = 0.24 + ringT * 0.70;
                     galaxyCtx.globalAlpha = Math.min(1, (0.12 + depth * 0.34 + (1 - ringT) * 0.24 + sparkle) * brightness * centerDamp);
                     galaxyCtx.fillStyle = noise > 0.94 && ringT > 0.42 ? '#ffffff' : color;
                     if (perGlyphGlowEnabled && (highlight > 0.04 || noise > 0.92)) {
+                        const centerGlowDamp = 0.36 + ringT * 0.64;
                         galaxyCtx.shadowColor = galaxyCtx.fillStyle;
-                        galaxyCtx.shadowBlur = 4 + highlight * (3 + shimmer * 9 + glowPulse * 3);
+                        galaxyCtx.shadowBlur = (4 + highlight * (3 + shimmer * 9 + glowPulse * 3)) * centerGlowDamp;
                     } else {
                         galaxyCtx.shadowBlur = 0;
                     }
                     if (vectorGlyphs) {
-                        drawPrismWakeVectorGlyph(fontSize, px, py, angle + (ring % 2 ? -0.35 : 0.35), i + ring);
+                        drawPrismArrayVectorGlyph(fontSize, px, py, angle + (ring % 2 ? -0.35 : 0.35), i + ring);
                     } else {
                         galaxyCtx.fillText(glyphs[(i + ring) % glyphs.length], px, py);
                     }
                 }
             }
 
-            galaxyCtx.globalAlpha = 0.22 + highlight * 0.06;
+            galaxyCtx.globalAlpha = 0.18 + highlight * 0.010;
             galaxyCtx.shadowColor = '#ffffff';
-            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (2 + highlight * 2 + glowPulse * 0.7) : 0;
-            galaxyCtx.fillStyle = colorWithAlpha('#ffffff', 0.62);
-            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(8, (16 + highlight * 1.6) * fontScale), options)}px Courier New`;
+            galaxyCtx.shadowBlur = glowEnabled && !warpMode ? (2.0 + highlight * 0.5 + glowPulse * 0.4) : 0;
+            galaxyCtx.fillStyle = colorWithAlpha('#ffffff', 0.55);
+            galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(7, (13 + highlight * 1.2) * fontScale), options)}px Courier New`;
             galaxyCtx.fillText(getGalaxyCoreGlyph(galaxy, '▲'), 0, 0);
             galaxyCtx.save();
             galaxyCtx.rotate(-spin * 2.8);
             galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(5, (8 + highlight) * fontScale), options)}px Courier New`;
             for (let i = 0; i < 10; i++) {
                 const angle = (i / 10) * Math.PI * 2 + spin * 4;
-                galaxyCtx.globalAlpha = 0.16 + highlight * 0.06;
+                galaxyCtx.globalAlpha = 0.12 + highlight * 0.015;
                 galaxyCtx.fillStyle = i % 2 ? '#ffffff' : (colors[i % colors.length] || '#ffe66d');
                 galaxyCtx.fillText(glyphs[(i * 3) % glyphs.length], Math.cos(angle) * radius * 0.16, Math.sin(angle) * radius * 0.16);
             }
             galaxyCtx.restore();
-            galaxyCtx.globalAlpha = 0.26 + highlight * 0.05;
+            galaxyCtx.globalAlpha = 0.18 + highlight * 0.012;
             galaxyCtx.font = `bold ${getGalaxyFontPx(Math.max(5, (8 + highlight) * fontScale), options)}px Courier New`;
             galaxyCtx.fillStyle = colors[1] || '#ffe66d';
             galaxyCtx.fillText(getGalaxyCoreVoidGlyph(galaxy, '▼'), 0, 0);
@@ -5229,8 +5282,8 @@
                 drawShipHubGalaxySprite(galaxy, x, y, radius, selected, now, index, options);
                 return;
             }
-            if (isPrismWakeGalaxySprite(galaxy)) {
-                drawPrismWakeGalaxySprite(galaxy, x, y, radius, selected, now, index, options);
+            if (isPrismArrayGalaxySprite(galaxy)) {
+                drawPrismArrayGalaxySprite(galaxy, x, y, radius, selected, now, index, options);
                 return;
             }
             if (style === 'tensorMirage') {
@@ -5287,6 +5340,7 @@
                     drawFractalCounterHalo(galaxy, radius, selected, now, index, options);
                     drawFractalHaloStorm(galaxy, radius, selected, now, index, options);
                 }
+                if (style === 'binaryQuasar') drawBinaryQuasarCorePulse(galaxy, radius, selected, now, options);
                 drawGalaxyCore(galaxy, colors, radius, selected, axis, tilt, style === 'binaryQuasar'
                     ? {
                         ...options,
@@ -5296,7 +5350,6 @@
                         coreVoidAlphaScale: 0.70
                     }
                     : options);
-                if (style === 'binaryQuasar') drawBinaryQuasarCorePulse(galaxy, radius, selected, now, options);
             }
 
             galaxyCtx.restore();
@@ -5429,7 +5482,7 @@
                 const spriteBloom = selected
                     && !options.warp
                     && glowEnabled
-                    && isPrismWakeGalaxySprite(galaxy)
+                    && style === 'binaryQuasar'
                     && cacheCtx
                     && ('filter' in cacheCtx);
                 galaxyCtx = cacheCtx;
@@ -5444,7 +5497,7 @@
                         noCache: true,
                         spriteBloom
                     });
-                    if (spriteBloom) applyGalaxySpriteBloom(cacheCtx, entry.canvas, highlight);
+                    if (spriteBloom) applyGalaxySpriteBloom(cacheCtx, entry.canvas, highlight, style === 'binaryQuasar' ? 0.36 : 1);
                 } finally {
                     galaxyCtx = previousCtx;
                 }
@@ -5728,8 +5781,8 @@
                 const highlight = getGalaxySelectHighlightAmount(i, selected, now);
                 const radius = getGalaxySelectRenderRadius(i, selected, highlight);
 
-                const survivorRoute = galaxy && galaxy.mode === 'survivor';
                 const hubRoute = galaxy && galaxy.mode === 'shipHub';
+                const survivorRoute = galaxy && galaxy.mode === 'survivor';
                 const crawlerRoute = galaxy && galaxy.mode === 'matrixCrawler';
                 const labelY = slot.y + radius + 16;
                 const labelText = galaxy.title || galaxy.name;
@@ -5767,7 +5820,9 @@
                 }
                 galaxyCtx.shadowBlur = 0;
                 galaxyCtx.font = `bold 11px 'Electrolize', sans-serif`;
-                const statusText = galaxy.available ? (hubRoute ? 'SHIP HUB' : (survivorRoute ? 'SURVIVAL MODE' : (crawlerRoute ? 'ROOM CRAWLER' : 'AVAILABLE'))) : 'LOCKED';
+                const statusText = galaxy.available
+                    ? (galaxy.subtitle || (hubRoute ? 'SHIP HUB' : (survivorRoute ? 'SURVIVAL RUN' : (crawlerRoute ? 'NODE CRAWLER' : 'BULLET FLIGHT'))))
+                    : 'LOCKED';
                 galaxyCtx.fillStyle = galaxy.available
                     ? colorWithAlpha('#8edbff', 0.62 + highlight * 0.24)
                     : colorWithAlpha('#a9b0bf', 0.48 + highlight * 0.20);
@@ -6101,7 +6156,7 @@
                         fontScale: GALAXY_WARP_FOCUSED_FONT_SCALE,
                         noCache: true,
                         suppressPerGlyphGlow: true,
-                        vectorGlyphs: isPrismWakeGalaxySprite(galaxy)
+                        vectorGlyphs: isPrismArrayGalaxySprite(galaxy)
                     });
                     layerCtx.restore();
                 } finally {
@@ -6165,7 +6220,7 @@
             const spriteRadius = Math.max(48, getGalaxySelectRenderRadius(selectedIndex, true));
             const spriteScale = Math.max(0.35, radius / spriteRadius);
             const crispT = easeGalaxyWarp(Math.max(0, Math.min(1, (spriteScale - 1.24) / 1.18)));
-            const isPrismWarp = galaxy.mode === 'survivor' || getGalaxyRenderStyle(galaxy) === 'prismWake';
+            const isPrismWarp = galaxy.mode === 'survivor' || getGalaxyRenderStyle(galaxy) === 'prismArray';
             const freezeStart = isPrismWarp ? 1.02 : 0.76;
             const fadeStart = isPrismWarp ? 0.82 : 0.80;
             const fadeDuration = isPrismWarp ? 0.12 : 0.14;
@@ -6381,7 +6436,7 @@
             const galaxy = getGalaxyWarpSelectedGalaxy(transition && transition.galaxyIndex || 0);
             const style = galaxy ? getGalaxyRenderStyle(galaxy) : '';
             if (galaxy && galaxy.mode === 'matrixCrawler') return 'matrixCrawler';
-            return galaxy && (galaxy.mode === 'survivor' || style === 'prismWake')
+            return galaxy && (galaxy.mode === 'survivor' || style === 'prismArray')
                 ? 'survivor'
                 : 'campaign';
         }
@@ -7775,6 +7830,7 @@
             const renderNow = currentFrameNow;
             const galaxySelectSceneCoversField = gameState === 'GALAXY_SELECT'
                 || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT');
+            const survivorModeVisual = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
 
             if (!galaxySelectSceneCoversField) {
                 ctx.fillStyle = currentBgColor;
@@ -7806,7 +7862,6 @@
                 let lastFieldFont = '';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                const survivorModeVisual = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
                 const backgroundQuality = typeof getVisualQualityScale === 'function' ? getVisualQualityScale('background') : 1;
                 let fieldStep = survivorModeVisual ? 2 : 1;
                 if (backgroundQuality < 0.85) {
@@ -7871,6 +7926,8 @@
             } else if (gameState === 'TERMINAL_DOCK') {
                 drawTerminalDockTransition(renderNow);
             } else if (gameState === 'MATRIX_CRAWLER') {
+                if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
+            } else if (gameState === 'DYING' && typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive()) {
                 if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
             } else if (gameState === 'START' || gameState === 'LAUNCHING' || gameState === 'SHIP_SELECT') {
                 let alpha = titleAlpha;

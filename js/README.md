@@ -38,10 +38,10 @@ The game uses classic browser script tags, not ES modules. Files share globals, 
    Explosions, player projectiles, bombs, resizing, field rebuild, spatial hash utilities, reset, and combat helpers.
 
 12. `matrix-crawler.js`
-   Matrix Nebula room crawler mode state, room generation, robot controls, enemies, pickups, rendering helpers, and HUD data.
+   Matrix Nebula node crawler mode state, room generation, robot controls, enemies, pickups, rendering helpers, and HUD data.
 
 13. `survivor-mode.js`
-   Prism Wake survivor mode state, horde waves, survivor combat helpers, and survivor-specific rendering data.
+   Prism Array survival run state, horde waves, survivor combat helpers, and survivor-specific rendering data.
 
 14. `physics.js`
    Main simulation update loop for player, enemies, bullets, bosses, drops, debris, and wave progression.
@@ -60,7 +60,7 @@ The game uses classic browser script tags, not ES modules. Files share globals, 
 - Add sprite art or sprite color helpers in `sprites.js`.
 - Add or rebalance waves in `waves.js`.
 - Add Black Void-specific behavior in `void-content.js`.
-- Add Matrix Nebula room-crawler behavior in `matrix-crawler.js`.
+- Add Matrix Nebula node-crawler behavior in `matrix-crawler.js`.
 - Add broad rendering/UI work in `ui-render.js` unless it only touches HUD DOM, then use `hud.js`.
 - Keep files loaded in the order above unless you also check all globals used at file load time.
 

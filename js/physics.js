@@ -788,12 +788,12 @@
             return true;
         }
 
-        function updateFieldParticles(dt) {
+        function updateFieldParticles(dt, scrollScale = 1) {
             const now = currentFrameNow || performance.now();
             const highlightDecay = Math.pow(FIELD_HIGHLIGHT_DECAY, dt * 60);
             for (let i = 0; i < numParticles; i++) {
                 const depth = fpDepth ? fpDepth[i] || 1 : 1;
-                fpHY[i] += SCROLL_SPEED * (0.52 + depth * 0.72) * dt;
+                fpHY[i] += SCROLL_SPEED * (0.52 + depth * 0.72) * scrollScale * dt;
                 if (fpHY[i] > height + CELL_SIZE) {
                     fpHY[i] -= (height + CELL_SIZE * 2);
                     fpY[i] = fpHY[i];
@@ -1179,6 +1179,7 @@
             }
 
             if (typeof isSurvivorModeActive === 'function' && isSurvivorModeActive() && typeof updateSurvivorMode === 'function') {
+                updateFieldParticles(dt, 0.18);
                 updateSurvivorMode(dt);
                 return;
             }

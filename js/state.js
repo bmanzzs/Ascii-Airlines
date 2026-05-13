@@ -439,6 +439,7 @@
                 id: 'galaxy-1',
                 name: 'BINARY QUASAR',
                 title: 'BINARY QUASAR',
+                subtitle: 'BULLET FLIGHT',
                 available: true,
                 desc: 'Current campaign sector.',
                 colors: ['#dcecff', '#8fa7c9', '#ffffff']
@@ -447,7 +448,7 @@
 
         function getDefaultGalaxySelectIndex() {
             if (typeof GALAXY_DEFINITIONS === 'undefined') return 0;
-            const index = GALAXY_DEFINITIONS.findIndex(galaxy => galaxy && galaxy.id === 'prism-wake');
+            const index = GALAXY_DEFINITIONS.findIndex(galaxy => galaxy && galaxy.id === 'prism-array');
             return index >= 0 ? index : 0;
         }
 
@@ -747,9 +748,14 @@
 
         function beginReturnToGalaxySelectLoading() {
             const now = currentFrameNow || performance.now();
+            const returningFromMatrixCrawler = gameState === 'MATRIX_CRAWLER'
+                || (gameState === 'PAUSED' && pauseReturnState === 'MATRIX_CRAWLER');
             clearGameplayKeys();
             clearPauseVolumePreview();
             if (typeof resetFocusAbilities === 'function') resetFocusAbilities();
+            if (returningFromMatrixCrawler && typeof stopMatrixCrawlerMusic === 'function') {
+                stopMatrixCrawlerMusic(0.35);
+            }
             returnLoadingTransition = {
                 active: true,
                 startedAt: now,
@@ -900,6 +906,9 @@
                 prepareGalaxyWarpMenuSnapshot(now, galaxyIndex);
                 galaxyWarpTransition.startedAt = performance.now();
             }
+            if (typeof fadeGalaxySelectMusicForHandoff === 'function') {
+                fadeGalaxySelectMusicForHandoff(typeof GALAXY_WARP_DURATION === 'number' ? GALAXY_WARP_DURATION : 2.18);
+            }
             gameState = 'GALAXY_WARP';
             clearPauseVolumePreview();
             applyCurrentVolume();
@@ -1009,7 +1018,7 @@
                     beginMatrixCrawlerRun();
                 } else {
                     gameState = 'GALAXY_SELECT';
-                    galaxySelectNotice = 'MATRIX CRAWLER UNAVAILABLE';
+                    galaxySelectNotice = 'NODE CRAWLER UNAVAILABLE';
                     galaxySelectNoticeTimer = 1.4;
                 }
                 return;

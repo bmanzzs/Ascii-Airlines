@@ -4,9 +4,12 @@
         const NON_BOSS_ENEMY_AIM_TARGET_JITTER = 56;
         const NON_BOSS_ENEMY_AIM_ANGLE_JITTER = 0.12;
         const NON_BOSS_ENEMY_SHOT_SPEED_JITTER = 0.04;
-        const GALAXY_ONE_RUN_WAVE_LIMIT = 30;
+        const GALAXY_ONE_RUN_WAVE_LIMIT = 45;
         const GALAXY_TWO_RUN_WAVE_LIMIT = 20;
         const GALAXY_RUN_WAVE_LIMIT = GALAXY_ONE_RUN_WAVE_LIMIT;
+        const BINARY_QUASAR_BITSHIFT_IMPORT_START_WAVE = 31;
+        const BINARY_QUASAR_BITSHIFT_IMPORT_COUNT = 15;
+        const BINARY_QUASAR_BITSHIFT_IMPORT_END_WAVE = BINARY_QUASAR_BITSHIFT_IMPORT_START_WAVE + BINARY_QUASAR_BITSHIFT_IMPORT_COUNT - 1;
 
         function getCampaignRouteGalaxyIndex(galaxyIndex = 0) {
             if (typeof GALAXY_DEFINITIONS !== 'undefined') {
@@ -29,6 +32,7 @@
                 id: 'neon-rift',
                 title: 'BINARY QUASAR',
                 name: 'BINARY QUASAR',
+                subtitle: 'BULLET FLIGHT',
                 desc: 'A silver logic storm where every spiral arm resolves into zeroes, ones, and hostile machine light.',
                 available: true,
                 colors: ['#dcecff', '#8fa7c9', '#ffffff'],
@@ -46,6 +50,7 @@
                 id: 'void-circuit',
                 title: 'MATRIX NEBULA',
                 name: 'MATRIX NEBULA',
+                subtitle: 'NODE CRAWLER',
                 desc: 'A clean simulation labyrinth: room-by-room combat, robot routing, treasure caches, and hostile code chambers.',
                 available: true,
                 mode: 'matrixCrawler',
@@ -130,7 +135,8 @@
                 id: 'red-dwarf',
                 title: 'BITSHIFT DWARF',
                 name: 'BITSHIFT DWARF',
-                desc: 'A compact processor star carrying the former Matrix SHMUP route through operators and overflow dust.',
+                subtitle: 'VECTOR SCROLL',
+                desc: 'A compact processor star carrying vector-scroll routes through operators and overflow dust.',
                 available: true,
                 campaignSourceGalaxyIndex: 1,
                 colors: ['#ff4f4a', '#ff9a73', '#fff1e8'],
@@ -145,13 +151,14 @@
                 seed: 137
             },
             {
-                id: 'prism-wake',
-                title: 'PRISM WAKE',
-                name: 'PRISM WAKE',
-                desc: 'A radiant survival anomaly: endless swarms, locked camera, auto-fire, and ship-to-ship horde pressure.',
+                id: 'prism-array',
+                title: 'PRISM ARRAY',
+                name: 'PRISM ARRAY',
+                subtitle: 'SURVIVAL RUN',
+                desc: 'A radiant survival array: endless swarms, locked camera, auto-fire, and ship-to-ship horde pressure.',
                 available: true,
                 mode: 'survivor',
-                visualStyle: 'prismWake',
+                visualStyle: 'prismArray',
                 colors: ['#61f7ff', '#ffe66d', '#ff5edb', '#7cff9b', '#ffffff'],
                 coreColor: '#ffffff',
                 glyphs: ['▲', '▶', '▼', '◀', '⯅', '⯆', '⯇', '⯈', '▴', '▸', '▾', '◂'],
@@ -1713,6 +1720,7 @@
             scoutFlyByAssignments: {},
             signalDrifts: {},
             earlyProceduralWaves: {},
+            bitshiftDwarfEarlyProceduralWaves: {},
             activeGalaxyIndex: 0,
             formationId: 0,
             activeFormationId: 0,
@@ -1779,26 +1787,35 @@
                 this.activeFormationId = 0;
                 this.formationId = 0;
                 this.randomizeEarlyProceduralWaves(routeGalaxyIndex === 1 ? 1.10 : 1);
+                this.randomizeBitshiftDwarfEarlyProceduralWaves();
                 this.randomizeFlyByAssignments();
                 this.randomizeSignalDrifts();
             },
-            randomizeEarlyProceduralWaves(difficultyScale = 1) {
-                this.earlyProceduralWaves = {};
+            buildEarlyProceduralWaveSet(difficultyScale = 1) {
+                const waves = {};
                 const themeUseCounts = {};
                 let lastThemeId = null;
                 for (let waveNumber = 1; waveNumber <= EARLY_PROCEDURAL_WAVE_COUNT; waveNumber++) {
                     const theme = pickEarlyProceduralTheme(waveNumber, lastThemeId, themeUseCounts);
-                    this.earlyProceduralWaves[waveNumber] = tuneEarlyProceduralWaveForGalaxy(
+                    waves[waveNumber] = tuneEarlyProceduralWaveForGalaxy(
                         buildEarlyProceduralWaveDef(waveNumber, theme.id),
                         difficultyScale
                     );
                     themeUseCounts[theme.id] = (themeUseCounts[theme.id] || 0) + 1;
                     lastThemeId = theme.id;
                 }
+                return waves;
             },
-            getGalaxyTwoWaveDefinition(waveNumber) {
+            randomizeEarlyProceduralWaves(difficultyScale = 1) {
+                this.earlyProceduralWaves = this.buildEarlyProceduralWaveSet(difficultyScale);
+            },
+            randomizeBitshiftDwarfEarlyProceduralWaves() {
+                this.bitshiftDwarfEarlyProceduralWaves = this.buildEarlyProceduralWaveSet(1.10);
+            },
+            getGalaxyTwoWaveDefinition(waveNumber, options = {}) {
                 if (waveNumber <= EARLY_PROCEDURAL_WAVE_COUNT) {
-                    return this.earlyProceduralWaves[waveNumber] || tuneEarlyProceduralWaveForGalaxy(buildEarlyProceduralWaveDef(waveNumber, 'patrol'), 1.10);
+                    const earlyProceduralWaves = options.earlyProceduralWaves || this.earlyProceduralWaves;
+                    return earlyProceduralWaves[waveNumber] || tuneEarlyProceduralWaveForGalaxy(buildEarlyProceduralWaveDef(waveNumber, 'patrol'), 1.10);
                 }
                 const galaxyTwoMap = {
                     5: { isBoss: true, name: 'MATRIX HYDRA', sprite: MATRIX_HYDRA_SPRITE, hp: 1080, galaxyBossType: 'matrixHydra' },
@@ -1827,15 +1844,31 @@
                 }
                 return cloneWaveDefinition(mapped, { galaxyWaveNumber: waveNumber });
             },
+            getImportedBitshiftDwarfWaveDefinition(waveNumber) {
+                const sourceWaveNumber = waveNumber - BINARY_QUASAR_BITSHIFT_IMPORT_START_WAVE + 1;
+                if (sourceWaveNumber < 1 || sourceWaveNumber > BINARY_QUASAR_BITSHIFT_IMPORT_COUNT) return null;
+                const waveDef = this.getGalaxyTwoWaveDefinition(sourceWaveNumber, {
+                    earlyProceduralWaves: this.bitshiftDwarfEarlyProceduralWaves
+                });
+                return cloneWaveDefinition(waveDef, {
+                    galaxySourceGalaxyIndex: 1,
+                    galaxySourceWave: sourceWaveNumber,
+                    galaxyWaveNumber: waveNumber,
+                    importedFromGalaxy: 'red-dwarf'
+                });
+            },
             getWaveDefinitionForWave(waveNumber) {
                 if (this.getActiveGalaxyIndex() === 1) return this.getGalaxyTwoWaveDefinition(waveNumber);
+                if (waveNumber >= BINARY_QUASAR_BITSHIFT_IMPORT_START_WAVE && waveNumber <= BINARY_QUASAR_BITSHIFT_IMPORT_END_WAVE) {
+                    return this.getImportedBitshiftDwarfWaveDefinition(waveNumber);
+                }
                 if (waveNumber <= EARLY_PROCEDURAL_WAVE_COUNT && this.earlyProceduralWaves[waveNumber]) {
                     return this.earlyProceduralWaves[waveNumber];
                 }
                 return cloneWaveDefinition(this.waves[waveNumber - 1], { galaxyWaveNumber: waveNumber });
             },
             getEarlyProceduralWaveInfo(waveNumber) {
-                const waveDef = this.earlyProceduralWaves[waveNumber];
+                const waveDef = this.getWaveDefinitionForWave(waveNumber);
                 if (!waveDef || !waveDef.isEarlyProcedural) return null;
                 return {
                     id: waveDef.proceduralThemeId,
@@ -2450,6 +2483,7 @@
         };
 
         WaveManager.randomizeEarlyProceduralWaves();
+        WaveManager.randomizeBitshiftDwarfEarlyProceduralWaves();
         WaveManager.randomizeFlyByAssignments();
         WaveManager.randomizeSignalDrifts();
 

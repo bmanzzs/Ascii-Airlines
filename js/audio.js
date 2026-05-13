@@ -28,7 +28,7 @@
             } catch (e) { console.error("Audio load failed:", url); return null; }
         }
         
-        let buf1, buf2, bufVoidIntro, bufVoidLoop, bufGlitchIntro, bufGlitchLoop, bufBoss3Intro, bufBoss3Loop, bufBoss4Intro, bufBoss4Loop, bufBoss5Intro, bufBoss5Loop, bufBoss6Intro, bufBoss6Loop, bufBoss7Intro, bufBoss7Loop, bufBoss8IntroLoop, bufBoss9RoseIntro, bufBoss9RoseLoop, bufBossExplosion, bufPlayerExplosion;
+        let buf1, buf2, bufMatrixIntro, bufMatrixLoop, bufMatrix2Intro, bufMatrix2Loop, bufVoidIntro, bufVoidLoop, bufGlitchIntro, bufGlitchLoop, bufBoss3Intro, bufBoss3Loop, bufBoss4Intro, bufBoss4Loop, bufBoss5Intro, bufBoss5Loop, bufBoss6Intro, bufBoss6Loop, bufBoss7Intro, bufBoss7Loop, bufBoss8IntroLoop, bufBoss9RoseIntro, bufBoss9RoseLoop, bufBossExplosion, bufPlayerExplosion;
         let bgmSources = [];
         let bossSources = [];
         let bgmOffset = 0;
@@ -36,6 +36,7 @@
         let bgmIsPlaying = false;
         let bossMusicTimeout = null;
         let bgmRetryTimeout = null;
+        let galaxySelectHandoffFadeTimeout = null;
         let currentMusicPlaybackRate = 1;
         let bgmPlayToken = 0;
         let bossPlayToken = 0;
@@ -59,6 +60,8 @@
         const MUSIC_PLAYER_PREVIOUS_TRACK_GRACE_SECONDS = 3;
         const MUSIC_PLAYER_TRACKS = [
             { name: 'Main Theme', intro: () => buf1, loop: () => buf2 },
+            { name: 'Matrix Nebula 1', intro: () => bufMatrixIntro, loop: () => bufMatrixLoop },
+            { name: 'Matrix Nebula 2', intro: () => bufMatrix2Intro, loop: () => bufMatrix2Loop },
             { name: 'Null Phantom', intro: () => bufVoidIntro, loop: () => bufVoidLoop },
             { name: 'Distorted Glitch', intro: () => bufGlitchIntro, loop: () => bufGlitchLoop },
             { name: 'Ghost Signal', intro: () => bufBoss3Intro, loop: () => bufBoss3Loop },
@@ -100,8 +103,12 @@
         }
 
         async function initAudio() {
-            buf1 = await loadBuffer('./audio/ascii-airlines-bg-music.mp3');
+            buf1 = await loadBuffer('./audio/ascii-airlines-bg-music-intro.mp3');
             buf2 = await loadBuffer('./audio/ascii-airlines-bg-music-loop.mp3');
+            bufMatrixIntro = await loadBuffer('./audio/ascii-airlines-bgMatrix-intro.mp3');
+            bufMatrixLoop = await loadBuffer('./audio/ascii-airlines-bgMatrix-loop.mp3');
+            bufMatrix2Intro = await loadBuffer('./audio/ascii-airlines-bgMatrix2-intro.mp3');
+            bufMatrix2Loop = await loadBuffer('./audio/ascii-airlines-bgMatrix2-loop.mp3');
             bufVoidIntro = await loadBuffer('./audio/ascii-airlines-boss1-intro.mp3');
             bufVoidLoop = await loadBuffer('./audio/ascii-airlines-boss1-loop.mp3');
             bufGlitchIntro = await loadBuffer('./audio/ascii-airlines-boss2-intro.mp3');
@@ -124,7 +131,39 @@
         }
         initAudio();
 
+        function clearGalaxySelectHandoffFade() {
+            if (!galaxySelectHandoffFadeTimeout) return;
+            clearTimeout(galaxySelectHandoffFadeTimeout);
+            galaxySelectHandoffFadeTimeout = null;
+        }
+
+        function fadeGalaxySelectMusicForHandoff(fadeOutTime = 0) {
+            if (typeof musicPlayerIsPlaying !== 'undefined' && musicPlayerIsPlaying) return false;
+            if (bgmTrackMode !== 'galaxySelect' || !bgmIsPlaying) return false;
+            if (bgmRetryTimeout) { clearTimeout(bgmRetryTimeout); bgmRetryTimeout = null; }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            clearGalaxySelectHandoffFade();
+            const now = audioCtx.currentTime;
+            const safeFadeOut = Math.max(0.05, fadeOutTime || 0);
+            const token = bgmPlayToken;
+            bgmGain.gain.cancelScheduledValues(now);
+            bgmGain.gain.setValueAtTime(bgmGain.gain.value, now);
+            bgmGain.gain.linearRampToValueAtTime(0, now + safeFadeOut);
+            galaxySelectHandoffFadeTimeout = setTimeout(() => {
+                galaxySelectHandoffFadeTimeout = null;
+                if (token !== bgmPlayToken || bgmTrackMode !== 'galaxySelect') return;
+                bgmSources.forEach(src => { try { src.stop(); } catch(e){} });
+                bgmSources = [];
+                bgmIsPlaying = false;
+                bgmTrackMode = 'none';
+                bgmGain.gain.cancelScheduledValues(audioCtx.currentTime);
+                bgmGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            }, safeFadeOut * 1000 + 50);
+            return true;
+        }
+
         function stopBgm(fadeOutTime = 0) {
+            clearGalaxySelectHandoffFade();
             if (bgmRetryTimeout) { clearTimeout(bgmRetryTimeout); bgmRetryTimeout = null; }
             bgmPlayToken++;
             if (bgmIsPlaying) {
@@ -200,6 +239,74 @@
 
         function playBgm(fadeInTime = 0) {
             playBgmBuffers(buf1, buf2, fadeInTime, bgmOffset, 'main', () => playBgm(fadeInTime));
+        }
+
+        function isMatrixCrawlerMusicContext() {
+            const modeActive = (typeof getActiveGameMode === 'function' && getActiveGameMode() === 'matrixCrawler')
+                || (typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive());
+            if (!modeActive) return false;
+            if (typeof gameState === 'undefined') return true;
+            if (gameState === 'MATRIX_CRAWLER') return true;
+            return gameState === 'PAUSED'
+                && typeof pauseReturnState !== 'undefined'
+                && pauseReturnState === 'MATRIX_CRAWLER';
+        }
+
+        function getMatrixCrawlerMusicFloor() {
+            let floor = 1;
+            if (typeof getMatrixCrawlerCurrentFloor === 'function') {
+                floor = getMatrixCrawlerCurrentFloor();
+            } else if (typeof getMatrixCrawlerHudSnapshot === 'function') {
+                const snapshot = getMatrixCrawlerHudSnapshot();
+                floor = snapshot && snapshot.floor;
+            }
+            return Math.max(1, Math.floor(floor || 1));
+        }
+
+        function getMatrixCrawlerBgmTrack() {
+            const floor = getMatrixCrawlerMusicFloor();
+            if (floor >= 2) {
+                return {
+                    intro: bufMatrix2Intro,
+                    loop: bufMatrix2Loop,
+                    mode: 'matrixCrawler2'
+                };
+            }
+            return {
+                intro: bufMatrixIntro,
+                loop: bufMatrixLoop,
+                mode: 'matrixCrawler'
+            };
+        }
+
+        function isMatrixCrawlerBgmMode(mode = bgmTrackMode) {
+            return mode === 'matrixCrawler' || mode === 'matrixCrawler2';
+        }
+
+        function playMatrixCrawlerBgm(fadeInTime = 0) {
+            const track = getMatrixCrawlerBgmTrack();
+            playBgmBuffers(
+                track.intro,
+                track.loop,
+                fadeInTime,
+                bgmOffset,
+                track.mode,
+                () => {
+                    if (isMatrixCrawlerMusicContext()) {
+                        playMatrixCrawlerBgm(fadeInTime);
+                    }
+                }
+            );
+        }
+
+        function stopMatrixCrawlerMusic(fadeOutTime = 0) {
+            bgmOffset = 0;
+            if (bossMusicTimeout) { clearTimeout(bossMusicTimeout); bossMusicTimeout = null; }
+            if (bgmRetryTimeout) { clearTimeout(bgmRetryTimeout); bgmRetryTimeout = null; }
+            if (isMatrixCrawlerBgmMode() || bgmTrackMode === 'none') {
+                stopBgm(fadeOutTime);
+            }
+            stopBossMusic(fadeOutTime);
         }
 
         function stopBossMusic(fadeOutTime = 0) {
@@ -744,11 +851,13 @@
 
         function startMusic() {
             bgmOffset = 0;
-            playBgm(0);
+            if (isMatrixCrawlerMusicContext()) playMatrixCrawlerBgm(0);
+            else playBgm(0);
         }
 
         function resumeMainMusic(fadeInTime = 2.0) {
-            playBgm(fadeInTime);
+            if (isMatrixCrawlerMusicContext()) playMatrixCrawlerBgm(fadeInTime);
+            else playBgm(fadeInTime);
         }
 
         function startGalaxySelectMusic(fadeInTime = 0.45) {
