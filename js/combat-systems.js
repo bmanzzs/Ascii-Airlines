@@ -700,6 +700,9 @@
             if (typeof isSurvivorModeActive === 'function' && isSurvivorModeActive() && typeof getSurvivorWeaponOrigin === 'function') {
                 frontOrigin = getSurvivorWeaponOrigin(false);
                 rearOrigin = getSurvivorWeaponOrigin(true);
+            } else if (typeof isBitshiftScrollerModeActive === 'function' && isBitshiftScrollerModeActive() && typeof getBitshiftWeaponOrigin === 'function') {
+                frontOrigin = getBitshiftWeaponOrigin(false);
+                rearOrigin = getBitshiftWeaponOrigin(true);
             }
 
             function spawnBullet(x, y, vx, vy, isRear, options = {}) {
@@ -811,13 +814,18 @@
 
         function fireBomb() {
             const survivorMode = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
-            const origin = survivorMode && typeof getSurvivorWeaponOrigin === 'function'
+            const bitshiftMode = typeof isBitshiftScrollerModeActive === 'function' && isBitshiftScrollerModeActive();
+            const origin = bitshiftMode && typeof getBitshiftWeaponOrigin === 'function'
+                ? getBitshiftWeaponOrigin(false)
+                : survivorMode && typeof getSurvivorWeaponOrigin === 'function'
                 ? getSurvivorWeaponOrigin(false)
                 : getPlayerBombIndicatorOrigin();
             const indicatorVisual = getPlayerBombIndicatorVisual();
             player.bombTimer = getPlayerBombCooldownTotal();
             recordRunBombUsed();
-            const angle = survivorMode && typeof getSurvivorPlayerAimAngle === 'function'
+            const angle = bitshiftMode
+                ? 0
+                : survivorMode && typeof getSurvivorPlayerAimAngle === 'function'
                 ? getSurvivorPlayerAimAngle()
                 : getPlayerFireAngle();
             const vx = Math.cos(angle) * BOMB_GRENADE_SPEED;
@@ -1110,6 +1118,7 @@
             if (typeof setActiveGameMode === 'function') setActiveGameMode('campaign');
             if (typeof resetSurvivorRuntimeStateForCampaign === 'function') resetSurvivorRuntimeStateForCampaign();
             if (typeof resetMatrixCrawlerRuntimeStateForCampaign === 'function') resetMatrixCrawlerRuntimeStateForCampaign();
+            if (typeof resetBitshiftScrollerRuntimeStateForCampaign === 'function') resetBitshiftScrollerRuntimeStateForCampaign();
             teardownBossCinematic();
             if (typeof resetRunCompleteTransition === 'function') resetRunCompleteTransition();
             resetRunStats();

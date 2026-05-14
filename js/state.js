@@ -457,7 +457,7 @@
         }
 
         function setActiveGameMode(mode = 'campaign') {
-            activeGameMode = (mode === 'survivor' || mode === 'matrixCrawler') ? mode : 'campaign';
+            activeGameMode = (mode === 'survivor' || mode === 'matrixCrawler' || mode === 'bitshiftScroller') ? mode : 'campaign';
         }
 
         function isSurvivorGalaxy(index = currentGalaxyIndex) {
@@ -829,6 +829,7 @@
             clearGameplayKeys();
             if (typeof endSurvivorRun === 'function') endSurvivorRun({ silent: true });
             if (typeof endMatrixCrawlerRun === 'function') endMatrixCrawlerRun();
+            if (typeof resetBitshiftScrollerRuntimeStateForCampaign === 'function') resetBitshiftScrollerRuntimeStateForCampaign();
             setActiveGameMode('campaign');
             resetRunCompleteTransition();
             selectedGalaxyIndex = Math.max(0, Math.min((typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1) - 1, selectedGalaxyIndex));
@@ -1019,6 +1020,16 @@
                 } else {
                     gameState = 'GALAXY_SELECT';
                     galaxySelectNotice = 'NODE CRAWLER UNAVAILABLE';
+                    galaxySelectNoticeTimer = 1.4;
+                }
+                return;
+            }
+            if (galaxy && galaxy.mode === 'bitshiftScroller') {
+                if (typeof beginBitshiftScrollerRun === 'function') {
+                    beginBitshiftScrollerRun();
+                } else {
+                    gameState = 'GALAXY_SELECT';
+                    galaxySelectNotice = 'VECTOR SCROLL UNAVAILABLE';
                     galaxySelectNoticeTimer = 1.4;
                 }
                 return;

@@ -50,7 +50,35 @@
             requestAnimationFrame(gameLoop);
         }
 
+        let gameLoopStarted = false;
+
+        function dismissInitialLoadScreen() {
+            const loader = document.getElementById('initial-load-screen');
+            if (!loader || loader.dataset.dismissed === 'true') return;
+            loader.dataset.dismissed = 'true';
+            const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (reducedMotion) {
+                loader.remove();
+                return;
+            }
+            loader.classList.add('is-breaking');
+            window.setTimeout(() => {
+                if (loader && loader.parentNode) loader.parentNode.removeChild(loader);
+            }, 520);
+        }
+
+        function startGameLoop() {
+            if (gameLoopStarted) return;
+            gameLoopStarted = true;
+            resize();
+            dismissInitialLoadScreen();
+            requestAnimationFrame(gameLoop);
+        }
+
         window.addEventListener('resize', resize);
         document.addEventListener('fullscreenchange', resize);
         resize();
-        document.fonts.ready.then(() => { resize(); requestAnimationFrame(gameLoop); });
+        startGameLoop();
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(resize, () => {});
+        }

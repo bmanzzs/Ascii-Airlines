@@ -9,7 +9,8 @@
     - index.html: HTML shell, CSS, canvas/HUD containers, and script load order.
     - js/sprites.js: ASCII art assets, sprite color helpers, and asset-adjacent factories.
     - js/void-content.js: Black Void / late-game void mechanics, attacks, and rendering.
-    - js/waves.js: WaveManager, wave definitions, formation spawning, and fly-by scheduling.
+    - js/galaxies.js: Galaxy/destination definitions and metadata.
+    - js/waves.js: WaveManager, wave definitions, campaign wave routing, path builders, fly-by spawning, and boss sequencing.
     - js/bootstrap.js: Canvas, HUD, and FPS DOM references.
     - js/audio.js: Music, SFX buffers, volume, and boss track helpers.
     - js/render-config.js: Logical canvas sizing and shared render constants.
@@ -18,7 +19,9 @@
     - js/player.js: Player model, weapons, upgrades, beams, and console command helpers.
     - js/entities-input.js: Entity arrays, input listeners, particles, and spatial hash state.
     - js/combat-systems.js: Explosions, projectiles, resize, reset, and utility systems.
+    - js/bitshift-scroller.js: Bitshift Dwarf / Vector Scroll side-scroller runtime.
     - js/matrix-crawler.js: Matrix Nebula node crawler mode.
+    - js/survivor-mode.js: Prism Array survival run mode.
     - js/physics.js: Main simulation update loop.
     - js/ui-render.js: Menus, overlays, title sequence, and canvas rendering.
     - js/hud.js: HUD DOM construction and incremental HUD updates.
@@ -851,9 +854,169 @@
             pointer-events: none;
             left: -9999px;
         }
+        #initial-load-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: grid;
+            place-items: center;
+            background:
+                radial-gradient(circle at 50% 42%, rgba(106, 168, 255, 0.14), transparent 34%),
+                linear-gradient(180deg, #020510 0%, #000000 100%);
+            color: #dcecff;
+            font-family: 'Electrolize', 'Courier New', sans-serif;
+            pointer-events: none;
+            contain: layout paint style;
+            overflow: hidden;
+        }
+        #initial-load-screen::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(90deg, transparent 0 49%, rgba(143, 247, 255, 0.08) 50%, transparent 51%),
+                repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 7px);
+            opacity: 0.36;
+            transform: translateY(-8px);
+            animation: initial-load-scan 0.62s linear infinite;
+        }
+        #initial-load-screen::after {
+            content: "";
+            position: absolute;
+            width: min(460px, 72vw);
+            height: min(460px, 72vw);
+            border: 1px solid rgba(143, 247, 255, 0.18);
+            box-shadow: 0 0 28px rgba(106, 168, 255, 0.22), inset 0 0 26px rgba(106, 168, 255, 0.09);
+            transform: rotate(45deg) scale(0.72);
+            animation: initial-load-core 0.86s ease-in-out infinite alternate;
+        }
+        .initial-loader-frame {
+            position: relative;
+            z-index: 1;
+            width: min(420px, 82vw);
+            padding: 22px 24px 18px;
+            border: 1px solid rgba(143, 247, 255, 0.42);
+            background: rgba(2, 8, 18, 0.74);
+            box-shadow: 0 0 20px rgba(106, 168, 255, 0.24), inset 0 0 18px rgba(143, 247, 255, 0.08);
+            text-align: center;
+            transform: translateZ(0);
+        }
+        .initial-loader-kicker {
+            color: rgba(143, 247, 255, 0.76);
+            font-size: 11px;
+            line-height: 1;
+            margin-bottom: 9px;
+        }
+        .initial-loader-title {
+            color: #ffffff;
+            font-size: clamp(22px, 4.2vw, 36px);
+            line-height: 1;
+            text-shadow: 0 0 12px rgba(143, 247, 255, 0.82);
+        }
+        .initial-loader-bar {
+            position: relative;
+            height: 7px;
+            margin: 17px auto 12px;
+            width: min(320px, 70vw);
+            border: 1px solid rgba(143, 247, 255, 0.62);
+            background: rgba(2, 8, 18, 0.86);
+            overflow: hidden;
+        }
+        .initial-loader-bar span {
+            display: block;
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, rgba(106, 168, 255, 0.12), #8ff7ff, #ffffff);
+            transform-origin: left center;
+            animation: initial-load-bar 0.58s ease-in-out infinite alternate;
+        }
+        .initial-loader-code {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 4px 10px;
+            color: rgba(220, 236, 255, 0.54);
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 10px;
+            line-height: 1;
+        }
+        .initial-loader-code span {
+            transform: translateZ(0);
+        }
+        #initial-load-screen.is-breaking {
+            animation: initial-load-break 0.46s ease-in forwards;
+        }
+        #initial-load-screen.is-breaking .initial-loader-frame {
+            animation: initial-frame-break 0.46s ease-in forwards;
+        }
+        #initial-load-screen.is-breaking .initial-loader-title,
+        #initial-load-screen.is-breaking .initial-loader-kicker {
+            animation: initial-title-break 0.34s steps(3, end) forwards;
+        }
+        #initial-load-screen.is-breaking .initial-loader-code span {
+            animation: initial-code-break 0.42s ease-in forwards;
+        }
+        #initial-load-screen.is-breaking .initial-loader-code span:nth-child(2n) {
+            animation-delay: 0.03s;
+        }
+        #initial-load-screen.is-breaking .initial-loader-code span:nth-child(3n) {
+            animation-delay: 0.06s;
+        }
+        @keyframes initial-load-scan {
+            from { transform: translateY(-8px); }
+            to { transform: translateY(8px); }
+        }
+        @keyframes initial-load-core {
+            from { opacity: 0.38; transform: rotate(45deg) scale(0.70); }
+            to { opacity: 0.62; transform: rotate(45deg) scale(0.75); }
+        }
+        @keyframes initial-load-bar {
+            from { transform: scaleX(0.34); }
+            to { transform: scaleX(0.96); }
+        }
+        @keyframes initial-load-break {
+            0% { opacity: 1; }
+            62% { opacity: 0.92; }
+            100% { opacity: 0; visibility: hidden; }
+        }
+        @keyframes initial-frame-break {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            42% { opacity: 1; transform: translateY(-2px) scale(1.015); }
+            100% { opacity: 0; transform: translateY(22px) scale(0.94); }
+        }
+        @keyframes initial-title-break {
+            0% { opacity: 1; transform: skewX(0deg); }
+            45% { opacity: 0.94; transform: skewX(-8deg); }
+            100% { opacity: 0; transform: translateY(8px) skewX(12deg); }
+        }
+        @keyframes initial-code-break {
+            0% { opacity: 0.54; transform: translateY(0); color: rgba(220, 236, 255, 0.54); }
+            38% { opacity: 1; transform: translateY(-5px); color: #ffffff; }
+            100% { opacity: 0; transform: translateY(34px); color: #8ff7ff; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #initial-load-screen,
+            #initial-load-screen::before,
+            #initial-load-screen::after,
+            .initial-loader-bar span,
+            #initial-load-screen * {
+                animation-duration: 0.001s !important;
+                animation-iteration-count: 1 !important;
+            }
+        }
     </style>
 </head>
 <body>
+    <div id="initial-load-screen" aria-live="polite" aria-label="Now loading ASCII Airlines">
+        <div class="initial-loader-frame">
+            <div class="initial-loader-kicker">ASCII AIRLINES</div>
+            <div class="initial-loader-title">NOW LOADING</div>
+            <div class="initial-loader-bar"><span></span></div>
+            <div class="initial-loader-code" aria-hidden="true">
+                <span>boot.run</span><span>sprites.ok</span><span>waves.ok</span><span>hud.sync</span>
+                <span>audio.buf</span><span>input.map</span><span>route.set</span><span>canvas.go</span>
+            </div>
+        </div>
+    </div>
     <div id="game-container">
         <div id="fps">
             <span id="fps-val">FPS 00</span>
@@ -866,9 +1029,10 @@
     <!-- OVERHEATING FIREWALL SOURCE REMOVED 
      <pre id=p><svg onload=a=[setInterval('h="";for(a[I++*I%17+578]=i=89;i++<630;h+=i%30?"*"[a[i]=~~((a[i]+a[i+1]+a[i+29]+a[i+30])/4)]||8:"\\n")p.innerHTML=h',I=30)]></svg></pre>-->
      <!-- OVERHEATING FIREWALL SOURCE REMOVED -->
-    <!-- Game content modules. Load order matters: assets, void mechanics, wave manager, engine. -->
+    <!-- Game content modules. Load order matters: assets, galaxy metadata, wave manager, mode owners, engine. -->
     <script src="js/sprites.js"></script>
     <script src="js/void-content.js"></script>
+    <script src="js/galaxies.js"></script>
     <script src="js/waves.js"></script>
     <script src="js/bootstrap.js"></script>
     <script src="js/audio.js"></script>
@@ -878,11 +1042,12 @@
     <script src="js/player.js"></script>
     <script src="js/entities-input.js"></script>
     <script src="js/combat-systems.js"></script>
+    <script src="js/bitshift-scroller.js"></script>
     <script src="js/matrix-crawler.js"></script>
     <script src="js/survivor-mode.js"></script>
     <script src="js/physics.js"></script>
-    <script src="js/ui-render.js"></script>
+    <script src="js/ui-render.js?v=prism-body-cluster-1"></script>
     <script src="js/hud.js"></script>
-    <script src="js/main-loop.js"></script>
+    <script src="js/main-loop.js?v=loader-start-1"></script>
 </body>
 </html>

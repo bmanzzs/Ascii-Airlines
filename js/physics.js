@@ -1178,6 +1178,11 @@
                 dt *= getRunCompletePhysicsScale();
             }
 
+            if (typeof isBitshiftScrollerModeActive === 'function' && isBitshiftScrollerModeActive()) {
+                if (typeof updateBitshiftScrollerRuntime === 'function') updateBitshiftScrollerRuntime(dt);
+                return;
+            }
+
             if (typeof isSurvivorModeActive === 'function' && isSurvivorModeActive() && typeof updateSurvivorMode === 'function') {
                 updateFieldParticles(dt, 0.18);
                 updateSurvivorMode(dt);

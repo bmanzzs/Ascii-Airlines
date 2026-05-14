@@ -3173,7 +3173,13 @@
         const GALAXY_SELECT_SPRITE_CACHE_FPS_GLYPH_HEAVY_SELECTED = 48;
         const GALAXY_SELECT_SPRITE_CACHE_FPS_GLYPH_HEAVY_IDLE = 32;
         const GALAXY_SELECT_SPRITE_CACHE_MAX = 96;
+        const PRISM_ARRAY_ANIMATION_SPEED_SCALE = 0.5;
+        const PRISM_ARRAY_OUTER_RING_DENSITY_SCALE = 1;
+        const PRISM_ARRAY_BODY_CLUSTER_INNER_RADIUS = 0.16;
+        const PRISM_ARRAY_BODY_CLUSTER_SPAN = 0.68;
+        const PRISM_ARRAY_OUTER_GLYPH_CACHE_MAX = 160;
         const galaxySelectSpriteFrameCache = new Map();
+        const prismArrayOuterGlyphCache = new Map();
         const TENSOR_MIRAGE_FIELD_GLYPHS = [
             '\u2297', '\u03BB', '\u2207', '\u2202', '\u03A3', '\u0394', '\u03C0', '\u00D7',
             'x', 'y', 'z', 'w', 'i', 'j', 'k', 'T', 'M', '[]', '<>', '::', '//', 'x/y'
@@ -3209,6 +3215,7 @@
             pauseGlowTextCache.clear();
             GALAXY_SPRITE_POINT_CACHE.clear();
             galaxySelectSpriteFrameCache.clear();
+            prismArrayOuterGlyphCache.clear();
             galaxySelectBackgroundFrameCache.bucket = -1;
             galaxySelectBackgroundFrameCache.canvas = null;
             pauseMenuBackdropGradientCache.gradient = null;
@@ -4996,15 +5003,56 @@
             galaxyCtx.restore();
         }
 
+        function trimPrismArrayOuterGlyphCache() {
+            while (prismArrayOuterGlyphCache.size > PRISM_ARRAY_OUTER_GLYPH_CACHE_MAX) {
+                const oldestKey = prismArrayOuterGlyphCache.keys().next().value;
+                prismArrayOuterGlyphCache.delete(oldestKey);
+            }
+        }
+
+        function getPrismArrayOuterGlyphCanvas(glyph, fontSize, color, shadowBlur) {
+            const roundedFontSize = Math.max(7, Math.round(fontSize));
+            const roundedShadowBlur = Math.max(0, Math.round(shadowBlur * 2) / 2);
+            const key = `${glyph}|${roundedFontSize}|${color}|${roundedShadowBlur}`;
+            let entry = prismArrayOuterGlyphCache.get(key);
+            if (entry) {
+                prismArrayOuterGlyphCache.delete(key);
+                prismArrayOuterGlyphCache.set(key, entry);
+                return entry;
+            }
+
+            const margin = Math.ceil(roundedShadowBlur * 2.6 + roundedFontSize * 0.45 + 4);
+            const size = Math.max(18, Math.ceil(roundedFontSize * 1.5 + margin * 2));
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const glyphCtx = canvas.getContext('2d', { alpha: true });
+            if (!glyphCtx) return null;
+
+            glyphCtx.textAlign = 'center';
+            glyphCtx.textBaseline = 'middle';
+            glyphCtx.font = `bold ${roundedFontSize}px Courier New`;
+            glyphCtx.fillStyle = color;
+            glyphCtx.shadowColor = color;
+            glyphCtx.shadowBlur = roundedShadowBlur;
+            glyphCtx.fillText(glyph, size / 2, size / 2);
+
+            entry = { canvas, size };
+            prismArrayOuterGlyphCache.set(key, entry);
+            trimPrismArrayOuterGlyphCache();
+            return entry;
+        }
+
         function drawPrismArrayGalaxySprite(galaxy, x, y, radius, selected, now, index, options = {}) {
             const colors = galaxy.colors || ['#61f7ff', '#ffe66d', '#ff5edb', '#7cff9b', '#ffffff'];
             const profile = getGalaxyVisualProfile(index);
-            const axis = profile.axis + Math.sin(now * 0.00011 + index) * 0.06;
+            const animationNow = now * PRISM_ARRAY_ANIMATION_SPEED_SCALE;
+            const axis = profile.axis + Math.sin(animationNow * 0.00011 + index) * 0.06;
             const tilt = profile.tilt || 0.72;
             const highlight = getGalaxyOptionHighlightAmount(options, selected);
-            const glowPulse = getGalaxySelectHighlightPulse(index, now, highlight);
-            const spin = now * 0.00016 * (options.warp && selected ? 1.8 : 1) * (profile.spinDir || 1) * (profile.spinSpeed || 1);
-            const shimmer = 0.5 + Math.sin(now * 0.0047) * 0.5;
+            const glowPulse = getGalaxySelectHighlightPulse(index, animationNow, highlight);
+            const spin = animationNow * 0.00016 * (options.warp && selected ? 1.8 : 1) * (profile.spinDir || 1) * (profile.spinSpeed || 1);
+            const shimmer = 0.5 + Math.sin(animationNow * 0.0047) * 0.5;
             const detail = options.detail || 1;
             const fontScale = options.fontScale || 1;
             const warpMode = !!options.warp;
@@ -5037,7 +5085,7 @@
             const cosAxis = Math.cos(axis);
             const sinAxis = Math.sin(axis);
             let lastFont = '';
-            const outerCount = Math.max(16, Math.round((40 + highlight * 14) * detail));
+            const outerCount = Math.max(12, Math.round((40 + highlight * 14) * detail * PRISM_ARRAY_OUTER_RING_DENSITY_SCALE));
             galaxyCtx.save();
             galaxyCtx.rotate(axis + spin * 0.7);
             galaxyCtx.scale(1, tilt * 0.62);
@@ -5045,12 +5093,15 @@
             galaxyCtx.font = `bold ${outerFontSize}px Courier New`;
             for (let i = 0; i < outerCount; i++) {
                 const angle = (i / outerCount) * Math.PI * 2 + spin * 2.4;
-                const stripePulse = 1 + Math.sin(angle * 8 + now * 0.003) * 0.035;
-                galaxyCtx.globalAlpha = (0.42 + highlight * 0.28) * (0.72 + Math.sin(angle * 4 + now * 0.001) * 0.18);
-                galaxyCtx.fillStyle = colors[i % colors.length] || '#ffffff';
+                const stripePulse = 1 + Math.sin(angle * 8 + animationNow * 0.003) * 0.035;
+                galaxyCtx.globalAlpha = (0.42 + highlight * 0.28) * (0.72 + Math.sin(angle * 4 + animationNow * 0.001) * 0.18);
+                const glyphColor = colors[i % colors.length] || '#ffffff';
+                galaxyCtx.fillStyle = glyphColor;
+                let outerShadowBlur = 0;
                 if (perGlyphGlowEnabled && (highlight > 0.04 || i % 5 === 0)) {
                     galaxyCtx.shadowColor = galaxyCtx.fillStyle;
-                    galaxyCtx.shadowBlur = 4 + highlight * (4 + shimmer * 7 + glowPulse * 3);
+                    outerShadowBlur = 4 + highlight * (4 + shimmer * 7 + glowPulse * 3);
+                    galaxyCtx.shadowBlur = outerShadowBlur;
                 } else {
                     galaxyCtx.shadowBlur = 0;
                 }
@@ -5059,20 +5110,26 @@
                 if (vectorGlyphs) {
                     drawPrismArrayVectorGlyph(outerFontSize, gx, gy, angle + Math.PI / 2, i);
                 } else {
-                    galaxyCtx.fillText(glyphs[i % glyphs.length], gx, gy);
+                    const glyphCanvas = getPrismArrayOuterGlyphCanvas(glyphs[i % glyphs.length], outerFontSize, glyphColor, outerShadowBlur);
+                    if (glyphCanvas) {
+                        galaxyCtx.shadowBlur = 0;
+                        galaxyCtx.drawImage(glyphCanvas.canvas, gx - glyphCanvas.size / 2, gy - glyphCanvas.size / 2);
+                    } else {
+                        galaxyCtx.fillText(glyphs[i % glyphs.length], gx, gy);
+                    }
                 }
             }
             galaxyCtx.restore();
             for (let ring = ringCount - 1; ring >= 0; ring--) {
                 const ringT = ring / Math.max(1, ringCount - 1);
-                const ringRadius = radius * (0.18 + ringT * 0.86);
-                const pulse = 1 + Math.sin(now * 0.0022 + ring * 1.71) * 0.055;
+                const ringRadius = radius * (PRISM_ARRAY_BODY_CLUSTER_INNER_RADIUS + Math.pow(ringT, 1.18) * PRISM_ARRAY_BODY_CLUSTER_SPAN);
+                const pulse = 1 + Math.sin(animationNow * 0.0022 + ring * 1.71) * 0.055;
                 const localTilt = tilt * (0.5 + ringT * 0.48);
                 const pointCount = Math.max(10, pointsPerRing - Math.floor(ring * 1.5));
                 for (let i = 0; i < pointCount; i++) {
                     const noise = galaxyNoise((galaxy.seed || 211) + ring * 41, i);
                     const angle = (i / pointCount) * Math.PI * 2 + spin * (1 + ringT * 0.8) + noise * 0.2;
-                    const lace = Math.sin(angle * 3 + now * 0.0017 + ring) * radius * 0.04;
+                    const lace = Math.sin(angle * 3 + animationNow * 0.0017 + ring) * radius * 0.04;
                     const localX = Math.cos(angle) * (ringRadius * pulse + lace);
                     const localY = Math.sin(angle) * (ringRadius * pulse) * localTilt;
                     const px = localX * cosAxis - localY * sinAxis;
@@ -7929,6 +7986,8 @@
                 if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
             } else if (gameState === 'DYING' && typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive()) {
                 if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
+            } else if (typeof isBitshiftScrollerModeActive === 'function' && isBitshiftScrollerModeActive() && typeof drawBitshiftScrollerRuntime === 'function') {
+                drawBitshiftScrollerRuntime(renderNow, dt);
             } else if (gameState === 'START' || gameState === 'LAUNCHING' || gameState === 'SHIP_SELECT') {
                 let alpha = titleAlpha;
                 if (gameState === 'LAUNCHING') {
