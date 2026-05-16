@@ -2522,26 +2522,35 @@
         }
 
         const musicPlayerGradientCache = {
-            barKey: '',
-            barGradient: null,
+            signalKey: '',
+            signalGradient: null,
             seekKey: '',
             seekGradient: null
         };
+        const musicPlayerBassCoreState = {
+            x: 0,
+            y: 0,
+            vx: 0,
+            vy: 0,
+            lastBass: 0,
+            impact: 0,
+            lastNow: 0
+        };
 
-        function getMusicPlayerBarGradient(topY, bottomY, accentColor) {
-            const key = `${topY}|${bottomY}|${accentColor}`;
-            if (musicPlayerGradientCache.barGradient && musicPlayerGradientCache.barKey === key) {
-                return musicPlayerGradientCache.barGradient;
+        function getMusicPlayerSignalGradient(left, right, topY, bottomY, accentColor) {
+            const key = `${left}|${right}|${topY}|${bottomY}|${accentColor}`;
+            if (musicPlayerGradientCache.signalGradient && musicPlayerGradientCache.signalKey === key) {
+                return musicPlayerGradientCache.signalGradient;
             }
-            const barGrad = ctx.createLinearGradient(0, topY, 0, bottomY);
-            barGrad.addColorStop(0, colorWithAlpha('#ff8fd8', 0.70));
-            barGrad.addColorStop(0.28, colorWithAlpha('#7ee7ff', 0.86));
-            barGrad.addColorStop(0.52, colorWithAlpha('#ffffff', 0.92));
-            barGrad.addColorStop(0.74, colorWithAlpha(accentColor, 0.88));
-            barGrad.addColorStop(1, colorWithAlpha('#ff8fd8', 0.56));
-            musicPlayerGradientCache.barKey = key;
-            musicPlayerGradientCache.barGradient = barGrad;
-            return barGrad;
+            const signalGrad = ctx.createLinearGradient(left, topY, right, bottomY);
+            signalGrad.addColorStop(0, colorWithAlpha('#ff8fd8', 0.72));
+            signalGrad.addColorStop(0.26, colorWithAlpha('#7ee7ff', 0.88));
+            signalGrad.addColorStop(0.52, colorWithAlpha('#ffffff', 0.94));
+            signalGrad.addColorStop(0.74, colorWithAlpha(accentColor, 0.86));
+            signalGrad.addColorStop(1, colorWithAlpha('#ff8fd8', 0.62));
+            musicPlayerGradientCache.signalKey = key;
+            musicPlayerGradientCache.signalGradient = signalGrad;
+            return signalGrad;
         }
 
         function getMusicPlayerSeekGradient(seekX, seekW, accentColor) {
@@ -2583,93 +2592,618 @@
         }
 
         function drawMusicPlayerVisualizer(panelX, panelY, panelW, panelH, accentColor, status) {
-            if (typeof getMusicPlayerVisualizerWaveform !== 'function') return;
-            const pointCount = Math.max(42, Math.min(56, Math.floor(panelW / 11)));
-            const waveform = getMusicPlayerVisualizerWaveform(pointCount);
-            if (!waveform || !waveform.length) return;
-
             const left = panelX + 16;
             const right = panelX + panelW - 16;
-            const topY = panelY + 34;
-            const bottomY = panelY + panelH - 16;
-            const midY = topY + (bottomY - topY) * 0.55;
-            const usableH = Math.max(28, bottomY - topY);
+            const topY = panelY + 58;
+            const bottomY = Math.min(panelY + panelH - 116, panelY + 178);
+            const viewW = Math.max(1, right - left);
+            const viewH = Math.max(88, bottomY - topY);
+            const signal = typeof getMusicPlayerReactiveSignal === 'function'
+                ? getMusicPlayerReactiveSignal()
+                : { bass: 0.2, bassGuitar: 0.2, bassPulse: 0.08, drumSnap: 0.12, leadTone: 0.16, air: 0.12, mid: 0.15, highMid: 0.18, treble: 0.12, energy: 0.18, pulse: 0.08, phase: (currentFrameNow || 0) * 0.00004 };
             const activeAlpha = status && status.isPlaying ? 1 : 0.42;
-            const widthSpan = Math.max(1, right - left);
-            const energy = Math.max(waveform.rms || 0, waveform.peak || 0, waveform.impulse || 0);
-            const impulses = waveform.impulses || [];
-            const gap = 2;
-            const barW = Math.max(3, (widthSpan - gap * (waveform.length - 1)) / waveform.length);
+            const energy = Math.max(0, Math.min(1, signal.energy || 0));
+            const pulse = Math.max(0, Math.min(1, signal.pulse || 0));
+            const bassPulse = Math.max(0, Math.min(1, signal.bassPulse || 0));
+            const bass = Math.max(0, Math.min(1, signal.bass || 0));
+            const bassGuitar = Math.max(0, Math.min(1, Number.isFinite(signal.bassGuitar) ? signal.bassGuitar : bass));
+            const drumSnap = Math.max(0, Math.min(1, signal.drumSnap || 0));
+            const leadTone = Math.max(0, Math.min(1, signal.leadTone || 0));
+            const airTone = Math.max(0, Math.min(1, signal.air || 0));
+            const mid = Math.max(0, Math.min(1, signal.mid || 0));
+            const highMid = Math.max(0, Math.min(1, Number.isFinite(signal.highMid) ? signal.highMid : mid));
+            const treble = Math.max(0, Math.min(1, signal.treble || 0));
+            const phase = (signal.phase || 0) * Math.PI * 2;
+            const bandProfileAge = signal.bands && Number.isFinite(signal.bands.age) ? Math.max(0, signal.bands.age) : 0;
+            const profileLock = Math.max(0, Math.min(1, bandProfileAge / 10));
+            const cx = left + viewW * 0.5;
+            const cy = topY + viewH * 0.53;
+            const baseRx = Math.min(viewW * 0.34, 178) * (0.82 + highMid * 0.25 + energy * 0.045);
+            const baseRy = Math.min(viewH * 0.44, 62) * (0.82 + mid * 0.12 + bassGuitar * 0.045 + pulse * 0.025);
+            const signalGradient = getMusicPlayerSignalGradient(left, right, topY, bottomY, accentColor);
+            const coreState = musicPlayerBassCoreState;
+            const renderNow = currentFrameNow || performance.now();
+            const coreDt = coreState.lastNow > 0
+                ? Math.max(0.001, Math.min(0.08, (renderNow - coreState.lastNow) / 1000))
+                : 1 / 60;
+            coreState.lastNow = renderNow;
+            const bassRise = Math.max(0, bassGuitar - coreState.lastBass * 0.965);
+            coreState.lastBass = bassGuitar;
+            coreState.impact = Math.max(coreState.impact * Math.pow(0.10, coreDt), Math.min(1, bassPulse * 1.05 + bassRise * 3.8 + pulse * 0.08));
+            coreState.x = 0;
+            coreState.y = 0;
+            coreState.vx = 0;
+            coreState.vy = 0;
+            const bassGlow = Math.max(0, Math.min(1, Math.pow(bassGuitar * 0.78 + bassPulse * 0.72 + coreState.impact * 0.48, 0.64)));
+            const coreCx = cx;
+            const coreCy = cy;
+            const gasPhaseSeed = phase * 0.73 + bassGuitar * 1.2;
+            const voidSunReturn = Math.pow(Math.max(0, Math.sin(renderNow * 0.00046 + 0.95) - 0.88) / 0.12, 2) * (0.42 + bassPulse * 0.32);
+            const voidMode = Math.max(0, Math.min(1, 1 - voidSunReturn * 0.78));
+            const voidFieldRadius = Math.min(viewW * 0.24, Math.max(42, viewH * 0.62));
+
+            const distortVisualizerPoint = (x, y, strength = 1) => {
+                const dx = x - coreCx;
+                const dy = y - coreCy;
+                const dist = Math.max(0.001, Math.hypot(dx, dy));
+                if (dist >= voidFieldRadius || voidMode <= 0.02) return { x, y };
+                const t = 1 - dist / voidFieldRadius;
+                const influence = t * t * voidMode * strength;
+                const swirl = influence * (0.46 + bassGlow * 0.20) * Math.sin(phase * 0.74 + dist * 0.035);
+                const pull = influence * (3.2 + bassGlow * 4.8);
+                const cos = Math.cos(swirl);
+                const sin = Math.sin(swirl);
+                const warpedX = dx * cos - dy * sin;
+                const warpedY = dx * sin + dy * cos;
+                return {
+                    x: coreCx + warpedX - (warpedX / dist) * pull,
+                    y: coreCy + warpedY - (warpedY / dist) * pull
+                };
+            };
+
+            const getBreathingPaletteColor = (palette, index, speed = 0.34, offset = 0) => {
+                if (!palette || !palette.length) return '#ffffff';
+                const a = palette[index % palette.length];
+                const b = palette[(index + 1) % palette.length];
+                const individualOffset = offset + index * 0.82 + Math.sin(index * 12.9898 + offset * 4.7) * 1.25;
+                const speedJitter = 0.62 + Math.sin(index * 5.173 + offset * 2.11) * 0.23 + Math.sin(index * 11.41) * 0.15;
+                const elementSpeed = Math.max(0.035, speed * speedJitter);
+                const t = 0.5 + Math.sin(phase * elementSpeed + individualOffset) * 0.5;
+                return typeof mixHexColor === 'function' ? mixHexColor(a, b, t) : mixColor(a, b, t);
+            };
+
+            const coreBreathColor = getBreathingPaletteColor(
+                ['#05060d', '#07111c', '#0a0614', '#12090a'],
+                0,
+                0.040,
+                gasPhaseSeed * 0.04
+            );
+            const coreFlareColor = getBreathingPaletteColor(
+                ['#fff1b2', '#7ee7ff', accentColor, '#ff8fd8'],
+                1,
+                0.060,
+                gasPhaseSeed * 0.03
+            );
+
+            const drawIrisLoop = (rx, ry, color, alpha, lineWidth, spin, wobbleScale) => {
+                const steps = 96;
+                ctx.beginPath();
+                for (let i = 0; i <= steps; i++) {
+                    const t = (Math.PI * 2 * i) / steps;
+                    const drift = Math.sin(t * 3 + phase * 1.5 + spin) * (0.043 + highMid * 0.042) * wobbleScale
+                        + Math.sin(t * 5 - phase * 1.2 - spin) * (0.026 + treble * 0.038) * wobbleScale;
+                    const orbit = t + phase * spin * (0.27 + highMid * 0.070) + drift;
+                    const rawX = cx
+                        + Math.cos(orbit) * rx
+                        + Math.sin(t * 2 - phase * 0.58) * rx * (0.026 + treble * 0.028);
+                    const rawY = cy
+                        + Math.sin(t * 2 + phase * spin * 0.24) * ry * (0.68 + bass * 0.10)
+                        + Math.cos(t * 3 + phase * 0.48) * ry * (0.026 + mid * 0.032);
+                    const warped = distortVisualizerPoint(rawX, rawY, 0.70);
+                    const x = warped.x;
+                    const y = warped.y;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = alpha * activeAlpha;
+                ctx.lineWidth = lineWidth;
+                ctx.stroke();
+            };
+
+            const drawMobiusStrip = (rx, ry) => {
+                const steps = 74;
+                const edgeA = [];
+                const edgeB = [];
+                const ribs = [];
+                const ribbonW = 5.5 + highMid * 9 + pulse * 3;
+                for (let i = 0; i <= steps; i++) {
+                    const t = (Math.PI * 2 * i) / steps;
+                    const theta = t + phase * (0.16 + highMid * 0.08);
+                    const centerX = cx + Math.sin(theta) * rx;
+                    const centerY = cy
+                        + Math.sin(theta * 2 - phase * 0.42) * ry * (0.54 + highMid * 0.10)
+                        + Math.cos(theta - phase * 0.32) * ry * 0.12;
+                    const dx = Math.cos(theta) * rx;
+                    const dy = Math.cos(theta * 2 - phase * 0.42) * ry * 2 * (0.54 + highMid * 0.10)
+                        - Math.sin(theta - phase * 0.32) * ry * 0.12;
+                    const len = Math.max(1, Math.hypot(dx, dy));
+                    const nx = -dy / len;
+                    const ny = dx / len;
+                    const twist = Math.cos(t * 0.5 + phase * 0.72);
+                    const thickness = ribbonW * (0.45 + Math.abs(twist) * 0.65);
+                    const warpedA = distortVisualizerPoint(centerX + nx * thickness, centerY + ny * thickness, 0.82);
+                    const warpedB = distortVisualizerPoint(centerX - nx * thickness, centerY - ny * thickness, 0.82);
+                    edgeA.push(warpedA);
+                    edgeB.push(warpedB);
+                    if (i % 7 === 0) ribs.push({ ax: warpedA.x, ay: warpedA.y, bx: warpedB.x, by: warpedB.y, twist, index: i });
+                }
+
+                ctx.save();
+                ctx.globalAlpha = (0.10 + highMid * 0.070 + pulse * 0.030) * activeAlpha;
+                ctx.fillStyle = getMusicPlayerSignalGradient(left, right, topY, bottomY, accentColor);
+                ctx.beginPath();
+                ctx.moveTo(edgeA[0].x, edgeA[0].y);
+                for (let i = 1; i < edgeA.length; i++) ctx.lineTo(edgeA[i].x, edgeA[i].y);
+                for (let i = edgeB.length - 1; i >= 0; i--) ctx.lineTo(edgeB[i].x, edgeB[i].y);
+                ctx.closePath();
+                ctx.fill();
+
+                if (glowEnabled) {
+                    ctx.shadowColor = '#7ee7ff';
+                    ctx.shadowBlur = 7 + highMid * 8;
+                }
+                ctx.globalAlpha = (0.38 + highMid * 0.20) * activeAlpha;
+                ctx.strokeStyle = colorWithAlpha(getBreathingPaletteColor(['#7ee7ff', '#ffffff', accentColor], 2, 0.11, 0.4), 0.86);
+                ctx.lineWidth = 1.15 + highMid * 1.05;
+                ctx.beginPath();
+                ctx.moveTo(edgeA[0].x, edgeA[0].y);
+                for (let i = 1; i < edgeA.length; i++) ctx.lineTo(edgeA[i].x, edgeA[i].y);
+                ctx.stroke();
+                ctx.strokeStyle = colorWithAlpha(getBreathingPaletteColor(['#ff8fd8', accentColor, '#7ee7ff'], 4, 0.13, 1.8), 0.78);
+                ctx.beginPath();
+                ctx.moveTo(edgeB[0].x, edgeB[0].y);
+                for (let i = 1; i < edgeB.length; i++) ctx.lineTo(edgeB[i].x, edgeB[i].y);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                ctx.lineWidth = 0.8;
+                for (const rib of ribs) {
+                    ctx.globalAlpha = (0.13 + Math.abs(rib.twist) * 0.26 + treble * 0.080) * activeAlpha;
+                    const ribColor = getBreathingPaletteColor(
+                        Math.abs(rib.twist) > 0.62 ? ['#ffffff', '#7ee7ff', '#fff1b2'] : [accentColor, '#ff8fd8', '#7ee7ff'],
+                        rib.index || 0,
+                        0.16,
+                        2.1
+                    );
+                    ctx.strokeStyle = colorWithAlpha(ribColor, Math.abs(rib.twist) > 0.62 ? 0.62 : 0.56);
+                    ctx.beginPath();
+                    ctx.moveTo(rib.ax, rib.ay);
+                    ctx.lineTo(rib.bx, rib.by);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            };
+
+            const drawBassGasCorona = (coreRadius) => {
+                const gas = Math.max(0, Math.min(1, bassGlow * 0.82 + bassPulse * 0.58 + coreState.impact * 0.34));
+                if (gas <= 0.01) return;
+                const gasPhase = phase * (0.44 + bassGuitar * 0.18);
+                const coronaRadius = coreRadius * (2.65 + gas * 1.70);
+                const outerGas = ctx.createRadialGradient(coreCx, coreCy, coreRadius * 0.18, coreCx, coreCy, coronaRadius * 1.30);
+                outerGas.addColorStop(0, colorWithAlpha('#ffffff', (0.16 + gas * 0.22) * activeAlpha));
+                outerGas.addColorStop(0.20, colorWithAlpha('#7ee7ff', (0.15 + gas * 0.25) * activeAlpha));
+                outerGas.addColorStop(0.48, colorWithAlpha(accentColor, (0.070 + gas * 0.16) * activeAlpha));
+                outerGas.addColorStop(0.73, colorWithAlpha('#ff8fd8', (0.030 + gas * 0.090) * activeAlpha));
+                outerGas.addColorStop(1, 'rgba(255,255,255,0)');
+
+                ctx.save();
+                ctx.globalCompositeOperation = 'screen';
+                ctx.fillStyle = outerGas;
+                if (glowEnabled) {
+                    ctx.shadowColor = '#7ee7ff';
+                    ctx.shadowBlur = 12 + gas * 18;
+                }
+                ctx.beginPath();
+                ctx.arc(coreCx, coreCy, coronaRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                for (let i = 0; i < 11; i++) {
+                    const lane = i / 11;
+                    const angle = lane * Math.PI * 2 + gasPhase * (0.55 + (i % 3) * 0.09);
+                    const flutter = Math.sin(gasPhase * 1.7 + i * 1.91) * (0.18 + gas * 0.18);
+                    const lobeDistance = coreRadius * (1.08 + gas * 0.62 + (i % 4) * 0.055);
+                    const lobeLength = coreRadius * (0.72 + gas * 0.84 + Math.max(0, flutter) * 0.28);
+                    const lobeWidth = coreRadius * (0.20 + gas * 0.22 + (i % 2) * 0.035);
+                    ctx.save();
+                    ctx.translate(coreCx, coreCy);
+                    ctx.rotate(angle + flutter * 0.36);
+                    ctx.globalAlpha = (0.055 + gas * 0.070 + bassPulse * 0.045) * activeAlpha;
+                    ctx.fillStyle = i % 3 === 0
+                        ? colorWithAlpha('#ffffff', 0.58)
+                        : (i % 3 === 1 ? colorWithAlpha('#7ee7ff', 0.66) : colorWithAlpha(accentColor, 0.62));
+                    ctx.beginPath();
+                    ctx.ellipse(lobeDistance, 0, lobeLength, lobeWidth, flutter, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+
+                ctx.lineCap = 'round';
+                for (let i = 0; i < 8; i++) {
+                    const angle = i * Math.PI * 0.25 + gasPhase * (0.28 + (i % 2) * 0.08);
+                    const inner = coreRadius * (0.72 + (i % 3) * 0.06);
+                    const outer = coronaRadius * (0.52 + (i % 4) * 0.045 + gas * 0.10);
+                    const bend = Math.sin(gasPhase * 1.45 + i) * coreRadius * (0.55 + gas * 0.36);
+                    ctx.globalAlpha = (0.035 + gas * 0.085 + bassPulse * 0.040) * activeAlpha;
+                    ctx.strokeStyle = i % 2 ? colorWithAlpha('#7ee7ff', 0.76) : colorWithAlpha(accentColor, 0.70);
+                    ctx.lineWidth = 0.8 + gas * 1.1;
+                    ctx.beginPath();
+                    ctx.moveTo(coreCx + Math.cos(angle) * inner, coreCy + Math.sin(angle) * inner);
+                    ctx.bezierCurveTo(
+                        coreCx + Math.cos(angle + 0.46) * (inner + outer) * 0.42,
+                        coreCy + Math.sin(angle + 0.46) * (inner + outer) * 0.42 + bend * 0.22,
+                        coreCx + Math.cos(angle - 0.32) * outer * 0.72,
+                        coreCy + Math.sin(angle - 0.32) * outer * 0.72 - bend * 0.16,
+                        coreCx + Math.cos(angle + flutterNoise(i)) * outer,
+                        coreCy + Math.sin(angle + flutterNoise(i + 3)) * outer
+                    );
+                    ctx.stroke();
+                }
+                ctx.restore();
+            };
+
+            const drawInstrumentSatellites = () => {
+                const seededUnit = (seed) => {
+                    const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+                    return value - Math.floor(value);
+                };
+                const groups = [
+                    { mode: 'bass', count: 5, signal: bassGuitar, pulse: bassPulse, palette: [accentColor, '#ffb45a', '#fff1b2'], phaseOffset: 0.15, size: 1.95, colorSpeed: 0.09 },
+                    { mode: 'drums', count: 6, signal: drumSnap, pulse, palette: ['#ffffff', '#7ee7ff', '#dcecff'], phaseOffset: 1.45, size: 1.42, colorSpeed: 0.24 },
+                    { mode: 'lead', count: 5, signal: leadTone, pulse: highMid, palette: ['#7ee7ff', '#ff8fd8', '#ffffff'], phaseOffset: 2.80, size: 1.50, colorSpeed: 0.17 },
+                    { mode: 'air', count: 5, signal: airTone, pulse: treble, palette: ['#ff8fd8', '#ffffff', '#7ee7ff'], phaseOffset: 4.12, size: 1.18, colorSpeed: 0.31 }
+                ];
+
+                const getSatellitePosition = (group, i, phaseValue, groupSignal, groupPulse) => {
+                    const lane = i / group.count;
+                    const seed = group.phaseOffset * 10 + i * 3.17;
+                    let x;
+                    let y;
+                    if (group.mode === 'bass') {
+                        const spread = (lane - 0.5) * baseRx * 1.32;
+                        x = cx + spread + Math.sin(phaseValue * 0.42 + seed) * baseRx * (0.018 + groupSignal * 0.012);
+                        y = cy + baseRy * (0.42 + seededUnit(seed) * 0.12) + Math.sin(phaseValue * 0.62 + seed) * baseRy * (0.06 + groupPulse * 0.045);
+                    } else if (group.mode === 'drums') {
+                        const snap = 0.62 + groupPulse * 0.22;
+                        const angle = lane * Math.PI * 2 + group.phaseOffset;
+                        x = cx + Math.cos(angle) * baseRx * snap + Math.sin(phaseValue * 1.6 + seed) * (2 + groupPulse * 8);
+                        y = cy + Math.sin(angle * 2.0 + phaseValue * 0.30) * baseRy * (0.48 + groupPulse * 0.24);
+                    } else if (group.mode === 'lead') {
+                        const drift = phaseValue * 0.13 + group.phaseOffset + lane * Math.PI * 1.35;
+                        x = cx + Math.cos(drift) * baseRx * (0.86 + groupSignal * 0.08);
+                        y = cy - baseRy * 0.34 + (lane - 0.5) * baseRy * 0.84 + Math.sin(drift * 2.1) * baseRy * (0.13 + groupSignal * 0.05);
+                    } else {
+                        x = left + viewW * (0.10 + seededUnit(seed) * 0.80) + Math.sin(phaseValue * 0.32 + seed) * (3 + groupSignal * 6);
+                        y = topY + viewH * (0.17 + seededUnit(seed + 8) * 0.66) + Math.cos(phaseValue * 0.44 + seed) * (2 + groupPulse * 5);
+                    }
+                    return distortVisualizerPoint(x, y, group.mode === 'bass' ? 0.46 : 0.72);
+                };
+
+                for (const group of groups) {
+                    const groupSignal = Math.max(0, Math.min(1, group.signal || 0));
+                    const groupPulse = Math.max(0, Math.min(1, group.pulse || 0));
+                    for (let i = 0; i < group.count; i++) {
+                        const position = getSatellitePosition(group, i, phase, groupSignal, groupPulse);
+                        const x = position.x;
+                        const y = position.y;
+                        const brightness = Math.max(0, Math.min(1, 0.18 + groupSignal * 0.62 + groupPulse * 0.22 + Math.sin(phase * 1.4 + i) * 0.08));
+                        const dotRadius = group.size + brightness * 2.0 + groupPulse * 0.7;
+                        const dotColor = getBreathingPaletteColor(group.palette, i, group.colorSpeed + i * 0.018, group.phaseOffset);
+                        if ((i + group.count) % 2 === 0) {
+                            for (let t = 2; t >= 1; t--) {
+                                const trail = getSatellitePosition(group, i, phase - t * (0.11 + groupSignal * 0.035), groupSignal, groupPulse);
+                                ctx.globalAlpha = brightness * activeAlpha * (0.10 / t);
+                                ctx.fillStyle = colorWithAlpha(dotColor, 0.44);
+                                ctx.beginPath();
+                                ctx.arc(trail.x, trail.y, Math.max(0.8, dotRadius * (1 - t * 0.20)), 0, Math.PI * 2);
+                                ctx.fill();
+                            }
+                        }
+                        if (glowEnabled) {
+                            ctx.shadowColor = dotColor;
+                            ctx.shadowBlur = 5 + brightness * 9;
+                        }
+                        ctx.globalAlpha = brightness * activeAlpha;
+                        ctx.fillStyle = colorWithAlpha(dotColor, 0.92);
+                        ctx.beginPath();
+                        ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
+                }
+            };
+
+            const drawVoidAccretionDisk = (shadowRadius, frontOnly = false) => {
+                const axis = -0.18 + Math.sin(phase * 0.13) * 0.035;
+                const diskPulse = 0.86 + bassGlow * 0.18 + coreState.impact * 0.12 + voidSunReturn * 0.24;
+                const bands = [
+                    {
+                        rx: shadowRadius * (2.42 + bassGlow * 0.18),
+                        ry: shadowRadius * (0.48 + bassPulse * 0.035),
+                        y: -shadowRadius * 0.13,
+                        width: 3.4,
+                        blur: 11,
+                        alpha: 0.24,
+                        palette: ['#ff8f35', '#fff1b2', accentColor],
+                        speed: 0.060
+                    },
+                    {
+                        rx: shadowRadius * (2.04 + coreState.impact * 0.10),
+                        ry: shadowRadius * 0.36,
+                        y: -shadowRadius * 0.08,
+                        width: 1.8,
+                        blur: 8,
+                        alpha: 0.31,
+                        palette: ['#fff1b2', '#ffb45a', '#ffffff'],
+                        speed: 0.050
+                    },
+                    {
+                        rx: shadowRadius * 1.18,
+                        ry: shadowRadius * 0.28,
+                        y: shadowRadius * 0.04,
+                        width: 1.45,
+                        blur: 12,
+                        alpha: 0.44,
+                        palette: ['#ffffff', '#7ee7ff', '#fff1b2'],
+                        speed: 0.030
+                    }
+                ];
+
+                ctx.save();
+                ctx.globalCompositeOperation = 'screen';
+                ctx.translate(coreCx, coreCy);
+                ctx.rotate(axis);
+                ctx.lineCap = 'round';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let i = 0; i < bands.length; i++) {
+                    const band = bands[i];
+                    const color = getBreathingPaletteColor(band.palette, i, band.speed + i * 0.012, 5.7 + i);
+                    ctx.strokeStyle = colorWithAlpha(color, 0.86);
+                    ctx.lineWidth = Math.max(0.7, band.width + bassGlow * 0.7);
+                    ctx.shadowColor = color;
+                    ctx.shadowBlur = glowEnabled ? band.blur + bassGlow * 10 : 0;
+                    ctx.globalAlpha = band.alpha * diskPulse * activeAlpha * (frontOnly ? 1.15 : 0.78);
+                    ctx.beginPath();
+                    if (frontOnly) {
+                        ctx.ellipse(0, band.y, band.rx, band.ry, 0, 0.02, Math.PI - 0.02);
+                    } else {
+                        ctx.ellipse(0, band.y, band.rx, band.ry, 0, Math.PI + 0.04, Math.PI * 2 - 0.04);
+                    }
+                    ctx.stroke();
+                }
+
+                if (frontOnly) {
+                    const innerColor = getBreathingPaletteColor(['#ffffff', '#7ee7ff', '#fff1b2'], 7, 0.026, 7.2);
+                    ctx.strokeStyle = colorWithAlpha(innerColor, 0.92);
+                    ctx.lineWidth = 1.15 + bassGlow * 0.8;
+                    ctx.shadowColor = innerColor;
+                    ctx.shadowBlur = glowEnabled ? 16 + bassGlow * 16 : 0;
+                    ctx.globalAlpha = (0.30 + bassGlow * 0.18 + coreState.impact * 0.14) * activeAlpha;
+                    ctx.beginPath();
+                    ctx.ellipse(0, shadowRadius * 0.055, shadowRadius * 1.03, shadowRadius * 0.24, 0, 0.10, Math.PI - 0.22);
+                    ctx.stroke();
+                } else {
+                    for (let i = 0; i < 10; i++) {
+                        const t = i / 9;
+                        const glyphColor = getBreathingPaletteColor(['#ff8f35', '#fff1b2', '#ffb45a'], i, 0.055 + i * 0.006, 8.9);
+                        const angle = Math.PI + t * Math.PI + phase * 0.06 + Math.sin(i * 1.7) * 0.08;
+                        const gx = Math.cos(angle) * shadowRadius * (1.45 + t * 0.92);
+                        const gy = -shadowRadius * 0.12 + Math.sin(angle) * shadowRadius * (0.23 + t * 0.07);
+                        ctx.globalAlpha = (0.13 + t * 0.10 + bassPulse * 0.05) * activeAlpha;
+                        ctx.fillStyle = colorWithAlpha(glyphColor, 0.82);
+                        ctx.font = `bold ${Math.max(7, Math.round(shadowRadius * (0.22 + t * 0.08)))}px Courier New`;
+                        ctx.fillText(i % 3 === 0 ? '*' : (i % 3 === 1 ? '+' : 'o'), gx, gy);
+                    }
+                }
+                ctx.restore();
+            };
+
+            const flutterNoise = (n) => Math.sin(gasPhaseSeed + n * 1.618) * 0.18;
 
             ctx.save();
             ctx.beginPath();
             ctx.rect(left, topY, right - left, bottomY - topY);
             ctx.clip();
+
+            ctx.globalCompositeOperation = 'source-over';
+            const backdrop = ctx.createLinearGradient(left, topY, right, bottomY);
+            backdrop.addColorStop(0, 'rgba(10, 5, 18, 0.82)');
+            backdrop.addColorStop(0.34, 'rgba(4, 15, 29, 0.88)');
+            backdrop.addColorStop(0.68, 'rgba(5, 10, 23, 0.88)');
+            backdrop.addColorStop(1, 'rgba(18, 4, 17, 0.82)');
+            ctx.fillStyle = backdrop;
+            ctx.fillRect(left, topY, right - left, bottomY - topY);
+
             ctx.globalCompositeOperation = 'screen';
+
+            const aura = ctx.createRadialGradient(cx, cy, 2, cx, cy, Math.max(baseRx * 0.94, baseRy * 1.8));
+            aura.addColorStop(0, colorWithAlpha('#ffffff', (0.13 + bassGlow * 0.12 + energy * 0.045) * activeAlpha));
+            aura.addColorStop(0.18, colorWithAlpha('#7ee7ff', (0.13 + highMid * 0.080) * activeAlpha));
+            aura.addColorStop(0.42, colorWithAlpha(accentColor, (0.070 + bassGlow * 0.070) * activeAlpha));
+            aura.addColorStop(0.75, colorWithAlpha('#ff8fd8', (0.050 + treble * 0.055) * activeAlpha));
+            aura.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = aura;
+            ctx.fillRect(left, topY, right - left, bottomY - topY);
 
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-
-            const wash = ctx.createLinearGradient(left, 0, right, 0);
-            wash.addColorStop(0, colorWithAlpha(accentColor, 0));
-            wash.addColorStop(0.22, colorWithAlpha(accentColor, 0.030 * activeAlpha));
-            wash.addColorStop(0.5, colorWithAlpha('#7ee7ff', 0.045 * activeAlpha));
-            wash.addColorStop(0.78, colorWithAlpha('#ff8fd8', 0.030 * activeAlpha));
-            wash.addColorStop(1, colorWithAlpha(accentColor, 0));
-            ctx.fillStyle = wash;
-            ctx.fillRect(left, topY, right - left, bottomY - topY);
-
             ctx.lineWidth = 1;
-            ctx.strokeStyle = colorWithAlpha('#7ee7ff', 0.032 * activeAlpha);
-            for (let i = 0; i < 3; i++) {
-                const y = topY + usableH * (i + 1) / 4;
+            ctx.strokeStyle = colorWithAlpha('#7ee7ff', (0.024 + profileLock * 0.018) * activeAlpha);
+            for (let i = 0; i < 6; i++) {
+                const x = left + (viewW * i) / 5;
+                ctx.beginPath();
+                ctx.moveTo(x | 0, topY);
+                ctx.lineTo((x + Math.sin(phase * 0.35 + i) * 8) | 0, bottomY);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = colorWithAlpha(accentColor, (0.022 + profileLock * 0.018) * activeAlpha);
+            for (let i = 1; i < 4; i++) {
+                const y = topY + (viewH * i) / 4;
                 ctx.beginPath();
                 ctx.moveTo(left, y | 0);
-            ctx.lineTo(right, y | 0);
-            ctx.stroke();
-        }
+                ctx.lineTo(right, (y + Math.sin(phase * 0.5 + i) * 3) | 0);
+                ctx.stroke();
+            }
 
-            const barGrad = getMusicPlayerBarGradient(topY, bottomY, accentColor);
+            const petalCount = 12;
+            for (let i = 0; i < petalCount; i++) {
+                const a = phase * (0.16 + mid * 0.080) + (Math.PI * 2 * i) / petalCount;
+                const a2 = a + Math.PI / petalCount;
+                const petalRx = baseRx * (0.18 + mid * 0.052 + (i % 2) * 0.014);
+                const petalRy = baseRy * (0.54 + mid * 0.12);
+                const tipX = cx + Math.cos(a) * baseRx * (0.42 + mid * 0.070 + pulse * 0.045);
+                const tipY = cy + Math.sin(a) * baseRy * (0.50 + mid * 0.090 + pulse * 0.030);
+                const leftX = cx + Math.cos(a - 0.38) * petalRx;
+                const leftY = cy + Math.sin(a - 0.38) * petalRy;
+                const rightX = cx + Math.cos(a + 0.38) * petalRx;
+                const rightY = cy + Math.sin(a + 0.38) * petalRy;
+                ctx.globalAlpha = (0.052 + mid * 0.044 + energy * 0.016 + (i % 3) * 0.006) * activeAlpha;
+                const petalColor = getBreathingPaletteColor(
+                    i % 3 === 0 ? ['#7ee7ff', '#ffffff', accentColor] : (i % 3 === 1 ? ['#ff8fd8', '#7ee7ff', '#ffffff'] : [accentColor, '#ff8fd8', '#7ee7ff']),
+                    i,
+                    0.18 + (i % 4) * 0.035,
+                    0.65
+                );
+                ctx.fillStyle = colorWithAlpha(petalColor, i % 3 === 0 ? 0.92 : (i % 3 === 1 ? 0.84 : 0.78));
+                ctx.beginPath();
+                const p0 = distortVisualizerPoint(cx, cy, 0.42);
+                const p1 = distortVisualizerPoint(leftX, leftY, 0.66);
+                const p2 = distortVisualizerPoint(cx + Math.cos(a2) * petalRx * 0.8, cy + Math.sin(a2) * petalRy * 0.8, 0.66);
+                const p3 = distortVisualizerPoint(tipX, tipY, 0.76);
+                const p4 = distortVisualizerPoint(rightX, rightY, 0.66);
+                ctx.moveTo(p0.x, p0.y);
+                ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+                ctx.bezierCurveTo(p2.x, p2.y, p4.x, p4.y, p0.x, p0.y);
+                ctx.fill();
+            }
+
+            ctx.globalAlpha = (0.12 + treble * 0.15) * activeAlpha;
+            for (let i = 0; i < 4; i++) {
+                const ringT = i / 3;
+                ctx.lineWidth = 0.65 + treble * 0.85 + ringT * 0.30;
+                ctx.strokeStyle = colorWithAlpha(getBreathingPaletteColor(['#ffffff', '#7ee7ff', '#ff8fd8', accentColor], i, 0.12 + i * 0.025, 1.25), 0.72);
+                ctx.beginPath();
+                ctx.ellipse(
+                    cx,
+                    cy,
+                    baseRx * (0.24 + ringT * 0.22 + treble * 0.040),
+                    baseRy * (0.24 + ringT * 0.16 + treble * 0.032),
+                    phase * (0.16 + i * 0.040 + treble * 0.026),
+                    0,
+                    Math.PI * 2
+                );
+                ctx.stroke();
+            }
+
+            drawMobiusStrip(baseRx * (0.76 + profileLock * 0.035 + highMid * 0.12), baseRy * (0.86 + profileLock * 0.035 + highMid * 0.13));
 
             if (glowEnabled) {
                 ctx.shadowColor = accentColor;
-                ctx.shadowBlur = 6 + energy * 7;
+                ctx.shadowBlur = 10 + energy * 9;
             }
-            ctx.fillStyle = barGrad;
-            for (let i = 0; i < waveform.length; i++) {
-                const previousSample = Math.max(-1, Math.min(1, waveform[Math.max(0, i - 1)] || 0));
-                const currentSample = Math.max(-1, Math.min(1, waveform[i] || 0));
-                const nextSample = Math.max(-1, Math.min(1, waveform[Math.min(waveform.length - 1, i + 1)] || 0));
-                const sample = currentSample * 0.72 + previousSample * 0.14 + nextSample * 0.14;
-                const impulse = impulses[i] || 0;
-                const magnitude = Math.min(1, Math.abs(sample) * 0.94 + impulse * 0.18 + energy * 0.035);
-                const barH = Math.min(usableH, usableH * (0.035 + Math.pow(magnitude, 0.82) * 0.94));
-                const driftY = sample * usableH * 0.055;
-                const x = left + i * (barW + gap);
-                const y = Math.max(topY, Math.min(bottomY - barH, midY - barH / 2 + driftY));
-                ctx.globalAlpha = (0.12 + magnitude * 0.42) * activeAlpha;
-                ctx.fillRect(x | 0, y | 0, Math.max(1, barW) | 0, Math.max(1, barH) | 0);
+            drawIrisLoop(baseRx * (0.92 + highMid * 0.065), baseRy * (0.84 + highMid * 0.050), signalGradient, 0.48 + highMid * 0.24, 1.45 + highMid * 1.45, 1.0, 1.04);
+            drawIrisLoop(baseRx * (0.70 + treble * 0.050), baseRy * (1.02 + treble * 0.11), colorWithAlpha('#7ee7ff', 0.92), 0.34 + treble * 0.23, 1.05 + treble * 0.95, -1.35, 1.14);
+            drawIrisLoop(baseRx * (1.06 + highMid * 0.10), baseRy * (0.60 + highMid * 0.080), colorWithAlpha('#ff8fd8', 0.86), 0.28 + highMid * 0.25, 0.96 + highMid * 1.02, 1.75, 0.96);
+            ctx.shadowBlur = 0;
 
-                if (status && status.isPlaying && impulse > 0.36) {
-                    ctx.save();
-                    ctx.shadowBlur = 0;
-                    ctx.globalAlpha = Math.min(0.34, (impulse * 0.30) * activeAlpha);
-                    ctx.fillStyle = colorWithAlpha('#ffffff', 0.82);
-                    const tickH = Math.min(barH, 5 + impulse * usableH * 0.18);
-                    ctx.fillRect(x | 0, (y + (barH - tickH) / 2) | 0, Math.max(1, barW) | 0, Math.max(1, tickH) | 0);
-                    ctx.restore();
-                    ctx.fillStyle = barGrad;
-                }
+            drawInstrumentSatellites();
+
+            ctx.globalAlpha = (0.12 + treble * 0.11) * activeAlpha;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${Math.max(7, Math.min(10, viewH * 0.075))}px Courier New`;
+            const glyphs = ['0', '1', '+', 'x', '::', '<>'];
+            for (let i = 0; i < 14; i++) {
+                const lane = i / 13;
+                const drift = (phase * (0.022 + (i % 4) * 0.006) + lane) % 1;
+                const rawX = left + drift * viewW;
+                const rawY = topY + 12 + ((i * 29) % Math.max(1, viewH - 24));
+                const warped = distortVisualizerPoint(rawX, rawY, 0.48);
+                const glyphColor = getBreathingPaletteColor(
+                    i % 3 === 0 ? ['#ffffff', '#7ee7ff', '#fff1b2'] : (i % 2 ? ['#7ee7ff', '#ff8fd8', '#ffffff'] : [accentColor, '#7ee7ff', '#ff8fd8']),
+                    i,
+                    0.10 + (i % 5) * 0.025,
+                    3.4
+                );
+                ctx.fillStyle = colorWithAlpha(glyphColor, 0.68);
+                ctx.fillText(glyphs[i % glyphs.length], warped.x, warped.y);
+            }
+
+            const coreRadius = 8 + bassGuitar * 5 + bassGlow * 6 + coreState.impact * 3.5;
+            const shadowRadius = Math.max(13, coreRadius * (1.08 + voidMode * 0.38));
+            const coreGlowRadius = coreRadius * (2.35 + bassGlow * 0.70 + coreState.impact * 0.42);
+            drawBassGasCorona(coreRadius);
+
+            ctx.globalCompositeOperation = 'screen';
+            const voidHalo = ctx.createRadialGradient(coreCx, coreCy, 1, coreCx, coreCy, coreGlowRadius * 1.28);
+            voidHalo.addColorStop(0, colorWithAlpha(coreFlareColor, (0.040 + voidSunReturn * 0.22) * activeAlpha));
+            voidHalo.addColorStop(0.32, colorWithAlpha('#7ee7ff', (0.060 + bassGlow * 0.075) * activeAlpha));
+            voidHalo.addColorStop(0.58, colorWithAlpha(accentColor, (0.025 + bassGlow * 0.050 + voidSunReturn * 0.11) * activeAlpha));
+            voidHalo.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = voidHalo;
+            ctx.beginPath();
+            ctx.arc(coreCx, coreCy, coreGlowRadius * 1.28, 0, Math.PI * 2);
+            ctx.fill();
+            drawVoidAccretionDisk(shadowRadius, false);
+
+            ctx.globalCompositeOperation = 'source-over';
+            const shadow = ctx.createRadialGradient(coreCx - shadowRadius * 0.18, coreCy - shadowRadius * 0.16, shadowRadius * 0.10, coreCx, coreCy, shadowRadius * 1.22);
+            shadow.addColorStop(0, colorWithAlpha('#000000', 0.98 * activeAlpha));
+            shadow.addColorStop(0.52, colorWithAlpha(coreBreathColor, 0.96 * activeAlpha));
+            shadow.addColorStop(0.78, colorWithAlpha('#01030a', 0.90 * activeAlpha));
+            shadow.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = shadow;
+            ctx.beginPath();
+            ctx.arc(coreCx, coreCy, shadowRadius * 1.12, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = (0.92 - voidSunReturn * 0.42) * activeAlpha;
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(coreCx, coreCy, shadowRadius * (0.58 + voidMode * 0.18), 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.globalCompositeOperation = 'screen';
+            drawVoidAccretionDisk(shadowRadius, true);
+            ctx.globalAlpha = (0.18 + bassGlow * 0.18 + voidSunReturn * 0.42) * activeAlpha;
+            ctx.strokeStyle = colorWithAlpha(coreFlareColor, 0.88);
+            ctx.lineWidth = 1.2 + bassGlow * 1.3;
+            ctx.shadowColor = coreFlareColor;
+            ctx.shadowBlur = glowEnabled ? 10 + bassGlow * 18 + voidSunReturn * 22 : 0;
+            ctx.beginPath();
+            ctx.arc(coreCx, coreCy, shadowRadius * (1.02 + voidSunReturn * 0.18), 0, Math.PI * 2);
+            ctx.stroke();
+
+            if (voidSunReturn > 0.035) {
+                const flareRadius = coreRadius * (1.65 + voidSunReturn * 0.85);
+                const flare = ctx.createRadialGradient(coreCx, coreCy, 1, coreCx, coreCy, flareRadius);
+                flare.addColorStop(0, colorWithAlpha('#ffffff', 0.78 * voidSunReturn * activeAlpha));
+                flare.addColorStop(0.24, colorWithAlpha(coreFlareColor, 0.62 * voidSunReturn * activeAlpha));
+                flare.addColorStop(0.56, colorWithAlpha(accentColor, 0.32 * voidSunReturn * activeAlpha));
+                flare.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = flare;
+                ctx.beginPath();
+                ctx.arc(coreCx, coreCy, flareRadius, 0, Math.PI * 2);
+                ctx.fill();
             }
             ctx.shadowBlur = 0;
 
-            ctx.globalAlpha = 0.12 * activeAlpha;
+            ctx.globalCompositeOperation = 'source-over';
             ctx.strokeStyle = colorWithAlpha(accentColor, 0.42);
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(left, midY | 0);
-            ctx.lineTo(right, midY | 0);
-            ctx.stroke();
+            ctx.globalAlpha = 0.58;
+            ctx.lineWidth = 1;
+            ctx.strokeRect((left + 0.5) | 0, (topY + 0.5) | 0, (right - left) | 0, (bottomY - topY) | 0);
             ctx.restore();
         }
 
@@ -2680,9 +3214,9 @@
 
             const accent = '#ffd95a';
             const panelW = Math.min(640, width - 72);
-            const panelH = 194;
+            const panelH = 306;
             const panelX = Math.round((width - panelW) / 2);
-            const panelY = Math.round(Math.max(72, height * 0.28));
+            const panelY = Math.round(Math.max(54, height * 0.20));
             const pad = 18;
             const pulse = (Math.sin(currentFrameNow * 0.006) + 1) * 0.5;
 
@@ -2691,7 +3225,7 @@
             ctx.fillStyle = 'rgba(0, 3, 10, 0.46)';
             ctx.fillRect(0, 0, width | 0, height | 0);
             drawPauseHudPanel(panelX, panelY, panelW, panelH, accent, true, {
-                fillAlpha: 0.9,
+                fillAlpha: 0.94,
                 borderAlpha: 0.74,
                 edgeWashAlpha: 0.012,
                 innerSheenAlpha: 0.004,
@@ -2709,7 +3243,7 @@
             ctx.textAlign = 'right';
             ctx.font = `bold 18px 'Electrolize', sans-serif`;
             ctx.fillStyle = colorWithAlpha(accent, 0.86);
-            ctx.fillText(trackCountLabel, panelX + panelW - pad, panelY + 55);
+            ctx.fillText(trackCountLabel, panelX + panelW - pad, panelY + 38);
             const trackCountW = ctx.measureText(trackCountLabel).width;
 
             ctx.textAlign = 'left';
@@ -2717,10 +3251,10 @@
             ctx.fillStyle = status.isLoaded ? mixColor(accent, '#ffffff', 0.42) : '#ff88a6';
             const trackNameW = Math.max(120, panelW - pad * 2 - trackCountW - 24);
             const trackLabel = truncateConsoleLine(status.isLoaded ? status.trackName.toUpperCase() : `${status.trackName.toUpperCase()}  LOADING`, trackNameW);
-            ctx.fillText(trackLabel, panelX + pad, panelY + 54);
+            ctx.fillText(trackLabel, panelX + pad, panelY + 38);
 
             const seekX = panelX + pad;
-            const seekY = panelY + 82;
+            const seekY = panelY + 190;
             const seekW = panelW - pad * 2;
             const seekH = 13;
             const seekSelected = status.selection === 0;
@@ -2759,7 +3293,7 @@
             ctx.textAlign = 'right';
             ctx.fillText(status.durationText, seekX + seekW, seekY + 30);
 
-            const rowY = panelY + 118;
+            const rowY = panelY + 230;
             const buttonW = 58;
             const buttonH = 28;
             const gap = 8;
@@ -3145,13 +3679,26 @@
             offsetX: 0,
             offsetY: 0
         };
-        const GALAXY_SELECT_CURSOR_REST_SEED = Math.random() * 10000;
+        const GALAXY_SELECT_CURSOR_RANDOM_CANDIDATES = 12;
+        const GALAXY_SELECT_CURSOR_REST_BASE_OFFSET = 14;
+        const GALAXY_SELECT_CURSOR_REST_RANDOM_OFFSET = 10;
+        const GALAXY_SELECT_CURSOR_APPROACH_BASE_OFFSET = 34;
+        const GALAXY_SELECT_CURSOR_APPROACH_RANDOM_OFFSET = 20;
         const GALAXY_WARP_STREAK_COUNT = 34;
         const GALAXY_WARP_HANDOFF_STREAK_COUNT = 16;
         const GALAXY_WARP_FOCUSED_DETAIL = 1;
         const GALAXY_WARP_FOCUSED_FONT_SCALE = 1;
         const GALAXY_WARP_SPRITE_CACHE_FPS = 72;
         const GALAXY_CURSOR_TRAIL_MAX = 44;
+        let galaxySelectCursorRestPose = {
+            index: -1,
+            token: 0,
+            angle: 0,
+            distanceNoise: 0,
+            approachNoise: 0,
+            bendNoise: 0,
+            scaleNoise: 0
+        };
         const GALAXY_SPRITE_POINT_CACHE = new Map();
         const galaxySpriteDrawScratch = [];
         const galaxySelectBgGradientCache = {
@@ -3247,10 +3794,17 @@
             galaxySelectBackgroundFrameCache.bucket = -1;
             galaxySelectBackgroundFrameCache.canvas = null;
             pauseMenuBackdropGradientCache.gradient = null;
-            musicPlayerGradientCache.barKey = '';
-            musicPlayerGradientCache.barGradient = null;
+            musicPlayerGradientCache.signalKey = '';
+            musicPlayerGradientCache.signalGradient = null;
             musicPlayerGradientCache.seekKey = '';
             musicPlayerGradientCache.seekGradient = null;
+            musicPlayerBassCoreState.x = 0;
+            musicPlayerBassCoreState.y = 0;
+            musicPlayerBassCoreState.vx = 0;
+            musicPlayerBassCoreState.vy = 0;
+            musicPlayerBassCoreState.lastBass = 0;
+            musicPlayerBassCoreState.impact = 0;
+            musicPlayerBassCoreState.lastNow = 0;
             galaxyWarpMenuSnapshotCache.canvas = null;
             galaxyWarpMenuSnapshotCache.stamp = 0;
             galaxyWarpExactGlyphLayerCache.drawKey = '';
@@ -5595,6 +6149,93 @@
             galaxyCtx.globalCompositeOperation = 'source-over';
         }
 
+        function getGalaxyCursorRestBounds() {
+            return {
+                minX: 52,
+                maxX: Math.max(52, width - 52),
+                minY: Math.max(128, height * 0.16),
+                maxY: Math.max(128, height - 128)
+            };
+        }
+
+        function getGalaxyCursorRestCandidate(slot, angle, distance) {
+            const bounds = getGalaxyCursorRestBounds();
+            const rawX = slot.x + Math.cos(angle) * distance;
+            const rawY = slot.y + Math.sin(angle) * distance;
+            const x = Math.max(bounds.minX, Math.min(bounds.maxX, rawX));
+            const y = Math.max(bounds.minY, Math.min(bounds.maxY, rawY));
+            return {
+                x,
+                y,
+                clampDistance: Math.hypot(rawX - x, rawY - y),
+                bounds
+            };
+        }
+
+        function scoreGalaxyCursorRestCandidate(candidate, slot, radius) {
+            const edgeRoom = Math.min(
+                candidate.x - candidate.bounds.minX,
+                candidate.bounds.maxX - candidate.x,
+                candidate.y - candidate.bounds.minY,
+                candidate.bounds.maxY - candidate.y
+            );
+            let score = candidate.clampDistance * 3 + Math.max(0, 22 - edgeRoom) * 2;
+            const labelTop = slot.y + radius + 2;
+            const labelBottom = labelTop + 50;
+            const labelHalfW = Math.max(82, radius * 1.35);
+            if (candidate.y >= labelTop && candidate.y <= labelBottom) {
+                const labelOverlap = 1 - Math.min(1, Math.abs(candidate.x - slot.x) / labelHalfW);
+                score += labelOverlap * 84;
+            }
+            return score;
+        }
+
+        function refreshGalaxySelectCursorRestPose(index, slot, radius, profile) {
+            const baseAngle = Number.isFinite(profile && profile.cursorAngle) ? profile.cursorAngle : -0.7;
+            const candidates = [];
+            for (let i = 0; i < GALAXY_SELECT_CURSOR_RANDOM_CANDIDATES; i++) {
+                const angle = normalizePauseCursorAngle(baseAngle + (Math.random() - 0.5) * Math.PI * 2);
+                const distanceNoise = Math.random();
+                const candidate = getGalaxyCursorRestCandidate(
+                    slot,
+                    angle,
+                    radius + GALAXY_SELECT_CURSOR_REST_BASE_OFFSET + distanceNoise * GALAXY_SELECT_CURSOR_REST_RANDOM_OFFSET
+                );
+                candidates.push({
+                    angle,
+                    distanceNoise,
+                    approachNoise: Math.random(),
+                    bendNoise: Math.random(),
+                    scaleNoise: Math.random(),
+                    score: scoreGalaxyCursorRestCandidate(candidate, slot, radius) + Math.random() * 7
+                });
+            }
+            candidates.sort((a, b) => a.score - b.score);
+            const pickCount = Math.max(1, Math.min(4, candidates.length));
+            const pick = candidates[Math.floor(Math.random() * pickCount)] || candidates[0];
+            galaxySelectCursorRestPose = {
+                index,
+                token: galaxySelectCursorRestPose.token + 1,
+                angle: pick.angle,
+                distanceNoise: pick.distanceNoise,
+                approachNoise: pick.approachNoise,
+                bendNoise: pick.bendNoise,
+                scaleNoise: pick.scaleNoise
+            };
+            return galaxySelectCursorRestPose;
+        }
+
+        function getGalaxySelectCursorRestPose(index, slot, radius, profile) {
+            if (galaxySelectCursorRestPose.index !== index) {
+                return refreshGalaxySelectCursorRestPose(index, slot, radius, profile);
+            }
+            return galaxySelectCursorRestPose;
+        }
+
+        function resetGalaxySelectCursorRestPose() {
+            galaxySelectCursorRestPose.index = -1;
+        }
+
         function getGalaxyCursorTarget(slot, radius, galaxy, index, now) {
             const profile = getGalaxyVisualProfile(index);
             if (galaxy && galaxy.mode === 'shipHub') {
@@ -5634,15 +6275,14 @@
                     floaty: true
                 };
             }
-            const seed = GALAXY_SELECT_CURSOR_REST_SEED + (galaxy.seed || index * 19);
-            const restJitter = (galaxyNoise(seed, 2) - 0.5) * 0.54;
-            const angle = profile.cursorAngle + restJitter;
-            const distance = radius + 21 + galaxyNoise(seed, 3) * 16;
-            const minRestY = Math.max(128, height * 0.16);
-            const targetX = Math.max(52, Math.min(width - 52, slot.x + Math.cos(angle) * distance));
-            const targetY = Math.max(minRestY, Math.min(height - 128, slot.y + Math.sin(angle) * distance));
-            const approachDistance = distance + 62 + galaxyNoise(seed, 4) * 34;
-            const bend = (galaxyNoise(seed, 5) - 0.5) * 48;
+            const pose = getGalaxySelectCursorRestPose(index, slot, radius, profile);
+            const angle = pose.angle;
+            const distance = radius + GALAXY_SELECT_CURSOR_REST_BASE_OFFSET + pose.distanceNoise * GALAXY_SELECT_CURSOR_REST_RANDOM_OFFSET;
+            const restPoint = getGalaxyCursorRestCandidate(slot, angle, distance);
+            const targetX = restPoint.x;
+            const targetY = restPoint.y;
+            const approachDistance = distance + GALAXY_SELECT_CURSOR_APPROACH_BASE_OFFSET + pose.approachNoise * GALAXY_SELECT_CURSOR_APPROACH_RANDOM_OFFSET;
+            const bend = (pose.bendNoise - 0.5) * 48;
             const normalX = -Math.sin(angle);
             const normalY = Math.cos(angle);
             return {
@@ -5652,8 +6292,8 @@
                 faceY: slot.y,
                 approachX: Math.max(24, Math.min(width - 24, slot.x + Math.cos(angle) * approachDistance + normalX * bend)),
                 approachY: Math.max(80, Math.min(height - 100, slot.y + Math.sin(angle) * approachDistance + normalY * bend)),
-                scale: 0.22 + galaxyNoise(seed, 6) * 0.035,
-                key: `galaxy-${index}`,
+                scale: 0.22 + pose.scaleNoise * 0.035,
+                key: `galaxy-${index}-${pose.token}`,
                 color: galaxy.colors ? galaxy.colors[0] : currentThemeColor,
                 floaty: true
             };

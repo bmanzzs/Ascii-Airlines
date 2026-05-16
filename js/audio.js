@@ -11,14 +11,13 @@
         const musicPlayerGain = audioCtx.createGain();
         musicPlayerGain.gain.value = 1;
         const musicPlayerAnalyser = audioCtx.createAnalyser();
-        musicPlayerAnalyser.fftSize = 256;
-        musicPlayerAnalyser.smoothingTimeConstant = 0.42;
+        musicPlayerAnalyser.fftSize = 1024;
+        musicPlayerAnalyser.smoothingTimeConstant = 0.52;
         musicPlayerAnalyser.minDecibels = -96;
         musicPlayerAnalyser.maxDecibels = -18;
         musicPlayerGain.connect(musicPlayerAnalyser);
         musicPlayerAnalyser.connect(gainNode);
         const musicPlayerFrequencyData = new Uint8Array(musicPlayerAnalyser.frequencyBinCount);
-        const musicPlayerTimeDomainData = new Uint8Array(musicPlayerAnalyser.fftSize);
 
         async function loadBuffer(url) {
             try {
@@ -53,10 +52,35 @@
         let musicPlayerSources = [];
         let musicPlayerVolume = 1;
         let musicPlayerMasterOverride = false;
-        let musicPlayerVisualizerBars = [];
-        let musicPlayerVisualizerRawPrevious = [];
-        let musicPlayerVisualizerImpulses = [];
-        let musicPlayerVisualizerLastTime = 0;
+        let musicPlayerVisualSignal = {
+            bass: 0,
+            mid: 0,
+            highMid: 0,
+            treble: 0,
+            energy: 0,
+            pulse: 0,
+            bassPulse: 0,
+            bassGuitar: 0,
+            drumSnap: 0,
+            leadTone: 0,
+            air: 0,
+            phase: 0,
+            previousBass: 0,
+            previousBassGuitar: 0,
+            previousEnergy: 0,
+            lastTime: 0,
+            bands: null
+        };
+        let musicPlayerVisualProfile = {
+            trackIndex: -1,
+            binCount: 0,
+            age: 0,
+            averages: [],
+            fast: [],
+            bassEnd: 0.09,
+            midEnd: 0.25,
+            highMidEnd: 0.58
+        };
         const MUSIC_PLAYER_PREVIOUS_TRACK_GRACE_SECONDS = 3;
         const MUSIC_PLAYER_TRACKS = [
             { name: 'Main Theme', intro: () => buf1, loop: () => buf2 },
@@ -453,152 +477,281 @@
             musicPlayerGain.gain.setValueAtTime(safeVolume, audioCtx.currentTime);
         }
 
-        function getMusicPlayerVisualizerLevels(barCount = 32) {
-            const count = Math.max(6, Math.min(64, Math.floor(barCount || 32)));
-            if (musicPlayerVisualizerBars.length !== count) {
-                musicPlayerVisualizerBars = new Array(count).fill(0);
-                musicPlayerVisualizerRawPrevious = new Array(count).fill(0);
-                musicPlayerVisualizerImpulses = new Array(count).fill(0);
+        function getMusicPlayerBandEnergy(startRatio, endRatio) {
+            const start = Math.max(1, Math.floor(musicPlayerFrequencyData.length * startRatio));
+            const end = Math.max(start + 1, Math.min(musicPlayerFrequencyData.length, Math.floor(musicPlayerFrequencyData.length * endRatio)));
+            let sum = 0;
+            let peak = 0;
+            for (let i = start; i < end; i++) {
+                const value = musicPlayerFrequencyData[i] || 0;
+                sum += value;
+                if (value > peak) peak = value;
+            }
+            const avg = sum / Math.max(1, end - start);
+            return Math.max(0, Math.min(1, (avg * 0.56 + peak * 0.44) / 255));
+        }
+
+        function getMusicPlayerFrequencyBinRange(lowHz, highHz) {
+            const nyquist = Math.max(1, audioCtx.sampleRate / 2);
+            const count = Math.max(1, musicPlayerFrequencyData.length);
+            const safeLow = Math.max(0, Math.min(nyquist, lowHz || 0));
+            const safeHigh = Math.max(safeLow + 1, Math.min(nyquist, highHz || nyquist));
+            const start = Math.max(1, Math.floor((safeLow / nyquist) * count));
+            const end = Math.max(start + 1, Math.min(count, Math.ceil((safeHigh / nyquist) * count)));
+            return { start, end, lowHz: safeLow, highHz: safeHigh };
+        }
+
+        function resetMusicPlayerVisualProfile() {
+            musicPlayerVisualProfile.trackIndex = musicPlayerTrackIndex;
+            musicPlayerVisualProfile.binCount = musicPlayerFrequencyData.length;
+            musicPlayerVisualProfile.age = 0;
+            musicPlayerVisualProfile.averages = new Array(musicPlayerFrequencyData.length).fill(0);
+            musicPlayerVisualProfile.fast = new Array(musicPlayerFrequencyData.length).fill(0);
+            musicPlayerVisualProfile.bassEnd = 0.09;
+            musicPlayerVisualProfile.midEnd = 0.25;
+            musicPlayerVisualProfile.highMidEnd = 0.58;
+            musicPlayerVisualSignal.previousEnergy = 0;
+            musicPlayerVisualSignal.previousBass = 0;
+            musicPlayerVisualSignal.previousBassGuitar = 0;
+            musicPlayerVisualSignal.bassPulse = 0;
+            musicPlayerVisualSignal.bassGuitar = 0;
+            musicPlayerVisualSignal.drumSnap = 0;
+            musicPlayerVisualSignal.leadTone = 0;
+            musicPlayerVisualSignal.air = 0;
+            musicPlayerVisualSignal.bands = null;
+        }
+
+        function ensureMusicPlayerVisualProfile() {
+            if (
+                musicPlayerVisualProfile.trackIndex !== musicPlayerTrackIndex
+                || musicPlayerVisualProfile.binCount !== musicPlayerFrequencyData.length
+                || musicPlayerVisualProfile.averages.length !== musicPlayerFrequencyData.length
+            ) {
+                resetMusicPlayerVisualProfile();
+            }
+            return musicPlayerVisualProfile;
+        }
+
+        function clampMusicPlayerBandRatio(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function getMusicPlayerProfileQuantile(profile, target) {
+            const count = Math.max(1, profile.averages.length);
+            let total = 0;
+            for (let i = 1; i < count; i++) {
+                total += Math.pow(Math.max(0, profile.averages[i] || 0), 0.78) + Math.pow(Math.max(0, profile.fast[i] || 0), 0.92) * 0.22;
+            }
+            if (total <= 0.0001) return target;
+
+            let acc = 0;
+            for (let i = 1; i < count; i++) {
+                acc += Math.pow(Math.max(0, profile.averages[i] || 0), 0.78) + Math.pow(Math.max(0, profile.fast[i] || 0), 0.92) * 0.22;
+                if (acc / total >= target) return i / Math.max(1, count - 1);
+            }
+            return 0.96;
+        }
+
+        function updateMusicPlayerVisualProfile(dt) {
+            const profile = ensureMusicPlayerVisualProfile();
+            profile.age += dt;
+            const learnRate = Math.min(1, dt * (profile.age < 4 ? 0.90 : (profile.age < 12 ? 0.28 : 0.075)));
+            const fastRate = Math.min(1, dt * 24);
+
+            for (let i = 0; i < musicPlayerFrequencyData.length; i++) {
+                const normalized = Math.max(0, Math.min(1, (musicPlayerFrequencyData[i] || 0) / 255));
+                const shaped = Math.pow(normalized, 0.68);
+                profile.fast[i] += (shaped - profile.fast[i]) * fastRate;
+                profile.averages[i] += (shaped - profile.averages[i]) * learnRate;
             }
 
+            const learnedBassEnd = clampMusicPlayerBandRatio(getMusicPlayerProfileQuantile(profile, 0.24), 0.055, 0.155);
+            const learnedMidEnd = clampMusicPlayerBandRatio(getMusicPlayerProfileQuantile(profile, 0.53), learnedBassEnd + 0.065, 0.380);
+            const learnedHighMidEnd = clampMusicPlayerBandRatio(getMusicPlayerProfileQuantile(profile, 0.805), learnedMidEnd + 0.100, 0.720);
+            const boundaryRate = Math.min(1, dt * (profile.age < 8 ? 2.4 : 0.55));
+            profile.bassEnd += (learnedBassEnd - profile.bassEnd) * boundaryRate;
+            profile.midEnd += (learnedMidEnd - profile.midEnd) * boundaryRate;
+            profile.highMidEnd += (learnedHighMidEnd - profile.highMidEnd) * boundaryRate;
+            return profile;
+        }
+
+        function getMusicPlayerAdaptiveBandEnergy(profile, startRatio, endRatio, gain = 1, curve = 0.62) {
+            const count = Math.max(1, musicPlayerFrequencyData.length);
+            const start = Math.max(1, Math.floor(count * startRatio));
+            const end = Math.max(start + 1, Math.min(count, Math.floor(count * endRatio)));
+            let sum = 0;
+            let peak = 0;
+            let salience = 0;
+            const confidence = Math.max(0, Math.min(1, profile.age / 9));
+            for (let i = start; i < end; i++) {
+                const fast = profile.fast[i] || 0;
+                const average = profile.averages[i] || 0;
+                const aboveAverage = Math.max(0, fast - average * (0.58 + confidence * 0.18));
+                const relativeLift = average > 0.035 ? Math.max(0, (fast / average - 0.98) * 0.10 * confidence) : 0;
+                const value = fast * 0.34 + aboveAverage * (0.34 + confidence * 0.48) + relativeLift;
+                sum += value;
+                if (value > peak) peak = value;
+                salience += aboveAverage;
+            }
+            const avg = sum / Math.max(1, end - start);
+            const transient = salience / Math.max(1, end - start);
+            const mixed = Math.max(0, Math.min(1, avg * 0.64 + peak * 0.20 + transient * (0.18 + confidence * 0.28)));
+            const warmup = 0.58 + confidence * 0.42;
+            return Math.max(0, Math.min(1, Math.pow(mixed, curve) * gain * warmup));
+        }
+
+        function getMusicPlayerInstrumentBandEnergy(profile, lowHz, highHz, gain = 1, curve = 0.62, options = {}) {
+            const range = getMusicPlayerFrequencyBinRange(lowHz, highHz);
+            let sum = 0;
+            let peak = 0;
+            let lifted = 0;
+            const confidence = Math.max(0, Math.min(1, profile.age / 10));
+            const sustainWeight = Number.isFinite(options.sustainWeight) ? options.sustainWeight : 0.34;
+            const liftWeight = Number.isFinite(options.liftWeight) ? options.liftWeight : 0.56;
+            const peakWeight = Number.isFinite(options.peakWeight) ? options.peakWeight : 0.30;
+            const avgReject = Number.isFinite(options.avgReject) ? options.avgReject : 0.74;
+
+            for (let i = range.start; i < range.end; i++) {
+                const fast = profile.fast[i] || 0;
+                const average = profile.averages[i] || 0;
+                const aboveAverage = Math.max(0, fast - average * (avgReject + confidence * 0.08));
+                const relativeLift = average > 0.025 ? Math.max(0, (fast / average - 0.92) * 0.18 * confidence) : fast * 0.22;
+                const value = fast * sustainWeight + aboveAverage * liftWeight + relativeLift * 0.28;
+                sum += value;
+                lifted += aboveAverage + relativeLift * 0.35;
+                if (value > peak) peak = value;
+            }
+
+            const avg = sum / Math.max(1, range.end - range.start);
+            const transient = lifted / Math.max(1, range.end - range.start);
+            const mixed = Math.max(0, Math.min(1, avg * (1 - peakWeight) + peak * peakWeight + transient * (0.16 + confidence * 0.20)));
+            const warmup = 0.62 + confidence * 0.38;
+            return Math.max(0, Math.min(1, Math.pow(mixed, curve) * gain * warmup));
+        }
+
+        function approachMusicPlayerSignal(current, target, dt, rise, fall) {
+            const rate = target > current ? rise : fall;
+            return current + (target - current) * Math.min(1, dt * rate);
+        }
+
+        function getMusicPlayerReactiveSignal() {
             const now = audioCtx.currentTime || 0;
-            const dt = musicPlayerVisualizerLastTime > 0
-                ? Math.max(0.001, Math.min(0.08, now - musicPlayerVisualizerLastTime))
+            const dt = musicPlayerVisualSignal.lastTime > 0
+                ? Math.max(0.001, Math.min(0.08, now - musicPlayerVisualSignal.lastTime))
                 : 1 / 60;
-            musicPlayerVisualizerLastTime = now;
+            musicPlayerVisualSignal.lastTime = now;
 
             if (!musicPlayerIsPlaying || musicPlayerVolume <= 0.001) {
-                const decay = Math.pow(0.06, dt);
-                for (let i = 0; i < musicPlayerVisualizerBars.length; i++) {
-                    musicPlayerVisualizerBars[i] *= decay;
-                    musicPlayerVisualizerRawPrevious[i] *= decay;
-                    musicPlayerVisualizerImpulses[i] *= decay;
-                }
-                return musicPlayerVisualizerBars;
+                musicPlayerVisualSignal.bass *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.mid *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.highMid *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.treble *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.energy *= Math.pow(0.16, dt);
+                musicPlayerVisualSignal.pulse *= Math.pow(0.08, dt);
+                musicPlayerVisualSignal.bassPulse *= Math.pow(0.08, dt);
+                musicPlayerVisualSignal.bassGuitar *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.drumSnap *= Math.pow(0.14, dt);
+                musicPlayerVisualSignal.leadTone *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.air *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.phase += dt * 0.045;
+                return musicPlayerVisualSignal;
             }
 
             musicPlayerAnalyser.getByteFrequencyData(musicPlayerFrequencyData);
-            const rawLevels = new Array(count);
-            const usableBins = Math.max(8, Math.floor(musicPlayerFrequencyData.length * 0.92));
-            for (let i = 0; i < count; i++) {
-                const start = Math.max(1, Math.floor(Math.pow(i / count, 1.72) * usableBins));
-                const end = Math.max(start + 1, Math.floor(Math.pow((i + 1) / count, 1.72) * usableBins));
-                let sum = 0;
-                let peak = 0;
-                for (let bin = start; bin < end; bin++) {
-                    const value = musicPlayerFrequencyData[bin] || 0;
-                    sum += value;
-                    if (value > peak) peak = value;
-                }
-                const avg = sum / Math.max(1, end - start);
-                const bandPosition = i / Math.max(1, count - 1);
-                const raw = Math.max(avg * 0.44, peak * 0.84) / 255;
-                const perceptualLift = 0.94 + Math.pow(bandPosition, 1.38) * 0.58;
-                const lowTame = bandPosition < 0.10 ? 0.90 + bandPosition : 1;
-                const level = Math.max(0, Math.min(1, raw * perceptualLift * lowTame - 0.006));
-                rawLevels[i] = level;
-            }
+            const profile = updateMusicPlayerVisualProfile(dt);
+            const bassEnd = profile.bassEnd;
+            const midEnd = profile.midEnd;
+            const highMidEnd = profile.highMidEnd;
+            const subPulse = getMusicPlayerInstrumentBandEnergy(profile, 28, 74, 1.18, 0.58, {
+                sustainWeight: 0.25,
+                liftWeight: 0.70,
+                peakWeight: 0.42,
+                avgReject: 0.82
+            });
+            const bassFundamental = getMusicPlayerInstrumentBandEnergy(profile, 45, 165, 1.84, 0.50, {
+                sustainWeight: 0.48,
+                liftWeight: 0.62,
+                peakWeight: 0.36,
+                avgReject: 0.70
+            });
+            const bassHarmonic = getMusicPlayerInstrumentBandEnergy(profile, 90, 320, 1.18, 0.64, {
+                sustainWeight: 0.30,
+                liftWeight: 0.58,
+                peakWeight: 0.24,
+                avgReject: 0.76
+            });
+            const kickBody = getMusicPlayerInstrumentBandEnergy(profile, 36, 105, 1.40, 0.56, {
+                sustainWeight: 0.20,
+                liftWeight: 0.78,
+                peakWeight: 0.46,
+                avgReject: 0.86
+            });
+            const snareBody = getMusicPlayerInstrumentBandEnergy(profile, 900, 3600, 1.08, 0.68, {
+                sustainWeight: 0.18,
+                liftWeight: 0.78,
+                peakWeight: 0.38,
+                avgReject: 0.84
+            });
+            const leadTone = getMusicPlayerInstrumentBandEnergy(profile, 320, 1500, 1.10, 0.66, {
+                sustainWeight: 0.32,
+                liftWeight: 0.58,
+                peakWeight: 0.24,
+                avgReject: 0.75
+            });
+            const airTone = getMusicPlayerInstrumentBandEnergy(profile, 3600, 11200, 1.18, 0.64, {
+                sustainWeight: 0.16,
+                liftWeight: 0.82,
+                peakWeight: 0.44,
+                avgReject: 0.86
+            });
+            const bassSource = Math.max(
+                bassFundamental * 0.82 + bassHarmonic * 0.22,
+                subPulse * 0.70 + bassFundamental * 0.44,
+                getMusicPlayerAdaptiveBandEnergy(profile, 0.006, bassEnd, 0.86, 0.60)
+            );
+            const rawBassGuitar = Math.max(0, Math.min(1, Math.pow(bassSource, 0.76) * 0.92));
+            const rawBass = Math.max(0, Math.min(1, rawBassGuitar * 0.84 + subPulse * 0.20));
+            const rawMid = getMusicPlayerAdaptiveBandEnergy(profile, bassEnd, midEnd, 0.94, 0.70);
+            const rawHighMid = getMusicPlayerAdaptiveBandEnergy(profile, midEnd, highMidEnd, 1.00, 0.66);
+            const rawTreble = getMusicPlayerAdaptiveBandEnergy(profile, highMidEnd, 0.965, 1.06, 0.62);
+            const rawDrumSnap = Math.max(0, Math.min(1, kickBody * 0.56 + snareBody * 0.58));
+            const rawLeadTone = Math.max(0, Math.min(1, leadTone * 0.72 + rawHighMid * 0.26));
+            const rawAir = Math.max(0, Math.min(1, airTone * 0.72 + rawTreble * 0.24));
+            const rawEnergy = Math.max(0, Math.min(1, rawBass * 0.28 + rawMid * 0.18 + rawHighMid * 0.22 + rawTreble * 0.16 + rawDrumSnap * 0.12));
+            const flux = Math.max(0, rawEnergy - musicPlayerVisualSignal.previousEnergy * 0.86);
+            const bassFlux = Math.max(0, rawBassGuitar - musicPlayerVisualSignal.previousBassGuitar * 0.965);
+            const pulseTarget = Math.max(0, Math.min(1, Math.pow(flux * 4.0, 0.70)));
+            const bassPulseTarget = Math.max(0, Math.min(1, Math.pow(Math.max(bassFlux * 7.2, subPulse * 0.68 + kickBody * 0.22), 0.56)));
 
-            for (let i = 0; i < count; i++) {
-                const raw = rawLevels[i] || 0;
-                const previousRaw = musicPlayerVisualizerRawPrevious[i] || 0;
-                const flux = Math.max(0, raw - previousRaw * 0.82);
-                const impulseTarget = Math.max(0, Math.min(1, Math.pow(flux * 5.4, 0.56)));
-                const previousImpulse = musicPlayerVisualizerImpulses[i] || 0;
-                const impulseRise = Math.min(1, dt * 78);
-                const impulseFall = Math.min(1, dt * 16);
-                const impulse = impulseTarget > previousImpulse
-                    ? previousImpulse + (impulseTarget - previousImpulse) * impulseRise
-                    : previousImpulse + (impulseTarget - previousImpulse) * impulseFall;
-                musicPlayerVisualizerRawPrevious[i] = raw;
-                musicPlayerVisualizerImpulses[i] = impulse;
-
-                const shaped = Math.max(0, Math.min(1, Math.pow(raw, 0.58) * 1.16 + impulse * 0.42));
-                const previous = musicPlayerVisualizerBars[i] || 0;
-                const rise = Math.min(1, dt * 56);
-                const fall = Math.min(1, dt * 28);
-                musicPlayerVisualizerBars[i] = shaped > previous
-                    ? previous + (shaped - previous) * rise
-                    : previous + (shaped - previous) * fall;
-            }
-            return musicPlayerVisualizerBars;
-        }
-
-        function getMusicPlayerVisualizerWaveform(pointCount = 48) {
-            const count = Math.max(18, Math.min(72, Math.floor(pointCount || 48)));
-            if (musicPlayerVisualizerBars.length !== count) {
-                musicPlayerVisualizerBars = new Array(count).fill(0);
-                musicPlayerVisualizerRawPrevious = new Array(count).fill(0);
-                musicPlayerVisualizerImpulses = new Array(count).fill(0);
-            }
-
-            const now = audioCtx.currentTime || 0;
-            const dt = musicPlayerVisualizerLastTime > 0
-                ? Math.max(0.001, Math.min(0.08, now - musicPlayerVisualizerLastTime))
-                : 1 / 60;
-            musicPlayerVisualizerLastTime = now;
-
-            if (!musicPlayerIsPlaying || musicPlayerVolume <= 0.001) {
-                const decay = Math.pow(0.035, dt);
-                for (let i = 0; i < count; i++) {
-                    musicPlayerVisualizerBars[i] *= decay;
-                    musicPlayerVisualizerRawPrevious[i] *= decay;
-                    musicPlayerVisualizerImpulses[i] *= decay;
-                }
-                musicPlayerVisualizerBars.rms = 0;
-                musicPlayerVisualizerBars.peak = 0;
-                musicPlayerVisualizerBars.impulse = 0;
-                musicPlayerVisualizerBars.impulses = musicPlayerVisualizerImpulses;
-                return musicPlayerVisualizerBars;
-            }
-
-            musicPlayerAnalyser.getByteTimeDomainData(musicPlayerTimeDomainData);
-            const sampleCount = musicPlayerTimeDomainData.length;
-            let sumSq = 0;
-            let peak = 0;
-            let impulseTotal = 0;
-
-            for (let i = 0; i < count; i++) {
-                const t = i / Math.max(1, count - 1);
-                const samplePos = t * Math.max(1, sampleCount - 1);
-                const lo = Math.floor(samplePos);
-                const hi = Math.min(sampleCount - 1, lo + 1);
-                const blend = samplePos - lo;
-                const byteValue = (musicPlayerTimeDomainData[lo] || 128) * (1 - blend) + (musicPlayerTimeDomainData[hi] || 128) * blend;
-                const raw = Math.max(-1, Math.min(1, (byteValue - 128) / 128));
-                const absRaw = Math.abs(raw);
-                const previousRaw = musicPlayerVisualizerRawPrevious[i] || 0;
-                const previousAbs = Math.abs(previousRaw);
-                const direction = absRaw > 0.001 ? Math.sign(raw) : (previousRaw >= 0 ? 1 : -1);
-                const flux = Math.max(0, absRaw - previousAbs * 0.74);
-                const impulseTarget = Math.max(0, Math.min(1, Math.pow(flux * 5.6, 0.56)));
-                const previousImpulse = musicPlayerVisualizerImpulses[i] || 0;
-                const impulseRise = Math.min(1, dt * 64);
-                const impulseFall = Math.min(1, dt * 12);
-                const impulse = impulseTarget > previousImpulse
-                    ? previousImpulse + (impulseTarget - previousImpulse) * impulseRise
-                    : previousImpulse + (impulseTarget - previousImpulse) * impulseFall;
-                const edge = Math.max(-1, Math.min(1, (raw - previousRaw) * 1.45));
-                const compressed = direction * Math.min(1, Math.pow(absRaw, 0.62) * 1.28);
-                const target = Math.max(-1, Math.min(1, compressed * 0.76 + edge * 0.14 + direction * impulse * 0.24));
-                const previous = musicPlayerVisualizerBars[i] || 0;
-                const moveRate = Math.abs(target) > Math.abs(previous)
-                    ? Math.min(1, dt * 52)
-                    : Math.min(1, dt * 22);
-
-                musicPlayerVisualizerBars[i] = previous + (target - previous) * moveRate;
-                musicPlayerVisualizerRawPrevious[i] = raw;
-                musicPlayerVisualizerImpulses[i] = impulse;
-                sumSq += raw * raw;
-                peak = Math.max(peak, absRaw);
-                impulseTotal += impulse;
-            }
-
-            musicPlayerVisualizerBars.rms = Math.max(0, Math.min(1, Math.sqrt(sumSq / Math.max(1, count)) * 2.8));
-            musicPlayerVisualizerBars.peak = Math.max(0, Math.min(1, peak * 1.8));
-            musicPlayerVisualizerBars.impulse = Math.max(0, Math.min(1, impulseTotal / Math.max(1, count) * 1.9));
-            musicPlayerVisualizerBars.impulses = musicPlayerVisualizerImpulses;
-            return musicPlayerVisualizerBars;
+            musicPlayerVisualSignal.bass = approachMusicPlayerSignal(musicPlayerVisualSignal.bass, rawBass, dt, 22, 8.5);
+            musicPlayerVisualSignal.bassGuitar = approachMusicPlayerSignal(musicPlayerVisualSignal.bassGuitar, rawBassGuitar, dt, 26, 9.2);
+            musicPlayerVisualSignal.mid = approachMusicPlayerSignal(musicPlayerVisualSignal.mid, rawMid, dt, 12, 5.4);
+            musicPlayerVisualSignal.highMid = approachMusicPlayerSignal(musicPlayerVisualSignal.highMid, rawHighMid, dt, 13, 5.8);
+            musicPlayerVisualSignal.treble = approachMusicPlayerSignal(musicPlayerVisualSignal.treble, rawTreble, dt, 12, 5.0);
+            musicPlayerVisualSignal.drumSnap = approachMusicPlayerSignal(musicPlayerVisualSignal.drumSnap, rawDrumSnap, dt, 22, 6.6);
+            musicPlayerVisualSignal.leadTone = approachMusicPlayerSignal(musicPlayerVisualSignal.leadTone, rawLeadTone, dt, 13, 5.4);
+            musicPlayerVisualSignal.air = approachMusicPlayerSignal(musicPlayerVisualSignal.air, rawAir, dt, 18, 7.2);
+            musicPlayerVisualSignal.energy = approachMusicPlayerSignal(musicPlayerVisualSignal.energy, rawEnergy, dt, 12, 5.4);
+            musicPlayerVisualSignal.pulse = approachMusicPlayerSignal(musicPlayerVisualSignal.pulse, pulseTarget, dt, 16, 4.2);
+            musicPlayerVisualSignal.bassPulse = approachMusicPlayerSignal(musicPlayerVisualSignal.bassPulse, bassPulseTarget, dt, 30, 5.0);
+            musicPlayerVisualSignal.phase += dt * (0.052 + musicPlayerVisualSignal.energy * 0.095 + musicPlayerVisualSignal.pulse * 0.040);
+            musicPlayerVisualSignal.previousEnergy = rawEnergy;
+            musicPlayerVisualSignal.previousBass = rawBass;
+            musicPlayerVisualSignal.previousBassGuitar = rawBassGuitar;
+            musicPlayerVisualSignal.bands = {
+                bass: [0.006, bassEnd],
+                mid: [bassEnd, midEnd],
+                highMid: [midEnd, highMidEnd],
+                treble: [highMidEnd, 0.965],
+                instruments: {
+                    bassGuitar: [45, 320],
+                    drums: [36, 105, 900, 3600],
+                    leadTone: [320, 1500],
+                    air: [3600, 11200]
+                },
+                age: profile.age
+            };
+            return musicPlayerVisualSignal;
         }
 
         function restoreGameMasterVolumeFromMusicPlayer(rampSeconds = 0.12) {
@@ -733,6 +886,7 @@
         function setMusicPlayerTrack(index, autoplay = musicPlayerIsPlaying) {
             musicPlayerTrackIndex = ((index % MUSIC_PLAYER_TRACKS.length) + MUSIC_PLAYER_TRACKS.length) % MUSIC_PLAYER_TRACKS.length;
             musicPlayerPosition = 0;
+            resetMusicPlayerVisualProfile();
             stopMusicPlayerSources();
             musicPlayerIsPlaying = false;
             musicPlayerPhase = 'stopped';
