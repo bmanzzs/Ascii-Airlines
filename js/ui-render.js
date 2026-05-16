@@ -2536,7 +2536,6 @@
             impact: 0,
             lastNow: 0
         };
-
         function getMusicPlayerSignalGradient(left, right, topY, bottomY, accentColor) {
             const key = `${left}|${right}|${topY}|${bottomY}|${accentColor}`;
             if (musicPlayerGradientCache.signalGradient && musicPlayerGradientCache.signalKey === key) {
@@ -2591,17 +2590,20 @@
             ctx.restore();
         }
 
-        function drawMusicPlayerVisualizer(panelX, panelY, panelW, panelH, accentColor, status) {
-            const left = panelX + 16;
-            const right = panelX + panelW - 16;
-            const topY = panelY + 58;
-            const bottomY = Math.min(panelY + panelH - 116, panelY + 178);
+        function drawMusicPlayerVisualizer(panelX, panelY, panelW, panelH, accentColor, status, options = {}) {
+            const fullscreen = !!options.fullscreen;
+            const selected = !!options.selected;
+            const left = Number.isFinite(options.left) ? options.left : panelX + 16;
+            const right = Number.isFinite(options.right) ? options.right : panelX + panelW - 16;
+            const topY = Number.isFinite(options.topY) ? options.topY : panelY + 58;
+            const bottomY = Number.isFinite(options.bottomY) ? options.bottomY : Math.min(panelY + panelH - 116, panelY + 178);
             const viewW = Math.max(1, right - left);
-            const viewH = Math.max(88, bottomY - topY);
+            const viewH = Math.max(fullscreen ? 180 : 88, bottomY - topY);
             const signal = typeof getMusicPlayerReactiveSignal === 'function'
                 ? getMusicPlayerReactiveSignal()
-                : { bass: 0.2, bassGuitar: 0.2, bassPulse: 0.08, drumSnap: 0.12, leadTone: 0.16, air: 0.12, mid: 0.15, highMid: 0.18, treble: 0.12, energy: 0.18, pulse: 0.08, phase: (currentFrameNow || 0) * 0.00004 };
-            const activeAlpha = status && status.isPlaying ? 1 : 0.42;
+                : { bass: 0.2, bassGuitar: 0.2, bassPulse: 0.08, drumSnap: 0.12, leadTone: 0.16, air: 0.12, mid: 0.15, highMid: 0.18, treble: 0.12, energy: 0.18, pulse: 0.08, activity: 1, phase: (currentFrameNow || 0) * 0.00004 };
+            const activity = Math.max(0, Math.min(1, Number.isFinite(signal.activity) ? signal.activity : (status && status.isPlaying ? 1 : 0)));
+            const activeAlpha = status && status.isPlaying ? 0.42 + activity * 0.58 : 0.42;
             const energy = Math.max(0, Math.min(1, signal.energy || 0));
             const pulse = Math.max(0, Math.min(1, signal.pulse || 0));
             const bassPulse = Math.max(0, Math.min(1, signal.bassPulse || 0));
@@ -2618,8 +2620,8 @@
             const profileLock = Math.max(0, Math.min(1, bandProfileAge / 10));
             const cx = left + viewW * 0.5;
             const cy = topY + viewH * 0.53;
-            const baseRx = Math.min(viewW * 0.34, 178) * (0.82 + highMid * 0.25 + energy * 0.045);
-            const baseRy = Math.min(viewH * 0.44, 62) * (0.82 + mid * 0.12 + bassGuitar * 0.045 + pulse * 0.025);
+            const baseRx = Math.min(viewW * (fullscreen ? 0.30 : 0.34), fullscreen ? 360 : 178) * (0.82 + highMid * 0.25 + energy * 0.045);
+            const baseRy = Math.min(viewH * (fullscreen ? 0.28 : 0.44), fullscreen ? 190 : 62) * (0.82 + mid * 0.12 + bassGuitar * 0.045 + pulse * 0.025);
             const signalGradient = getMusicPlayerSignalGradient(left, right, topY, bottomY, accentColor);
             const coreState = musicPlayerBassCoreState;
             const renderNow = currentFrameNow || performance.now();
@@ -2924,6 +2926,62 @@
                 }
             };
 
+            const drawVisualizerEclipseCorona = () => {
+                const eclipseEnergy = Math.max(0, Math.min(1, energy * 0.42 + mid * 0.28 + bassGlow * 0.44 + pulse * 0.18));
+                const coronaRadius = Math.max(baseRy * 1.35, Math.min(baseRx * 0.54, 112)) * (0.88 + eclipseEnergy * 0.34);
+                const rimRadius = Math.max(18, coronaRadius * (0.42 + bassGlow * 0.055));
+                const outerRadius = coronaRadius * (1.72 + treble * 0.18);
+                const coronaColor = getBreathingPaletteColor(['#fff1b2', '#7ee7ff', accentColor, '#ff8fd8'], 6, 0.070, 2.4);
+                const hotRimColor = getBreathingPaletteColor(['#ffffff', '#fff1b2', '#7ee7ff'], 3, 0.055, 1.2);
+
+                ctx.save();
+                ctx.globalCompositeOperation = 'screen';
+                const corona = ctx.createRadialGradient(cx, cy, rimRadius * 0.62, cx, cy, outerRadius);
+                corona.addColorStop(0, colorWithAlpha('#ffffff', (0.10 + bassGlow * 0.16 + coreState.impact * 0.08) * activeAlpha));
+                corona.addColorStop(0.13, colorWithAlpha(hotRimColor, (0.24 + eclipseEnergy * 0.18) * activeAlpha));
+                corona.addColorStop(0.22, colorWithAlpha(coronaColor, (0.19 + bassGlow * 0.14) * activeAlpha));
+                corona.addColorStop(0.42, colorWithAlpha(accentColor, (0.070 + highMid * 0.060 + pulse * 0.035) * activeAlpha));
+                corona.addColorStop(0.66, colorWithAlpha('#ff8fd8', (0.034 + treble * 0.042) * activeAlpha));
+                corona.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = corona;
+                ctx.beginPath();
+                ctx.arc(cx, cy, outerRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.lineCap = 'round';
+                for (let ring = 0; ring < 3; ring++) {
+                    const ringRadius = rimRadius * (0.95 + ring * 0.10 + Math.sin(phase * 0.20 + ring) * 0.010);
+                    ctx.globalAlpha = (0.24 - ring * 0.045 + bassGlow * 0.12 + coreState.impact * 0.08) * activeAlpha;
+                    ctx.strokeStyle = colorWithAlpha(ring ? coronaColor : hotRimColor, 0.92);
+                    ctx.lineWidth = 1.0 + ring * 0.45 + eclipseEnergy * 1.3;
+                    if (glowEnabled) {
+                        ctx.shadowColor = ring ? coronaColor : hotRimColor;
+                        ctx.shadowBlur = 12 + eclipseEnergy * 20;
+                    }
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                for (let ray = 0; ray < 10; ray++) {
+                    const angle = phase * (0.055 + ray * 0.002) + ray * Math.PI * 0.2;
+                    const inner = rimRadius * (1.05 + (ray % 3) * 0.04);
+                    const outer = outerRadius * (0.54 + (ray % 4) * 0.055 + eclipseEnergy * 0.10);
+                    const rayAlpha = (0.024 + eclipseEnergy * 0.034 + treble * 0.018) * activeAlpha;
+                    const rayColor = ray % 2 ? coronaColor : hotRimColor;
+                    const start = distortVisualizerPoint(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner, 0.44);
+                    const end = distortVisualizerPoint(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer, 0.50);
+                    ctx.globalAlpha = rayAlpha;
+                    ctx.strokeStyle = colorWithAlpha(rayColor, 0.74);
+                    ctx.lineWidth = 0.8 + eclipseEnergy * 0.7;
+                    ctx.beginPath();
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            };
+
             const drawVoidAccretionDisk = (shadowRadius, frontOnly = false) => {
                 const axis = -0.18 + Math.sin(phase * 0.13) * 0.035;
                 const diskPulse = 0.86 + bassGlow * 0.18 + coreState.impact * 0.12 + voidSunReturn * 0.24;
@@ -3057,37 +3115,7 @@
                 ctx.stroke();
             }
 
-            const petalCount = 12;
-            for (let i = 0; i < petalCount; i++) {
-                const a = phase * (0.16 + mid * 0.080) + (Math.PI * 2 * i) / petalCount;
-                const a2 = a + Math.PI / petalCount;
-                const petalRx = baseRx * (0.18 + mid * 0.052 + (i % 2) * 0.014);
-                const petalRy = baseRy * (0.54 + mid * 0.12);
-                const tipX = cx + Math.cos(a) * baseRx * (0.42 + mid * 0.070 + pulse * 0.045);
-                const tipY = cy + Math.sin(a) * baseRy * (0.50 + mid * 0.090 + pulse * 0.030);
-                const leftX = cx + Math.cos(a - 0.38) * petalRx;
-                const leftY = cy + Math.sin(a - 0.38) * petalRy;
-                const rightX = cx + Math.cos(a + 0.38) * petalRx;
-                const rightY = cy + Math.sin(a + 0.38) * petalRy;
-                ctx.globalAlpha = (0.052 + mid * 0.044 + energy * 0.016 + (i % 3) * 0.006) * activeAlpha;
-                const petalColor = getBreathingPaletteColor(
-                    i % 3 === 0 ? ['#7ee7ff', '#ffffff', accentColor] : (i % 3 === 1 ? ['#ff8fd8', '#7ee7ff', '#ffffff'] : [accentColor, '#ff8fd8', '#7ee7ff']),
-                    i,
-                    0.18 + (i % 4) * 0.035,
-                    0.65
-                );
-                ctx.fillStyle = colorWithAlpha(petalColor, i % 3 === 0 ? 0.92 : (i % 3 === 1 ? 0.84 : 0.78));
-                ctx.beginPath();
-                const p0 = distortVisualizerPoint(cx, cy, 0.42);
-                const p1 = distortVisualizerPoint(leftX, leftY, 0.66);
-                const p2 = distortVisualizerPoint(cx + Math.cos(a2) * petalRx * 0.8, cy + Math.sin(a2) * petalRy * 0.8, 0.66);
-                const p3 = distortVisualizerPoint(tipX, tipY, 0.76);
-                const p4 = distortVisualizerPoint(rightX, rightY, 0.66);
-                ctx.moveTo(p0.x, p0.y);
-                ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-                ctx.bezierCurveTo(p2.x, p2.y, p4.x, p4.y, p0.x, p0.y);
-                ctx.fill();
-            }
+            drawVisualizerEclipseCorona();
 
             ctx.globalAlpha = (0.12 + treble * 0.15) * activeAlpha;
             for (let i = 0; i < 4; i++) {
@@ -3200,11 +3228,115 @@
             ctx.shadowBlur = 0;
 
             ctx.globalCompositeOperation = 'source-over';
-            ctx.strokeStyle = colorWithAlpha(accentColor, 0.42);
-            ctx.globalAlpha = 0.58;
-            ctx.lineWidth = 1;
+            ctx.strokeStyle = selected ? mixColor(accentColor, '#ffffff', 0.52) : colorWithAlpha(accentColor, 0.42);
+            ctx.globalAlpha = selected ? 0.92 : 0.58;
+            ctx.lineWidth = selected ? 2 : 1;
+            if (glowEnabled && selected) {
+                ctx.shadowColor = accentColor;
+                ctx.shadowBlur = 12;
+            }
             ctx.strokeRect((left + 0.5) | 0, (topY + 0.5) | 0, (right - left) | 0, (bottomY - topY) | 0);
+            ctx.shadowBlur = 0;
             ctx.restore();
+        }
+
+        function drawMusicPlayerFullscreenControls(status, accent, renderNow) {
+            const lastInput = Number.isFinite(status.fullscreenLastInput) && status.fullscreenLastInput > 0
+                ? status.fullscreenLastInput
+                : renderNow;
+            const idleMs = Math.max(0, renderNow - lastInput);
+            const fadeStart = 1800;
+            const fadeDuration = 2600;
+            const uiAlpha = idleMs <= fadeStart ? 1 : Math.max(0.12, 1 - (idleMs - fadeStart) / fadeDuration);
+            const panelW = Math.min(width - 48, 820);
+            const panelH = 62;
+            const panelX = Math.round((width - panelW) / 2);
+            const panelY = Math.round(height - panelH - 18);
+            const duration = Math.max(0.001, status.duration || 0.001);
+            const fillRatio = Math.max(0, Math.min(1, status.position / duration));
+            const pulse = (Math.sin(renderNow * 0.005) + 1) * 0.5;
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = uiAlpha;
+            const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY + panelH);
+            panelGradient.addColorStop(0, 'rgba(4, 9, 19, 0.72)');
+            panelGradient.addColorStop(0.45, 'rgba(16, 12, 24, 0.62)');
+            panelGradient.addColorStop(1, 'rgba(3, 10, 20, 0.72)');
+            ctx.fillStyle = panelGradient;
+            ctx.fillRect(panelX | 0, panelY | 0, panelW | 0, panelH | 0);
+            ctx.strokeStyle = colorWithAlpha(accent, 0.42 + pulse * 0.10);
+            ctx.lineWidth = 1;
+            ctx.strokeRect((panelX + 0.5) | 0, (panelY + 0.5) | 0, panelW | 0, panelH | 0);
+
+            const seekX = panelX + 20;
+            const seekY = panelY + 34;
+            const seekW = panelW - 40;
+            const seekH = 8;
+            ctx.fillStyle = 'rgba(2, 6, 14, 0.82)';
+            ctx.fillRect(seekX | 0, seekY | 0, seekW | 0, seekH | 0);
+            ctx.fillStyle = getMusicPlayerSeekGradient(seekX, seekW, accent);
+            ctx.fillRect((seekX + 1) | 0, (seekY + 1) | 0, Math.max(0, (seekW - 2) * fillRatio) | 0, Math.max(0, seekH - 2) | 0);
+            ctx.strokeStyle = colorWithAlpha('#ffffff', 0.20);
+            ctx.strokeRect((seekX + 0.5) | 0, (seekY + 0.5) | 0, seekW | 0, seekH | 0);
+
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'left';
+            ctx.font = `bold 14px 'Electrolize', sans-serif`;
+            ctx.fillStyle = mixColor(accent, '#ffffff', 0.45);
+            const titleMaxW = Math.max(180, panelW - 260);
+            ctx.fillText(truncateConsoleLine(status.trackName.toUpperCase(), titleMaxW), panelX + 20, panelY + 17);
+            ctx.font = `bold 10px 'Electrolize', sans-serif`;
+            ctx.fillStyle = colorWithAlpha('#dcecff', 0.58);
+            ctx.fillText(status.isPlaying ? 'SPACE PAUSE' : 'SPACE PLAY', panelX + 20, panelY + 52);
+            ctx.fillText('LEFT/RIGHT SEEK  UP/DOWN TRACK  ESC BACK', panelX + 126, panelY + 52);
+
+            ctx.textAlign = 'right';
+            ctx.font = `bold 12px 'Electrolize', sans-serif`;
+            ctx.fillStyle = colorWithAlpha('#ffffff', 0.74);
+            ctx.fillText(`${status.positionText} / ${status.durationText}`, panelX + panelW - 20, panelY + 17);
+            ctx.restore();
+        }
+
+        function drawMusicPlayerFullscreen(renderNow, dt) {
+            if (typeof getMusicPlayerStatus !== 'function') return false;
+            const status = getMusicPlayerStatus();
+            if (!status || !status.open || !status.fullscreen) return false;
+
+            const accent = '#ffd95a';
+            const safeNow = Number.isFinite(renderNow) ? renderNow : currentFrameNow || performance.now();
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+
+            if (typeof drawGalaxySelectBackground === 'function') {
+                const previousGalaxyCtx = galaxyCtx;
+                galaxyCtx = ctx;
+                try {
+                    drawGalaxySelectBackground(safeNow);
+                } finally {
+                    galaxyCtx = previousGalaxyCtx;
+                }
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = 'rgba(0, 3, 12, 0.24)';
+                ctx.fillRect(0, 0, width | 0, height | 0);
+            } else {
+                ctx.fillStyle = '#01040c';
+                ctx.fillRect(0, 0, width | 0, height | 0);
+            }
+
+            drawMusicPlayerVisualizer(0, 0, width, height, accent, status, {
+                left: Math.max(24, width * 0.055),
+                right: Math.min(width - 24, width * 0.945),
+                topY: Math.max(24, height * 0.055),
+                bottomY: Math.max(220, height - 96),
+                fullscreen: true
+            });
+            drawMusicPlayerFullscreenControls(status, accent, safeNow);
+            ctx.restore();
+            return true;
         }
 
         function drawMusicPlayerOverlay() {
@@ -3231,7 +3363,9 @@
                 innerSheenAlpha: 0.004,
                 rail: true
             });
-            drawMusicPlayerVisualizer(panelX, panelY, panelW, panelH, accent, status);
+            drawMusicPlayerVisualizer(panelX, panelY, panelW, panelH, accent, status, {
+                selected: status.selection === 5
+            });
 
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
@@ -3252,6 +3386,13 @@
             const trackNameW = Math.max(120, panelW - pad * 2 - trackCountW - 24);
             const trackLabel = truncateConsoleLine(status.isLoaded ? status.trackName.toUpperCase() : `${status.trackName.toUpperCase()}  LOADING`, trackNameW);
             ctx.fillText(trackLabel, panelX + pad, panelY + 38);
+
+            if (status.selection === 5) {
+                ctx.textAlign = 'right';
+                ctx.font = `bold 9px 'Electrolize', sans-serif`;
+                ctx.fillStyle = colorWithAlpha('#ffffff', 0.62 + pulse * 0.16);
+                ctx.fillText('ENTER FULLSCREEN', panelX + panelW - pad, panelY + 176);
+            }
 
             const seekX = panelX + pad;
             const seekY = panelY + 190;
@@ -3432,28 +3573,202 @@
             ctx.restore();
         }
 
-        function drawShipSelectStat(label, valueText, ratio, x, y, color) {
-            const barW = 150;
-            const barH = 8;
-            ctx.fillStyle = '#8fb9c8';
+        function shipSelectNoise(seed, index) {
+            const value = Math.sin((index + 1) * seed) * 43758.5453123;
+            return value - Math.floor(value);
+        }
+
+        const SHIP_SELECT_HANGAR_MOTES = Array.from({ length: 112 }, (_, i) => ({
+            x: shipSelectNoise(13.79, i),
+            y: shipSelectNoise(41.23, i),
+            size: 1 + Math.floor(shipSelectNoise(89.17, i) * 3),
+            alpha: 0.12 + shipSelectNoise(53.61, i) * 0.28,
+            speed: 0.000018 + shipSelectNoise(71.42, i) * 0.000045,
+            phase: shipSelectNoise(29.31, i) * Math.PI * 2,
+            glyph: i % 5 === 0 ? '01' : (i % 5 === 1 ? 'AI' : (i % 5 === 2 ? 'SYS' : (i % 5 === 3 ? 'RX' : '.')))
+        }));
+
+        function getWrappedShipSelectOffset(index, selectedIndex, count) {
+            let offset = index - selectedIndex;
+            if (offset > count / 2) offset -= count;
+            if (offset < -count / 2) offset += count;
+            return offset;
+        }
+
+        function drawShipSelectHangarBackground(now, selectedShip, alpha) {
+            const accent = selectedShip.previewColor || '#9ff7ff';
+            const t = now * 0.001;
+            const horizonY = height * 0.52;
+            const floorY = height * 0.93;
+            const scanX = ((now * 0.030) % (width + 360)) - 180;
+            const wallPulse = 0.5 + Math.sin(t * 1.6) * 0.5;
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            const bg = ctx.createLinearGradient(0, 0, 0, height);
+            bg.addColorStop(0, '#020817');
+            bg.addColorStop(0.44, '#071226');
+            bg.addColorStop(0.64, '#04101d');
+            bg.addColorStop(1, '#010610');
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, width, height);
+
+            const wallGlow = ctx.createRadialGradient(width * 0.5, height * 0.38, 0, width * 0.5, height * 0.38, Math.max(width, height) * 0.7);
+            wallGlow.addColorStop(0, colorWithAlpha(accent, 0.10 + wallPulse * 0.035));
+            wallGlow.addColorStop(0.38, 'rgba(80, 150, 210, 0.055)');
+            wallGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = wallGlow;
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${Math.max(34, width * 0.052)}px 'Electrolize', sans-serif`;
+            ctx.fillStyle = colorWithAlpha('#dcecff', 0.030 + wallPulse * 0.012);
+            ctx.fillText('VECTOR BAY 07', width / 2, height * 0.255);
+            ctx.font = `bold ${Math.max(11, width * 0.012)}px 'Electrolize', sans-serif`;
+            ctx.fillStyle = colorWithAlpha(accent, 0.17 + wallPulse * 0.05);
+            ctx.fillText('ORBITAL DRYDOCK // LOADOUT FRAME READY', width / 2, height * 0.305);
+            ctx.restore();
+
+            ctx.save();
+            ctx.font = `bold 9px Courier New`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i < SHIP_SELECT_HANGAR_MOTES.length; i++) {
+                const mote = SHIP_SELECT_HANGAR_MOTES[i];
+                const driftX = (mote.x * width + now * mote.speed * width) % width;
+                const y = mote.y * height;
+                const flicker = 0.55 + Math.sin(t * 1.4 + mote.phase) * 0.45;
+                ctx.globalAlpha = alpha * mote.alpha * (0.58 + flicker * 0.42);
+                ctx.fillStyle = i % 7 === 0 ? '#ffe8b8' : (i % 3 === 0 ? accent : '#6aa8ff');
+                if (mote.size > 2) {
+                    ctx.fillText(mote.glyph, driftX, y);
+                } else {
+                    ctx.fillRect(driftX | 0, y | 0, mote.size, mote.size);
+                }
+            }
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalAlpha = alpha * 0.42;
+            ctx.strokeStyle = colorWithAlpha(accent, 0.34);
+            ctx.lineWidth = 1;
+            const gantryY = height * 0.39;
+            ctx.beginPath();
+            ctx.moveTo(width * 0.12, gantryY);
+            ctx.lineTo(width * 0.88, gantryY);
+            ctx.moveTo(width * 0.18, gantryY - 24);
+            ctx.lineTo(width * 0.82, gantryY - 24);
+            ctx.stroke();
+            for (let i = 0; i < 9; i++) {
+                const gx = width * (0.18 + i * 0.08);
+                const bob = Math.sin(t * 1.2 + i) * 2;
+                ctx.strokeStyle = colorWithAlpha(i % 2 ? '#dcecff' : accent, 0.20);
+                ctx.strokeRect(gx - 8, gantryY - 36 + bob, 16, 20);
+                ctx.fillStyle = colorWithAlpha(i % 2 ? accent : '#ffffff', 0.20 + wallPulse * 0.06);
+                ctx.fillRect(gx - 2, gantryY - 15 + bob, 4, 8);
+            }
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            const scan = ctx.createLinearGradient(scanX - 90, 0, scanX + 90, 0);
+            scan.addColorStop(0, 'rgba(255,255,255,0)');
+            scan.addColorStop(0.48, colorWithAlpha(accent, 0.055));
+            scan.addColorStop(0.5, 'rgba(255,255,255,0.060)');
+            scan.addColorStop(0.52, colorWithAlpha(accent, 0.055));
+            scan.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = scan;
+            ctx.fillRect(scanX - 90, 0, 180, height);
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalAlpha = alpha * 0.72;
+            ctx.lineWidth = 1;
+            for (let i = -6; i <= 6; i++) {
+                const x = width / 2 + i * width * 0.075;
+                const edgeX = width / 2 + i * width * 0.18;
+                ctx.strokeStyle = colorWithAlpha(i === 0 ? '#ffffff' : accent, i === 0 ? 0.16 : 0.13);
+                ctx.beginPath();
+                ctx.moveTo(x, horizonY);
+                ctx.lineTo(edgeX, floorY);
+                ctx.stroke();
+            }
+            for (let i = 0; i < 9; i++) {
+                const depth = ((i + (now * 0.00035)) % 9) / 9;
+                const eased = depth * depth;
+                const y = horizonY + eased * (floorY - horizonY);
+                const halfW = width * (0.10 + eased * 0.50);
+                const railAlpha = 0.06 + eased * 0.18;
+                ctx.strokeStyle = colorWithAlpha(i % 3 === 0 ? '#ffffff' : accent, railAlpha);
+                ctx.beginPath();
+                ctx.moveTo(width / 2 - halfW, y);
+                ctx.lineTo(width / 2 + halfW, y);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = colorWithAlpha(accent, 0.28);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(width * 0.20, floorY);
+            ctx.lineTo(width * 0.39, horizonY + 10);
+            ctx.moveTo(width * 0.80, floorY);
+            ctx.lineTo(width * 0.61, horizonY + 10);
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.restore();
+        }
+
+        function drawShipSelectStat(label, valueText, ratio, x, y, color, options = {}) {
+            const barW = options.barW || 190;
+            const barH = options.barH || 9;
+            const labelW = options.labelW || 74;
+            const valueX = options.valueX || (x + labelW + barW + 58);
+            const fillW = Math.max(5, Math.min(barW, barW * ratio));
+            ctx.fillStyle = colorWithAlpha('#dcecff', 0.74);
             ctx.font = `bold 12px 'Electrolize', sans-serif`;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
             ctx.fillText(label, x, y);
-            ctx.fillStyle = 'rgba(255,255,255,0.12)';
-            ctx.fillRect(x + 74, y - barH / 2, barW, barH);
-            const fillW = Math.max(6, Math.min(barW, barW * ratio));
-            const gradient = ctx.createLinearGradient(x + 74, 0, x + 74 + barW, 0);
-            gradient.addColorStop(0, color);
+            ctx.fillStyle = 'rgba(255,255,255,0.115)';
+            ctx.fillRect((x + labelW) | 0, (y - barH / 2) | 0, barW, barH);
+            ctx.fillStyle = colorWithAlpha('#000000', 0.24);
+            ctx.fillRect((x + labelW + fillW) | 0, (y - barH / 2) | 0, Math.max(0, barW - fillW), barH);
+            const gradient = ctx.createLinearGradient(x + labelW, 0, x + labelW + barW, 0);
+            gradient.addColorStop(0, colorWithAlpha(color, 0.86));
+            gradient.addColorStop(0.72, mixColor(color, '#ffffff', 0.50));
             gradient.addColorStop(1, '#ffffff');
             ctx.fillStyle = gradient;
-            ctx.fillRect(x + 74, y - barH / 2, fillW, barH);
+            ctx.fillRect((x + labelW) | 0, (y - barH / 2) | 0, fillW, barH);
+            ctx.fillStyle = colorWithAlpha('#ffffff', 0.16);
+            ctx.fillRect((x + labelW) | 0, (y - barH / 2) | 0, fillW, 2);
             ctx.textAlign = 'right';
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(valueText, x + 304, y);
+            ctx.fillText(valueText, valueX, y);
         }
 
-        function drawShipSelectPreview(shipConfig, slotX, slotY, selected, now, slotIndex) {
+        function drawShipSelectHullStat(shipConfig, x, y, w, color) {
+            const h = 32;
+            ctx.fillStyle = colorWithAlpha(color, 0.070);
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = colorWithAlpha(color, 0.28);
+            ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+            ctx.fillStyle = colorWithAlpha('#dcecff', 0.72);
+            ctx.font = `bold 11px 'Electrolize', sans-serif`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('HULL INTEGRITY', x + 14, y + h / 2);
+            ctx.textAlign = 'right';
+            ctx.font = `bold 18px 'Electrolize', sans-serif`;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = color;
+            ctx.shadowBlur = glowEnabled ? 8 : 0;
+            ctx.fillText(`${shipConfig.maxHp} HP`, x + w - 14, y + h / 2 + 1);
+            ctx.shadowBlur = 0;
+        }
+
+        function drawShipSelectPreview(shipConfig, slotX, slotY, selected, now, slotIndex, offset = 0) {
             const previewShip = {
                 x: 0,
                 y: 0,
@@ -3462,34 +3777,36 @@
                 shipId: shipConfig.id,
                 _renderLayoutCache: null
             };
-            const bob = Math.sin(now * 0.002 + slotIndex * 1.7) * (selected ? 8 : 4);
+            const distance = Math.abs(offset);
+            const bob = Math.sin(now * 0.002 + slotIndex * 1.7) * (selected ? 8 : Math.max(2, 5 - distance));
             const rotation = selected
                 ? Math.sin(now * 0.0017) * 0.18
-                : (slotIndex - DEFAULT_PLAYER_SHIP_INDEX) * 0.045;
-            const scale = selected ? 1.02 : 0.72;
+                : offset * 0.065 + Math.sin(now * 0.001 + slotIndex) * 0.018;
+            const scale = selected ? 1.03 : Math.max(0.48, 0.78 - distance * 0.09);
             const glow = selected ? 28 : 9;
+            const sideAlpha = Math.max(0.18, 0.58 - distance * 0.10);
 
             ctx.save();
             ctx.translate(slotX, slotY + bob);
             ctx.rotate(rotation);
             ctx.scale(scale, scale);
-            ctx.globalAlpha = selected ? 1 : 0.46;
-            ctx.fillStyle = selected ? shipConfig.previewColor : '#6e8290';
-            ctx.shadowColor = selected ? shipConfig.previewColor : '#5b6d78';
+            ctx.globalAlpha = selected ? 1 : sideAlpha;
+            ctx.fillStyle = selected ? shipConfig.previewColor : mixColor(shipConfig.previewColor, '#6e8290', 0.70);
+            ctx.shadowColor = selected ? shipConfig.previewColor : colorWithAlpha(shipConfig.previewColor, 0.62);
             ctx.shadowBlur = glowEnabled ? glow : 0;
             drawPlayerShip(previewShip, 'center');
             ctx.restore();
 
             ctx.save();
-            ctx.globalAlpha = selected ? 0.78 : 0.26;
-            ctx.strokeStyle = selected ? shipConfig.previewColor : '#49606a';
+            ctx.globalAlpha = selected ? 0.78 : Math.max(0.10, sideAlpha * 0.42);
+            ctx.strokeStyle = selected ? shipConfig.previewColor : colorWithAlpha(shipConfig.previewColor, 0.50);
             ctx.lineWidth = selected ? 2 : 1;
             if (glowEnabled && selected) {
                 ctx.shadowColor = shipConfig.previewColor;
                 ctx.shadowBlur = 16;
             }
             ctx.beginPath();
-            ctx.ellipse(slotX, slotY + 92, selected ? 78 : 52, selected ? 14 : 9, 0, 0, Math.PI * 2);
+            ctx.ellipse(slotX, slotY + 92, selected ? 84 : Math.max(38, 56 - distance * 5), selected ? 15 : 9, 0, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
 
@@ -3497,10 +3814,13 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.font = `bold ${selected ? 18 : 13}px 'Electrolize', sans-serif`;
-            ctx.fillStyle = selected ? '#ffffff' : '#7f9aa8';
-            ctx.shadowColor = selected ? shipConfig.previewColor : '#000000';
+            ctx.globalAlpha = selected ? 1 : Math.max(0.28, sideAlpha);
+            ctx.fillStyle = selected ? '#ffffff' : mixColor(shipConfig.previewColor, '#7f9aa8', 0.65);
+            ctx.shadowColor = selected ? shipConfig.previewColor : colorWithAlpha(shipConfig.previewColor, 0.32);
             ctx.shadowBlur = glowEnabled && selected ? 10 : 0;
-            ctx.fillText(shipConfig.name, slotX, slotY + (selected ? 132 : 116));
+            if (distance <= 2.35 || selected) {
+                ctx.fillText(shipConfig.name, slotX, slotY + (selected ? 134 : 118));
+            }
             ctx.restore();
         }
 
@@ -3508,13 +3828,13 @@
             const selectedShip = getShipSelectConfig();
             const hubMode = typeof shipSelectReturnState !== 'undefined' && shipSelectReturnState === 'GALAXY_SELECT';
             const alpha = Math.max(0.85, titleAlpha);
-            const centerY = height * 0.42;
-            const slotXs = [width * 0.25, width * 0.5, width * 0.75];
+            const centerY = height * 0.43;
 
             ctx.save();
             ctx.globalAlpha = alpha;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
+            drawShipSelectHangarBackground(now, selectedShip, alpha);
 
             const headerPulse = 0.7 + Math.sin(now * 0.0024) * 0.22;
             ctx.font = `bold 30px 'Electrolize', sans-serif`;
@@ -3523,49 +3843,73 @@
             ctx.shadowBlur = glowEnabled ? 16 + headerPulse * 8 : 0;
             ctx.fillText(hubMode ? 'TERMINAL' : 'HANGAR SELECT', width / 2, height * 0.12);
 
-            ctx.font = `bold 12px 'Electrolize', sans-serif`;
-            ctx.fillStyle = '#8fb9c8';
+            ctx.font = `bold 11px 'Electrolize', sans-serif`;
+            ctx.fillStyle = colorWithAlpha(selectedShip.previewColor, 0.72);
             ctx.shadowBlur = 0;
-            ctx.fillText(hubMode ? 'ASCII AIRLINES FLEET HUB' : 'RUN FRAME ONLINE', width / 2, height * 0.155);
+            ctx.fillText(hubMode ? 'SELECT ACTIVE FRAME' : 'RUN FRAME ONLINE', width / 2, height * 0.155);
 
-            for (let i = 0; i < PLAYER_SHIP_TYPES.length; i++) {
-                const ship = PLAYER_SHIP_TYPES[i];
-                const isSelected = i === shipSelectIndex;
-                drawShipSelectPreview(ship, slotXs[i], centerY, isSelected, now, i);
+            const shipCount = PLAYER_SHIP_TYPES.length;
+            const slotSpacing = Math.min(168, Math.max(118, width * 0.126));
+            const renderShips = PLAYER_SHIP_TYPES.map((ship, i) => ({
+                ship,
+                index: i,
+                offset: getWrappedShipSelectOffset(i, shipSelectIndex, shipCount)
+            })).sort((a, b) => Math.abs(b.offset) - Math.abs(a.offset));
+
+            for (let i = 0; i < renderShips.length; i++) {
+                const item = renderShips[i];
+                const distance = Math.abs(item.offset);
+                const slotX = width / 2 + item.offset * slotSpacing;
+                const slotY = centerY + distance * 17 + Math.max(0, distance - 1) * 8;
+                if (slotX < -80 || slotX > width + 80) continue;
+                drawShipSelectPreview(item.ship, slotX, slotY, item.index === shipSelectIndex, now, item.index, item.offset);
             }
 
-            const panelX = width / 2 - 172;
-            const panelY = height * 0.66;
-            const panelH = 192;
-            ctx.fillStyle = 'rgba(2, 8, 14, 0.72)';
-            ctx.fillRect(panelX - 18, panelY - 26, 344, panelH);
-            ctx.strokeStyle = selectedShip.previewColor;
+            const panelW = Math.min(440, width - 112);
+            const panelH = 230;
+            const panelX = width / 2 - panelW / 2;
+            const panelY = Math.min(height - panelH - 44, height * 0.655);
+            ctx.fillStyle = 'rgba(2, 8, 14, 0.78)';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.strokeStyle = colorWithAlpha(selectedShip.previewColor, 0.76);
             ctx.lineWidth = 1;
-            ctx.globalAlpha = 0.72;
-            ctx.strokeRect(panelX - 18, panelY - 26, 344, panelH);
+            ctx.globalAlpha = 0.82;
+            ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW, panelH);
+            ctx.strokeStyle = colorWithAlpha(selectedShip.previewColor, 0.18);
+            ctx.strokeRect(panelX + 7.5, panelY + 7.5, panelW - 15, panelH - 15);
             ctx.globalAlpha = alpha;
+            ctx.fillStyle = colorWithAlpha(selectedShip.previewColor, 0.20);
+            ctx.fillRect(panelX + 1, panelY + 10, 2, panelH - 20);
+            ctx.fillRect(panelX + panelW - 3, panelY + 10, 2, panelH - 20);
 
             ctx.textAlign = 'left';
             ctx.font = `bold 20px 'Electrolize', sans-serif`;
             ctx.fillStyle = '#ffffff';
             ctx.shadowColor = selectedShip.previewColor;
             ctx.shadowBlur = glowEnabled ? 10 : 0;
-            ctx.fillText(selectedShip.name, panelX, panelY - 2);
+            ctx.fillText(selectedShip.name, panelX + 28, panelY + 32);
 
             ctx.font = `12px 'Electrolize', sans-serif`;
             ctx.fillStyle = '#8fb9c8';
             ctx.shadowBlur = 0;
-            ctx.fillText(selectedShip.subtitle.toUpperCase(), panelX, panelY + 20);
+            ctx.fillText(selectedShip.subtitle.toUpperCase(), panelX + 28, panelY + 55);
             ctx.fillStyle = selectedShip.previewColor;
-            ctx.fillText(selectedShip.trait.toUpperCase(), panelX, panelY + 40);
+            ctx.fillText(selectedShip.trait.toUpperCase(), panelX + 28, panelY + 75);
 
-            const statY = panelY + 66;
-            drawShipSelectStat('HP', String(selectedShip.maxHp), selectedShip.maxHp / 120, panelX, statY, selectedShip.previewColor);
-            drawShipSelectStat('DMG', `${Math.round(selectedShip.damageMult * 100)}%`, selectedShip.damageMult / 1.22, panelX, statY + 18, selectedShip.previewColor);
-            drawShipSelectStat('FIRE', `${Math.round((306 / selectedShip.fireRate) * 100)}%`, (306 / selectedShip.fireRate) / 1.08, panelX, statY + 36, selectedShip.previewColor);
-            drawShipSelectStat('SPEED', `${Math.round(selectedShip.moveSpeedMult * 100)}%`, selectedShip.moveSpeedMult / 1.16, panelX, statY + 54, selectedShip.previewColor);
-            drawShipSelectStat('BOMB', `${Math.round((1 / selectedShip.bombCooldownMult) * 100)}%`, (1 / selectedShip.bombCooldownMult) / 1.22, panelX, statY + 72, selectedShip.previewColor);
-            drawShipSelectStat('EVADE', `${Math.round((1 / selectedShip.hitboxMult) * 100)}%`, (1 / selectedShip.hitboxMult) / 1.08, panelX, statY + 90, selectedShip.previewColor);
+            drawShipSelectHullStat(selectedShip, panelX + 28, panelY + 92, panelW - 56, selectedShip.previewColor);
+
+            const statX = panelX + 28;
+            const statY = panelY + 142;
+            const statOptions = {
+                barW: panelW - 204,
+                labelW: 72,
+                valueX: panelX + panelW - 28
+            };
+            drawShipSelectStat('DMG', `${Math.round(selectedShip.damageMult * 100)}%`, selectedShip.damageMult / 1.22, statX, statY, selectedShip.previewColor, statOptions);
+            drawShipSelectStat('FIRE', `${Math.round((306 / selectedShip.fireRate) * 100)}%`, (306 / selectedShip.fireRate) / 1.11, statX, statY + 18, selectedShip.previewColor, statOptions);
+            drawShipSelectStat('SPEED', `${Math.round(selectedShip.moveSpeedMult * 100)}%`, selectedShip.moveSpeedMult / 1.16, statX, statY + 36, selectedShip.previewColor, statOptions);
+            drawShipSelectStat('BOMB', `${Math.round((1 / selectedShip.bombCooldownMult) * 100)}%`, (1 / selectedShip.bombCooldownMult) / 1.24, statX, statY + 54, selectedShip.previewColor, statOptions);
+            drawShipSelectStat('EVADE', `${Math.round((1 / selectedShip.hitboxMult) * 100)}%`, (1 / selectedShip.hitboxMult) / 1.12, statX, statY + 72, selectedShip.previewColor, statOptions);
 
             ctx.restore();
         }
@@ -5883,7 +6227,15 @@
                 const dockAngle = -spin * 2.2 + Math.PI * 0.62;
                 const dockX = Math.cos(dockAngle) * radius * 0.58;
                 const dockY = Math.sin(dockAngle) * radius * 0.28 + radius * 0.52;
-                const shipGlyph = selectedShip.id === 'glasswing' ? '^' : (selectedShip.id === 'ionManta' ? 'M' : 'A');
+                const shipGlyphs = {
+                    glasswing: '^',
+                    arrowhead: 'A',
+                    ionManta: 'M',
+                    auroraKite: 'K',
+                    emberVesper: 'V',
+                    nullOrchid: 'O'
+                };
+                const shipGlyph = shipGlyphs[selectedShip.id] || 'A';
                 galaxyCtx.save();
                 galaxyCtx.translate(dockX, dockY);
                 galaxyCtx.rotate(dockAngle + Math.PI / 2);
@@ -8690,6 +9042,14 @@
                 return;
             }
             const renderNow = currentFrameNow;
+            if (
+                typeof musicPlayerFullscreen !== 'undefined'
+                && musicPlayerFullscreen
+                && typeof drawMusicPlayerFullscreen === 'function'
+                && drawMusicPlayerFullscreen(renderNow, dt)
+            ) {
+                return;
+            }
             const galaxySelectSceneCoversField = gameState === 'GALAXY_SELECT'
                 || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT');
             const survivorModeVisual = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();

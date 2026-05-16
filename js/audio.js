@@ -42,6 +42,8 @@
         let bgmTrackMode = 'none';
         let musicPlayerOpen = false;
         let musicPlayerSelection = 2;
+        let musicPlayerFullscreen = false;
+        let musicPlayerFullscreenLastInput = 0;
         let musicPlayerTrackIndex = 0;
         let musicPlayerIsPlaying = false;
         let musicPlayerPosition = 0;
@@ -64,6 +66,8 @@
             drumSnap: 0,
             leadTone: 0,
             air: 0,
+            activity: 0,
+            absoluteEnergy: 0,
             phase: 0,
             previousBass: 0,
             previousBassGuitar: 0,
@@ -518,6 +522,8 @@
             musicPlayerVisualSignal.drumSnap = 0;
             musicPlayerVisualSignal.leadTone = 0;
             musicPlayerVisualSignal.air = 0;
+            musicPlayerVisualSignal.activity = 0;
+            musicPlayerVisualSignal.absoluteEnergy = 0;
             musicPlayerVisualSignal.bands = null;
         }
 
@@ -629,6 +635,19 @@
             return Math.max(0, Math.min(1, Math.pow(mixed, curve) * gain * warmup));
         }
 
+        function getMusicPlayerAbsoluteActivity() {
+            const low = getMusicPlayerBandEnergy(0.004, 0.115);
+            const lowMid = getMusicPlayerBandEnergy(0.115, 0.34);
+            const highMid = getMusicPlayerBandEnergy(0.34, 0.68);
+            const high = getMusicPlayerBandEnergy(0.68, 0.965);
+            const absoluteEnergy = Math.max(0, Math.min(1, low * 0.30 + lowMid * 0.26 + highMid * 0.25 + high * 0.19));
+            const quietFloor = 0.080;
+            const loudCeiling = 0.410;
+            const normalized = Math.max(0, Math.min(1, (absoluteEnergy - quietFloor) / Math.max(0.001, loudCeiling - quietFloor)));
+            const activity = Math.max(0, Math.min(1, Math.pow(normalized, 1.22)));
+            return { absoluteEnergy, activity };
+        }
+
         function approachMusicPlayerSignal(current, target, dt, rise, fall) {
             const rate = target > current ? rise : fall;
             return current + (target - current) * Math.min(1, dt * rate);
@@ -653,11 +672,14 @@
                 musicPlayerVisualSignal.drumSnap *= Math.pow(0.14, dt);
                 musicPlayerVisualSignal.leadTone *= Math.pow(0.18, dt);
                 musicPlayerVisualSignal.air *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.activity *= Math.pow(0.14, dt);
+                musicPlayerVisualSignal.absoluteEnergy *= Math.pow(0.14, dt);
                 musicPlayerVisualSignal.phase += dt * 0.045;
                 return musicPlayerVisualSignal;
             }
 
             musicPlayerAnalyser.getByteFrequencyData(musicPlayerFrequencyData);
+            const absoluteActivity = getMusicPlayerAbsoluteActivity();
             const profile = updateMusicPlayerVisualProfile(dt);
             const bassEnd = profile.bassEnd;
             const midEnd = profile.midEnd;
@@ -717,27 +739,39 @@
             const rawDrumSnap = Math.max(0, Math.min(1, kickBody * 0.56 + snareBody * 0.58));
             const rawLeadTone = Math.max(0, Math.min(1, leadTone * 0.72 + rawHighMid * 0.26));
             const rawAir = Math.max(0, Math.min(1, airTone * 0.72 + rawTreble * 0.24));
-            const rawEnergy = Math.max(0, Math.min(1, rawBass * 0.28 + rawMid * 0.18 + rawHighMid * 0.22 + rawTreble * 0.16 + rawDrumSnap * 0.12));
+            const activityScale = 0.10 + absoluteActivity.activity * 0.90;
+            const pulseScale = Math.pow(absoluteActivity.activity, 1.12);
+            const scaledBass = rawBass * activityScale;
+            const scaledBassGuitar = rawBassGuitar * activityScale;
+            const scaledMid = rawMid * activityScale;
+            const scaledHighMid = rawHighMid * activityScale;
+            const scaledTreble = rawTreble * activityScale;
+            const scaledDrumSnap = rawDrumSnap * activityScale;
+            const scaledLeadTone = rawLeadTone * activityScale;
+            const scaledAir = rawAir * activityScale;
+            const rawEnergy = Math.max(0, Math.min(1, scaledBass * 0.28 + scaledMid * 0.18 + scaledHighMid * 0.22 + scaledTreble * 0.16 + scaledDrumSnap * 0.12));
             const flux = Math.max(0, rawEnergy - musicPlayerVisualSignal.previousEnergy * 0.86);
-            const bassFlux = Math.max(0, rawBassGuitar - musicPlayerVisualSignal.previousBassGuitar * 0.965);
-            const pulseTarget = Math.max(0, Math.min(1, Math.pow(flux * 4.0, 0.70)));
-            const bassPulseTarget = Math.max(0, Math.min(1, Math.pow(Math.max(bassFlux * 7.2, subPulse * 0.68 + kickBody * 0.22), 0.56)));
+            const bassFlux = Math.max(0, scaledBassGuitar - musicPlayerVisualSignal.previousBassGuitar * 0.965);
+            const pulseTarget = Math.max(0, Math.min(1, Math.pow(flux * 4.0, 0.70) * pulseScale));
+            const bassPulseTarget = Math.max(0, Math.min(1, Math.pow(Math.max(bassFlux * 7.2, (subPulse * 0.68 + kickBody * 0.22) * activityScale), 0.56) * pulseScale));
 
-            musicPlayerVisualSignal.bass = approachMusicPlayerSignal(musicPlayerVisualSignal.bass, rawBass, dt, 22, 8.5);
-            musicPlayerVisualSignal.bassGuitar = approachMusicPlayerSignal(musicPlayerVisualSignal.bassGuitar, rawBassGuitar, dt, 26, 9.2);
-            musicPlayerVisualSignal.mid = approachMusicPlayerSignal(musicPlayerVisualSignal.mid, rawMid, dt, 12, 5.4);
-            musicPlayerVisualSignal.highMid = approachMusicPlayerSignal(musicPlayerVisualSignal.highMid, rawHighMid, dt, 13, 5.8);
-            musicPlayerVisualSignal.treble = approachMusicPlayerSignal(musicPlayerVisualSignal.treble, rawTreble, dt, 12, 5.0);
-            musicPlayerVisualSignal.drumSnap = approachMusicPlayerSignal(musicPlayerVisualSignal.drumSnap, rawDrumSnap, dt, 22, 6.6);
-            musicPlayerVisualSignal.leadTone = approachMusicPlayerSignal(musicPlayerVisualSignal.leadTone, rawLeadTone, dt, 13, 5.4);
-            musicPlayerVisualSignal.air = approachMusicPlayerSignal(musicPlayerVisualSignal.air, rawAir, dt, 18, 7.2);
+            musicPlayerVisualSignal.bass = approachMusicPlayerSignal(musicPlayerVisualSignal.bass, scaledBass, dt, 22, 8.5);
+            musicPlayerVisualSignal.bassGuitar = approachMusicPlayerSignal(musicPlayerVisualSignal.bassGuitar, scaledBassGuitar, dt, 26, 9.2);
+            musicPlayerVisualSignal.mid = approachMusicPlayerSignal(musicPlayerVisualSignal.mid, scaledMid, dt, 12, 5.4);
+            musicPlayerVisualSignal.highMid = approachMusicPlayerSignal(musicPlayerVisualSignal.highMid, scaledHighMid, dt, 13, 5.8);
+            musicPlayerVisualSignal.treble = approachMusicPlayerSignal(musicPlayerVisualSignal.treble, scaledTreble, dt, 12, 5.0);
+            musicPlayerVisualSignal.drumSnap = approachMusicPlayerSignal(musicPlayerVisualSignal.drumSnap, scaledDrumSnap, dt, 22, 6.6);
+            musicPlayerVisualSignal.leadTone = approachMusicPlayerSignal(musicPlayerVisualSignal.leadTone, scaledLeadTone, dt, 13, 5.4);
+            musicPlayerVisualSignal.air = approachMusicPlayerSignal(musicPlayerVisualSignal.air, scaledAir, dt, 18, 7.2);
             musicPlayerVisualSignal.energy = approachMusicPlayerSignal(musicPlayerVisualSignal.energy, rawEnergy, dt, 12, 5.4);
             musicPlayerVisualSignal.pulse = approachMusicPlayerSignal(musicPlayerVisualSignal.pulse, pulseTarget, dt, 16, 4.2);
             musicPlayerVisualSignal.bassPulse = approachMusicPlayerSignal(musicPlayerVisualSignal.bassPulse, bassPulseTarget, dt, 30, 5.0);
+            musicPlayerVisualSignal.activity = approachMusicPlayerSignal(musicPlayerVisualSignal.activity, absoluteActivity.activity, dt, 9, 5.2);
+            musicPlayerVisualSignal.absoluteEnergy = approachMusicPlayerSignal(musicPlayerVisualSignal.absoluteEnergy, absoluteActivity.absoluteEnergy, dt, 12, 5.4);
             musicPlayerVisualSignal.phase += dt * (0.052 + musicPlayerVisualSignal.energy * 0.095 + musicPlayerVisualSignal.pulse * 0.040);
             musicPlayerVisualSignal.previousEnergy = rawEnergy;
-            musicPlayerVisualSignal.previousBass = rawBass;
-            musicPlayerVisualSignal.previousBassGuitar = rawBassGuitar;
+            musicPlayerVisualSignal.previousBass = scaledBass;
+            musicPlayerVisualSignal.previousBassGuitar = scaledBassGuitar;
             musicPlayerVisualSignal.bands = {
                 bass: [0.006, bassEnd],
                 mid: [bassEnd, midEnd],
@@ -918,40 +952,85 @@
         function openMusicPlayer() {
             musicPlayerOpen = true;
             musicPlayerSelection = 2;
+            musicPlayerFullscreen = false;
+            musicPlayerFullscreenLastInput = getMusicPlayerInputNow();
             syncMusicPlayerMasterVolume(0.1);
             if (typeof clearGameplayKeys === 'function') clearGameplayKeys();
         }
 
         function closeMusicPlayer() {
             musicPlayerOpen = false;
+            musicPlayerFullscreen = false;
+            musicPlayerFullscreenLastInput = getMusicPlayerInputNow();
             syncMusicPlayerMasterVolume(0.12);
             if (typeof clearGameplayKeys === 'function') clearGameplayKeys();
         }
 
+        function getMusicPlayerInputNow() {
+            return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+        }
+
+        function wakeMusicPlayerFullscreenUi() {
+            musicPlayerFullscreenLastInput = getMusicPlayerInputNow();
+            return true;
+        }
+
+        function enterMusicPlayerFullscreen() {
+            musicPlayerOpen = true;
+            musicPlayerFullscreen = true;
+            wakeMusicPlayerFullscreenUi();
+            syncMusicPlayerMasterVolume(0.1);
+            if (typeof clearGameplayKeys === 'function') clearGameplayKeys();
+            return true;
+        }
+
+        function exitMusicPlayerFullscreen() {
+            musicPlayerOpen = true;
+            musicPlayerFullscreen = false;
+            musicPlayerSelection = 5;
+            wakeMusicPlayerFullscreenUi();
+            if (typeof clearGameplayKeys === 'function') clearGameplayKeys();
+            return true;
+        }
+
         function handleMusicPlayerKey(k) {
+            if (musicPlayerFullscreen) {
+                wakeMusicPlayerFullscreenUi();
+                if (k === 'escape' || k === '`' || k === '~') return exitMusicPlayerFullscreen();
+                if (k === 'arrowleft' || k === 'a') return seekMusicPlayer(-5);
+                if (k === 'arrowright' || k === 'd') return seekMusicPlayer(5);
+                if (k === 'arrowup' || k === 'w') return previousMusicPlayerTrack();
+                if (k === 'arrowdown' || k === 's') return nextMusicPlayerTrack();
+                if (k === 'enter' || k === ' ') return toggleMusicPlayerPlayback();
+                return true;
+            }
             if (k === 'escape' || k === '`' || k === '~') {
                 closeMusicPlayer();
                 return true;
             }
             if (k === 'arrowup' || k === 'w') {
-                if (musicPlayerSelection === 0) musicPlayerSelection = 4;
+                if (musicPlayerSelection === 0) musicPlayerSelection = 5;
                 else if (musicPlayerSelection === 4) musicPlayerSelection = 2;
+                else if (musicPlayerSelection === 5) musicPlayerSelection = 4;
                 else musicPlayerSelection = 0;
                 return true;
             }
             if (k === 'arrowdown' || k === 's') {
                 if (musicPlayerSelection === 0) musicPlayerSelection = 2;
-                else if (musicPlayerSelection === 4) musicPlayerSelection = 0;
+                else if (musicPlayerSelection === 4) musicPlayerSelection = 5;
+                else if (musicPlayerSelection === 5) musicPlayerSelection = 0;
                 else musicPlayerSelection = 4;
                 return true;
             }
             if (k === 'arrowleft' || k === 'a') {
+                if (musicPlayerSelection === 5) musicPlayerSelection = 0;
                 if (musicPlayerSelection === 0) return seekMusicPlayer(-5);
                 if (musicPlayerSelection === 4) return adjustMusicPlayerVolume(-0.05);
                 musicPlayerSelection = Math.max(1, musicPlayerSelection - 1);
                 return true;
             }
             if (k === 'arrowright' || k === 'd') {
+                if (musicPlayerSelection === 5) musicPlayerSelection = 0;
                 if (musicPlayerSelection === 0) return seekMusicPlayer(5);
                 if (musicPlayerSelection === 4) return adjustMusicPlayerVolume(0.05);
                 musicPlayerSelection = Math.min(3, musicPlayerSelection + 1);
@@ -967,6 +1046,7 @@
                     applyMusicPlayerVolume();
                     return true;
                 }
+                if (musicPlayerSelection === 5) return enterMusicPlayerFullscreen();
             }
             return false;
         }
@@ -988,6 +1068,8 @@
             return {
                 open: musicPlayerOpen,
                 selection: musicPlayerSelection,
+                fullscreen: musicPlayerFullscreen,
+                fullscreenLastInput: musicPlayerFullscreenLastInput,
                 trackIndex: musicPlayerTrackIndex,
                 trackCount: MUSIC_PLAYER_TRACKS.length,
                 trackName: track ? track.name : 'No Tracks',

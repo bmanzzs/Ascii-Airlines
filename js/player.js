@@ -226,6 +226,153 @@
                     weaponOrigin: { x: 9, y: -68 },
                     rearOrigin: { x: 5, y: 54 }
                 }
+            },
+            auroraKite: {
+                center: {
+                    body: { char: '▲', fontSize: 108, x: 0, y: -16, rotation: 0 },
+                    accents: [
+                        { char: '◢', fontSize: 46, x: -34, y: -4, rotation: -0.18 },
+                        { char: '◣', fontSize: 46, x: 34, y: -4, rotation: 0.18 },
+                        { char: '◆', fontSize: 18, x: 0, y: -34, rotation: 0 },
+                        { char: '◆', fontSize: 14, x: 0, y: 15, rotation: 0 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 30, x: -22, y: 30, rotation: -0.16 },
+                        { char: '▲', fontSize: 34, x: 0, y: 35, rotation: 0 },
+                        { char: '▲', fontSize: 30, x: 22, y: 30, rotation: 0.16 }
+                    ],
+                    weaponOrigin: { x: 0, y: -72 },
+                    rearOrigin: { x: 0, y: 51 }
+                },
+                left: {
+                    body: { char: '▲', fontSize: 108, x: -9, y: -16, rotation: -0.1 },
+                    accents: [
+                        { char: '◢', fontSize: 46, x: -42, y: -2, rotation: -0.24 },
+                        { char: '◣', fontSize: 43, x: 22, y: -8, rotation: 0.06 },
+                        { char: '◆', fontSize: 18, x: -9, y: -34, rotation: -0.08 },
+                        { char: '◆', fontSize: 14, x: -6, y: 15, rotation: -0.05 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 30, x: -29, y: 33, rotation: -0.2 },
+                        { char: '▲', fontSize: 32, x: -8, y: 35, rotation: -0.08 },
+                        { char: '▲', fontSize: 28, x: 12, y: 28, rotation: 0.04 }
+                    ],
+                    weaponOrigin: { x: -9, y: -72 },
+                    rearOrigin: { x: -6, y: 51 }
+                },
+                right: {
+                    body: { char: '▲', fontSize: 108, x: 9, y: -16, rotation: 0.1 },
+                    accents: [
+                        { char: '◢', fontSize: 43, x: -22, y: -8, rotation: -0.06 },
+                        { char: '◣', fontSize: 46, x: 42, y: -2, rotation: 0.24 },
+                        { char: '◆', fontSize: 18, x: 9, y: -34, rotation: 0.08 },
+                        { char: '◆', fontSize: 14, x: 6, y: 15, rotation: 0.05 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 28, x: -12, y: 28, rotation: -0.04 },
+                        { char: '▲', fontSize: 32, x: 8, y: 35, rotation: 0.08 },
+                        { char: '▲', fontSize: 30, x: 29, y: 33, rotation: 0.2 }
+                    ],
+                    weaponOrigin: { x: 9, y: -72 },
+                    rearOrigin: { x: 6, y: 51 }
+                }
+            },
+            emberVesper: {
+                center: {
+                    body: { char: '◆', fontSize: 108, x: 0, y: -9, rotation: 0 },
+                    accents: [
+                        { char: '▲', fontSize: 48, x: 0, y: -50, rotation: 0 },
+                        { char: '◢', fontSize: 38, x: -31, y: 10, rotation: -0.08 },
+                        { char: '◣', fontSize: 38, x: 31, y: 10, rotation: 0.08 },
+                        { char: '◆', fontSize: 20, x: 0, y: 9, rotation: 0 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 42, x: -18, y: 34, rotation: -0.04 },
+                        { char: '▲', fontSize: 42, x: 18, y: 34, rotation: 0.04 }
+                    ],
+                    weaponOrigin: { x: 0, y: -74 },
+                    rearOrigin: { x: 0, y: 55 }
+                },
+                left: {
+                    body: { char: '◆', fontSize: 108, x: -9, y: -9, rotation: -0.08 },
+                    accents: [
+                        { char: '▲', fontSize: 48, x: -10, y: -50, rotation: -0.06 },
+                        { char: '◢', fontSize: 38, x: -39, y: 12, rotation: -0.16 },
+                        { char: '◣', fontSize: 36, x: 20, y: 5, rotation: -0.02 },
+                        { char: '◆', fontSize: 20, x: -8, y: 9, rotation: -0.06 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 42, x: -26, y: 36, rotation: -0.1 },
+                        { char: '▲', fontSize: 38, x: 8, y: 31, rotation: -0.02 }
+                    ],
+                    weaponOrigin: { x: -9, y: -74 },
+                    rearOrigin: { x: -5, y: 55 }
+                },
+                right: {
+                    body: { char: '◆', fontSize: 108, x: 9, y: -9, rotation: 0.08 },
+                    accents: [
+                        { char: '▲', fontSize: 48, x: 10, y: -50, rotation: 0.06 },
+                        { char: '◢', fontSize: 36, x: -20, y: 5, rotation: 0.02 },
+                        { char: '◣', fontSize: 38, x: 39, y: 12, rotation: 0.16 },
+                        { char: '◆', fontSize: 20, x: 8, y: 9, rotation: 0.06 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 38, x: -8, y: 31, rotation: 0.02 },
+                        { char: '▲', fontSize: 42, x: 26, y: 36, rotation: 0.1 }
+                    ],
+                    weaponOrigin: { x: 9, y: -74 },
+                    rearOrigin: { x: 5, y: 55 }
+                }
+            },
+            nullOrchid: {
+                center: {
+                    body: { char: '●', fontSize: 82, x: 0, y: -13, rotation: 0 },
+                    accents: [
+                        { char: '◆', fontSize: 34, x: 0, y: -49, rotation: 0 },
+                        { char: '◆', fontSize: 30, x: -34, y: -15, rotation: -0.18 },
+                        { char: '◆', fontSize: 30, x: 34, y: -15, rotation: 0.18 },
+                        { char: '◢', fontSize: 34, x: -20, y: 20, rotation: -0.08 },
+                        { char: '◣', fontSize: 34, x: 20, y: 20, rotation: 0.08 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 28, x: -24, y: 34, rotation: -0.18 },
+                        { char: '▲', fontSize: 28, x: 24, y: 34, rotation: 0.18 }
+                    ],
+                    weaponOrigin: { x: 0, y: -68 },
+                    rearOrigin: { x: 0, y: 51 }
+                },
+                left: {
+                    body: { char: '●', fontSize: 82, x: -8, y: -13, rotation: -0.07 },
+                    accents: [
+                        { char: '◆', fontSize: 34, x: -8, y: -49, rotation: -0.04 },
+                        { char: '◆', fontSize: 30, x: -41, y: -13, rotation: -0.25 },
+                        { char: '◆', fontSize: 28, x: 23, y: -18, rotation: 0.02 },
+                        { char: '◢', fontSize: 34, x: -27, y: 21, rotation: -0.15 },
+                        { char: '◣', fontSize: 32, x: 13, y: 16, rotation: -0.02 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 28, x: -31, y: 36, rotation: -0.24 },
+                        { char: '▲', fontSize: 26, x: 14, y: 30, rotation: -0.03 }
+                    ],
+                    weaponOrigin: { x: -8, y: -68 },
+                    rearOrigin: { x: -5, y: 51 }
+                },
+                right: {
+                    body: { char: '●', fontSize: 82, x: 8, y: -13, rotation: 0.07 },
+                    accents: [
+                        { char: '◆', fontSize: 34, x: 8, y: -49, rotation: 0.04 },
+                        { char: '◆', fontSize: 28, x: -23, y: -18, rotation: -0.02 },
+                        { char: '◆', fontSize: 30, x: 41, y: -13, rotation: 0.25 },
+                        { char: '◢', fontSize: 32, x: -13, y: 16, rotation: 0.02 },
+                        { char: '◣', fontSize: 34, x: 27, y: 21, rotation: 0.15 }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 26, x: -14, y: 30, rotation: 0.03 },
+                        { char: '▲', fontSize: 28, x: 31, y: 36, rotation: 0.24 }
+                    ],
+                    weaponOrigin: { x: 8, y: -68 },
+                    rearOrigin: { x: 5, y: 51 }
+                }
             }
         };
 
@@ -264,7 +411,7 @@
                 moveSpeedMult: 1.07,
                 hitboxMult: 0.93,
                 bombCooldownMult: 1.08,
-                previewColor: '#a8fbff',
+                previewColor: '#9ff7ff',
                 trait: '+18% damage, -20 HP',
                 models: PLAYER_SHIP_VARIANT_MODELS.glasswing
             },
@@ -278,7 +425,7 @@
                 moveSpeedMult: 1,
                 hitboxMult: 1,
                 bombCooldownMult: 1,
-                previewColor: '#ffffff',
+                previewColor: '#e4ecff',
                 trait: 'baseline systems',
                 models: PLAYER_SHIP_MODELS
             },
@@ -292,9 +439,51 @@
                 moveSpeedMult: 1.14,
                 hitboxMult: 1.06,
                 bombCooldownMult: 0.82,
-                previewColor: '#d9f2ff',
+                previewColor: '#b8d7ff',
                 trait: 'fast engines, faster bombs',
                 models: PLAYER_SHIP_VARIANT_MODELS.ionManta
+            },
+            {
+                id: 'auroraKite',
+                name: 'AURORA KITE',
+                subtitle: 'prismatic tempo runner',
+                maxHp: 90,
+                damageMult: 1.05,
+                fireRate: 276,
+                moveSpeedMult: 1.1,
+                hitboxMult: 0.98,
+                bombCooldownMult: 1,
+                previewColor: '#f2b8ff',
+                trait: 'quick fire, clean profile',
+                models: PLAYER_SHIP_VARIANT_MODELS.auroraKite
+            },
+            {
+                id: 'emberVesper',
+                name: 'EMBER VESPER',
+                subtitle: 'volatile reactor striker',
+                maxHp: 95,
+                damageMult: 1.12,
+                fireRate: 318,
+                moveSpeedMult: 0.96,
+                hitboxMult: 1.02,
+                bombCooldownMult: 0.9,
+                previewColor: '#ffc18a',
+                trait: 'heavy hits, hot bombs',
+                models: PLAYER_SHIP_VARIANT_MODELS.emberVesper
+            },
+            {
+                id: 'nullOrchid',
+                name: 'NULL ORCHID',
+                subtitle: 'phase-weave defender',
+                maxHp: 125,
+                damageMult: 0.88,
+                fireRate: 316,
+                moveSpeedMult: 0.94,
+                hitboxMult: 0.9,
+                bombCooldownMult: 1.1,
+                previewColor: '#c9b7ff',
+                trait: 'high hull, narrow hitbox',
+                models: PLAYER_SHIP_VARIANT_MODELS.nullOrchid
             }
         ];
         const DEFAULT_PLAYER_SHIP_INDEX = 1;

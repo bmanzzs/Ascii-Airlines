@@ -7,37 +7,81 @@
         const BITSHIFT_SCREEN_SHAKE_DECAY = 0.88;
         const BITSHIFT_WOBBLE_DECAY = 0.82;
         const BITSHIFT_STAGE_CLEAR_DELAY = 4.2;
-        const BITSHIFT_BOSS_SPAWN_TIME = 125;
-        const BITSHIFT_STAGE_EVENTS = Object.freeze([
-            { at: 1.8, type: 'droneLine', count: 3, y: 0.34, spacing: 72 },
-            { at: 6.4, type: 'droneLine', count: 4, y: 0.62, spacing: 66 },
-            { at: 11.6, type: 'droneLine', count: 5, y: 0.46, spacing: 58 },
-            { at: 15.2, type: 'phaseMessage', message: 'FORMATION ROUTE' },
-            { at: 17.0, type: 'droneLine', count: 6, y: 0.28, spacing: 50 },
-            { at: 21.8, type: 'diagonalSkimmers', count: 5, y: 0.25, step: 46 },
-            { at: 26.6, type: 'sineDrones', count: 7, y: 0.54, spacing: 48 },
-            { at: 32.0, type: 'splitLine', count: 8 },
-            { at: 35.6, type: 'phaseMessage', message: 'OVERFLOW LANES' },
-            { at: 37.0, type: 'dataColumn', gapY: 0.50, gapH: 220, w: 34 },
-            { at: 42.6, type: 'debrisBlocks', y: 0.22, count: 4, spacing: 76 },
-            { at: 48.8, type: 'dataColumn', gapY: 0.36, gapH: 210, w: 40 },
-            { at: 55.0, type: 'laneGates', gapY: 0.62, gapH: 215 },
-            { at: 60.2, type: 'phaseMessage', message: 'REGISTER TURRETS' },
-            { at: 62.0, type: 'turretPair' },
-            { at: 67.8, type: 'turretWall', gapY: 0.42 },
-            { at: 73.6, type: 'turretLane', y: 0.58 },
-            { at: 80.4, type: 'turretPair', stagger: 46 },
-            { at: 85.2, type: 'phaseMessage', message: 'PARITY FIELD' },
-            { at: 87.0, type: 'mineCluster', y: 0.30 },
-            { at: 92.8, type: 'debrisBlocks', y: 0.54, count: 5, spacing: 64 },
-            { at: 98.6, type: 'mineCluster', y: 0.68 },
-            { at: 103.8, type: 'sineDrones', count: 5, y: 0.38, spacing: 54 },
-            { at: 108.8, type: 'mineCluster', y: 0.48 },
-            { at: 111.6, type: 'phaseMessage', message: 'RECOVERY VECTOR' },
-            { at: 113.0, type: 'recoveryDrop' },
-            { at: 119.0, type: 'recoveryDrop', focus: true },
-            { at: 122.0, type: 'phaseMessage', message: 'CORE SIGNATURE AHEAD', seconds: 3.2 },
-            { at: BITSHIFT_BOSS_SPAWN_TIME, type: 'boss' }
+        const BITSHIFT_WAVE_CLEAR_DELAY = 2.4;
+        const BITSHIFT_PLANET_BOSS_ATTACKS = Object.freeze([
+            'tidalLance',
+            'moonBloom',
+            'eventHorizon',
+            'orbitalGuillotine'
+        ]);
+        const BITSHIFT_WAVE_DEFINITIONS = Object.freeze([
+            {
+                number: 1,
+                name: 'BOOT WAKE',
+                phase: 'wave-1',
+                duration: 18,
+                events: [
+                    { at: 0.6, type: 'phaseMessage', message: 'WAVE 1 // BOOT WAKE', seconds: 2.6 },
+                    { at: 1.8, type: 'droneLine', count: 4, y: 0.34, spacing: 70 },
+                    { at: 5.8, type: 'droneLine', count: 5, y: 0.62, spacing: 62 },
+                    { at: 9.8, type: 'diagonalSkimmers', count: 5, y: 0.25, step: 44 },
+                    { at: 13.2, type: 'sineDrones', count: 7, y: 0.52, spacing: 46 }
+                ]
+            },
+            {
+                number: 2,
+                name: 'OPERATOR LANES',
+                phase: 'wave-2',
+                duration: 23,
+                events: [
+                    { at: 0.5, type: 'phaseMessage', message: 'WAVE 2 // OPERATOR LANES', seconds: 2.6 },
+                    { at: 1.2, type: 'dataColumn', gapY: 0.50, gapH: 230, w: 34 },
+                    { at: 4.2, type: 'splitLine', count: 8 },
+                    { at: 7.0, type: 'debrisBlocks', y: 0.23, count: 4, spacing: 72 },
+                    { at: 11.2, type: 'laneGates', gapY: 0.62, gapH: 220 },
+                    { at: 16.2, type: 'operatorSurge', count: 7, y: 0.42 }
+                ]
+            },
+            {
+                number: 3,
+                name: 'REGISTER GAUNTLET',
+                phase: 'wave-3',
+                duration: 25,
+                events: [
+                    { at: 0.5, type: 'phaseMessage', message: 'WAVE 3 // REGISTER GAUNTLET', seconds: 2.6 },
+                    { at: 1.2, type: 'turretPair' },
+                    { at: 5.8, type: 'turretWall', gapY: 0.42 },
+                    { at: 11.4, type: 'turretLane', y: 0.58 },
+                    { at: 15.6, type: 'sineDrones', count: 6, y: 0.38, spacing: 52 },
+                    { at: 19.8, type: 'turretPair', stagger: 56 }
+                ]
+            },
+            {
+                number: 4,
+                name: 'PARITY STORM',
+                phase: 'wave-4',
+                duration: 26,
+                events: [
+                    { at: 0.5, type: 'phaseMessage', message: 'WAVE 4 // PARITY STORM', seconds: 2.6 },
+                    { at: 1.4, type: 'mineCluster', y: 0.30 },
+                    { at: 5.0, type: 'mineWall', gapY: 0.54 },
+                    { at: 8.8, type: 'debrisBlocks', y: 0.56, count: 5, spacing: 64 },
+                    { at: 12.8, type: 'skimmerCross', count: 8 },
+                    { at: 17.0, type: 'mineCluster', y: 0.68 },
+                    { at: 21.6, type: 'recoveryDrop', focus: true }
+                ]
+            },
+            {
+                number: 5,
+                name: 'NULLBYTE PLANET',
+                phase: 'boss',
+                boss: true,
+                duration: 999,
+                events: [
+                    { at: 0.4, type: 'phaseMessage', message: 'WAVE 5 // NULLBYTE PLANET', seconds: 3.0 },
+                    { at: 2.1, type: 'boss' }
+                ]
+            }
         ]);
 
         const BITSHIFT_ENEMY_STATS = Object.freeze({
@@ -80,13 +124,35 @@
                 damage: 18,
                 score: 180,
                 debrisCap: 22
+            },
+            logicNeedle: {
+                sprite: ['<-=>'],
+                color: '#ffe66d',
+                hp: 22,
+                speed: 218,
+                radius: 20,
+                damage: 12,
+                score: 170,
+                debrisCap: 18
+            },
+            overflowBulwark: {
+                sprite: ['{###}', '<###>'],
+                color: '#ffb07c',
+                hp: 78,
+                speed: 86,
+                radius: 34,
+                damage: 17,
+                score: 340,
+                debrisCap: 30
             }
         });
 
-        const BITSHIFT_BOSS_SPRITE = [
-            ' .-WARDEN-. ',
-            '< DWARF CORE >',
-            ' [01][10] '
+        const BITSHIFT_PLANET_BOSS_SPRITE = [
+            '   .-=====-.   ',
+            ' .\'/ 01010 \\`. ',
+            '< | NULLBYTE | >',
+            ' .,/ 10101 \\,. ',
+            '   `-=====-`   '
         ];
 
         function createBitshiftScrollerState() {
@@ -97,6 +163,11 @@
                 scrollSpeed: 150,
                 spawnTimer: 0,
                 waveIndex: 0,
+                waveNumber: 0,
+                waveTimer: 0,
+                waveEventIndex: 0,
+                waveClearTimer: 0,
+                waveName: '',
                 bossSpawned: false,
                 bossDefeated: false,
                 stageCleared: false,
@@ -108,6 +179,7 @@
                 particles: [],
                 message: '',
                 messageTimer: 0,
+                bossAttackName: '',
                 playerDamageCooldown: 0,
                 pickupTimer: 0
             };
@@ -253,13 +325,8 @@
         function getBitshiftStagePhase(elapsed) {
             if (bitshiftScrollerState.stageCleared) return 'clear';
             if (bitshiftScrollerState.bossSpawned) return 'boss';
-            if (elapsed < 15) return 'warmup';
-            if (elapsed < 35) return 'formations';
-            if (elapsed < 60) return 'terrain';
-            if (elapsed < 85) return 'turrets';
-            if (elapsed < 110) return 'mines';
-            if (elapsed < BITSHIFT_BOSS_SPAWN_TIME) return 'recovery';
-            return 'buildup';
+            const wave = BITSHIFT_WAVE_DEFINITIONS[Math.max(0, (bitshiftScrollerState.waveNumber || 1) - 1)];
+            return wave ? wave.phase : (elapsed < 4 ? 'warmup' : 'wave');
         }
 
         function setBitshiftMessage(text, seconds = 2.4) {
@@ -278,7 +345,7 @@
 
             updateBitshiftStarfield(safeDt);
             updateBitshiftPlayer(safeDt);
-            updateBitshiftTimeline();
+            updateBitshiftWaveDirector(safeDt);
             updateBitshiftHazards(safeDt);
             updateBitshiftEnemies(safeDt);
             updateBitshiftBoss(safeDt);
@@ -369,12 +436,59 @@
             }
         }
 
-        function updateBitshiftTimeline() {
-            while (bitshiftScrollerState.waveIndex < BITSHIFT_STAGE_EVENTS.length
-                && bitshiftScrollerState.elapsed >= BITSHIFT_STAGE_EVENTS[bitshiftScrollerState.waveIndex].at) {
-                spawnBitshiftTimelineEvent(BITSHIFT_STAGE_EVENTS[bitshiftScrollerState.waveIndex]);
-                bitshiftScrollerState.waveIndex++;
+        function getBitshiftWaveDefinition(number) {
+            return BITSHIFT_WAVE_DEFINITIONS[Math.max(0, Math.min(BITSHIFT_WAVE_DEFINITIONS.length - 1, number - 1))] || null;
+        }
+
+        function startBitshiftWave(number) {
+            const wave = getBitshiftWaveDefinition(number);
+            if (!wave || bitshiftScrollerState.stageCleared) return;
+            bitshiftScrollerState.waveNumber = wave.number;
+            bitshiftScrollerState.waveName = wave.name;
+            bitshiftScrollerState.waveTimer = 0;
+            bitshiftScrollerState.waveEventIndex = 0;
+            bitshiftScrollerState.waveIndex = 0;
+            bitshiftScrollerState.waveClearTimer = 0;
+            bitshiftScrollerState.stagePhase = wave.phase;
+            setBitshiftMessage(`WAVE ${wave.number} // ${wave.name}`, wave.boss ? 3.0 : 2.4);
+            if (typeof addShake === 'function' && wave.number > 1) addShake(wave.boss ? 18 : 8);
+        }
+
+        function updateBitshiftWaveDirector(dt) {
+            if (bitshiftScrollerState.stageCleared) return;
+            if ((bitshiftScrollerState.waveNumber || 0) <= 0) {
+                startBitshiftWave(1);
+                return;
             }
+
+            const wave = getBitshiftWaveDefinition(bitshiftScrollerState.waveNumber);
+            if (!wave) return;
+            bitshiftScrollerState.waveTimer += dt;
+            const events = wave.events || [];
+            while (bitshiftScrollerState.waveEventIndex < events.length
+                && bitshiftScrollerState.waveTimer >= events[bitshiftScrollerState.waveEventIndex].at) {
+                spawnBitshiftTimelineEvent(events[bitshiftScrollerState.waveEventIndex]);
+                bitshiftScrollerState.waveEventIndex++;
+                bitshiftScrollerState.waveIndex = bitshiftScrollerState.waveEventIndex;
+            }
+
+            if (wave.boss) return;
+            const eventsComplete = bitshiftScrollerState.waveEventIndex >= events.length;
+            const forcedAdvance = bitshiftScrollerState.waveTimer >= (wave.duration || 20);
+            if (eventsComplete && (forcedAdvance || isBitshiftCombatQuiet())) {
+                bitshiftScrollerState.waveClearTimer += dt;
+                if (bitshiftScrollerState.waveClearTimer >= BITSHIFT_WAVE_CLEAR_DELAY) {
+                    startBitshiftWave(bitshiftScrollerState.waveNumber + 1);
+                }
+            } else {
+                bitshiftScrollerState.waveClearTimer = 0;
+            }
+        }
+
+        function isBitshiftCombatQuiet() {
+            const activeEnemy = enemies.some(enemy => enemy && enemy.isBitshiftEnemy && enemy.x > -80 && enemy.x < width + 170);
+            if (activeEnemy) return false;
+            return !bitshiftScrollerState.hazards.some(h => h && h.x + (h.w || 80) > -50 && h.x < width + 140);
         }
 
         function spawnBitshiftTimelineEvent(event) {
@@ -417,6 +531,17 @@
                         vy: i % 2 === 0 ? 16 : -16
                     });
                 }
+            } else if (event.type === 'operatorSurge') {
+                for (let i = 0; i < event.count; i++) {
+                    spawnBitshiftEnemy(i % 4 === 0 ? 'overflowBulwark' : 'logicNeedle', {
+                        x: width + 84 + i * 62,
+                        y: height * event.y + Math.sin(i * 1.15) * 118,
+                        sineAmp: i % 4 === 0 ? 18 : 42,
+                        sineSpeed: 1.7,
+                        phase: i * 0.65
+                    });
+                }
+                setBitshiftMessage('OPERATOR SURGE');
             } else if (event.type === 'dataColumn') {
                 spawnBitshiftHazard('dataColumn', event);
                 setBitshiftMessage('REGISTER WALLS');
@@ -461,6 +586,29 @@
                     });
                 }
                 setBitshiftMessage('PARITY MINES');
+            } else if (event.type === 'mineWall') {
+                const lanes = 6;
+                const playTop = 128;
+                const playBottom = getBitshiftPlayfieldBottom(74);
+                const skipLane = Math.max(1, Math.min(lanes - 2, Math.round((event.gapY || 0.5) * (lanes - 1))));
+                for (let lane = 0; lane < lanes; lane++) {
+                    if (lane === skipLane || lane === skipLane + 1) continue;
+                    spawnBitshiftEnemy('parityMine', {
+                        x: width + 90 + lane * 22,
+                        y: playTop + (playBottom - playTop) * (lane / (lanes - 1)),
+                        phase: lane * 0.55
+                    });
+                }
+                setBitshiftMessage('PARITY WALL');
+            } else if (event.type === 'skimmerCross') {
+                for (let i = 0; i < event.count; i++) {
+                    spawnBitshiftEnemy('shiftSkimmer', {
+                        x: width + 80 + i * 42,
+                        y: i % 2 === 0 ? height * 0.22 : height * 0.76,
+                        vy: i % 2 === 0 ? 72 : -72
+                    });
+                }
+                setBitshiftMessage('SHIFT CROSS');
             } else if (event.type === 'recoveryDrop') {
                 if (typeof createHealthDrop === 'function') drops.push(createHealthDrop(width * 0.72, height * 0.48, 0.10, 28));
                 if (event.focus && typeof createFocusDrop === 'function') drops.push(createFocusDrop(width * 0.82, height * 0.56, 36));
@@ -511,27 +659,36 @@
             if (bitshiftScrollerState.bossSpawned || boss) return;
             bitshiftScrollerState.bossSpawned = true;
             boss = {
-                x: width + 190,
-                y: height * 0.46,
-                hp: 760,
-                maxHp: 760,
-                name: 'DWARF CORE WARDEN',
-                sprite: BITSHIFT_BOSS_SPRITE,
+                x: width + 210,
+                y: height * 0.47,
+                hp: 1450,
+                maxHp: 1450,
+                name: 'NULLBYTE PLANET',
+                sprite: BITSHIFT_PLANET_BOSS_SPRITE,
                 phase: 'ACTIVE',
                 timer: 0,
                 flashTimer: 0,
-                color: '#ff8a3d',
+                color: '#b48cff',
                 isBitshiftBoss: true,
+                isBitshiftPlanetBoss: true,
                 onScreen: true,
-                collisionRadius: 66,
-                fireTimer: 1.0,
-                spreadTimer: 2.4,
-                laneTimer: 4.8,
-                entryTargetX: width - 185,
-                renderScale: 1.1,
-                explosionDebrisCap: 96
+                collisionRadius: 88,
+                attackIndex: 0,
+                attackName: '',
+                attackTimer: 0,
+                attackStep: 0,
+                attackCooldown: 1.2,
+                gravityPulse: 0,
+                ringAngle: 0,
+                moonAngle: 0,
+                flareTimer: 0,
+                entryTargetX: width - 166,
+                renderScale: 1.25,
+                explosionDebrisCap: 150
             };
-            setBitshiftMessage('DWARF CORE WARDEN', 3.5);
+            bitshiftScrollerState.bossAttackName = '';
+            setBitshiftMessage('NULLBYTE PLANET', 3.5);
+            if (typeof addShake === 'function') addShake(22);
         }
 
         function spawnBitshiftHazard(type, options = {}) {
@@ -585,6 +742,14 @@
                         const angle = Math.atan2(player.y - e.y, player.x - e.x);
                         fireBitshiftEnemyBullet(e.x - 18, e.y, angle, 245, { char: '+', color: e.enemyBulletColor, radius: 9 });
                     }
+                } else if (type === 'overflowBulwark') {
+                    e.x += e.vx * dt;
+                    e.y = e.baseY + Math.sin(bitshiftScrollerState.elapsed * (e.sineSpeed || 1.2) + e.phase) * (e.sineAmp || 12);
+                    e.fireTimer -= dt;
+                    if (e.fireTimer <= 0 && e.x < width - 50) {
+                        e.fireTimer = 1.35 + Math.random() * 0.45;
+                        fireBitshiftEnemyBullet(e.x - 28, e.y, Math.PI, 190, { char: '=', color: '#ffe66d', radius: 10, damage: 10 });
+                    }
                 } else {
                     e.x += e.vx * dt;
                     e.y += e.vy * dt;
@@ -609,41 +774,188 @@
         function updateBitshiftBoss(dt) {
             if (!boss || !boss.isBitshiftBoss || bitshiftScrollerState.stageCleared) return;
             boss.timer += dt;
-            boss.x += (boss.entryTargetX - boss.x) * Math.min(1, dt * 1.25);
-            boss.y = height * 0.46 + Math.sin(boss.timer * 1.05) * 58;
+            boss.ringAngle += dt * (0.55 + Math.max(0, 1 - boss.hp / boss.maxHp) * 0.65);
+            boss.moonAngle += dt * 0.78;
+            boss.gravityPulse = Math.max(0, (boss.gravityPulse || 0) - dt * 0.55);
+            boss.flareTimer = Math.max(0, (boss.flareTimer || 0) - dt);
+            boss.x += (boss.entryTargetX - boss.x) * Math.min(1, dt * 1.10);
+            boss.y = height * 0.47 + Math.sin(boss.timer * 0.68) * 42 + Math.sin(boss.timer * 1.55) * 8;
             boss.flashTimer = Math.max(0, (boss.flashTimer || 0) - dt);
 
-            boss.fireTimer -= dt;
-            if (boss.fireTimer <= 0) {
-                boss.fireTimer = 1.15;
-                const angle = Math.atan2(player.y - boss.y, player.x - boss.x);
-                fireBitshiftEnemyBullet(boss.x - 54, boss.y, angle, 220, { char: 'o', color: '#ffcf6d', radius: 11 });
-            }
-            boss.spreadTimer -= dt;
-            if (boss.spreadTimer <= 0) {
-                boss.spreadTimer = 3.2;
-                for (let i = -1; i <= 1; i++) {
-                    fireBitshiftEnemyBullet(boss.x - 58, boss.y + i * 22, Math.PI + i * 0.18, 205, { char: '*', color: '#ff8a3d', radius: 10 });
-                }
-            }
-            boss.laneTimer -= dt;
-            if (boss.laneTimer <= 0) {
-                boss.laneTimer = 5.8;
-                const lanes = 5;
-                const playTop = 86;
-                const playBottom = getGameplayBottomLimit(78);
-                const skipLane = Math.max(0, Math.min(lanes - 1, Math.round(((player.y - playTop) / Math.max(1, playBottom - playTop)) * (lanes - 1))));
-                for (let lane = 0; lane < lanes; lane++) {
-                    if (lane === skipLane) continue;
-                    const y = playTop + (playBottom - playTop) * (lane / (lanes - 1));
-                    fireBitshiftEnemyBullet(boss.x - 48, y, Math.PI, 168, { char: lane % 2 ? '1' : '0', color: '#8ff7ff', radius: 9 });
-                }
-                setBitshiftMessage('LANE BURST');
-            }
+            updateBitshiftPlanetBossAttacks(boss, dt);
             if (isBitshiftCircleTouchingPlayer(boss.x, boss.y, boss.collisionRadius || 60)) {
                 damageBitshiftPlayer(20);
             }
             if (boss.hp <= 0) defeatBitshiftBoss();
+        }
+
+        function beginBitshiftPlanetAttack(bossObj) {
+            const attack = BITSHIFT_PLANET_BOSS_ATTACKS[bossObj.attackIndex % BITSHIFT_PLANET_BOSS_ATTACKS.length];
+            bossObj.attackIndex++;
+            bossObj.attackName = attack;
+            bossObj.attackTimer = 0;
+            bossObj.attackStep = 0;
+            bossObj.gravityPulse = attack === 'eventHorizon' ? 1 : 0.45;
+            bitshiftScrollerState.bossAttackName = attack;
+            const labels = {
+                tidalLance: 'TIDAL LANCE',
+                moonBloom: 'MOON BLOOM',
+                eventHorizon: 'EVENT HORIZON',
+                orbitalGuillotine: 'ORBITAL GUILLOTINE'
+            };
+            setBitshiftMessage(labels[attack] || 'NULLBYTE SHIFT', 2.2);
+        }
+
+        function endBitshiftPlanetAttack(bossObj, cooldown = 1.35) {
+            bossObj.attackName = '';
+            bossObj.attackTimer = 0;
+            bossObj.attackStep = 0;
+            bossObj.attackCooldown = Math.max(0.65, cooldown - Math.max(0, 1 - bossObj.hp / bossObj.maxHp) * 0.32);
+            bitshiftScrollerState.bossAttackName = '';
+        }
+
+        function updateBitshiftPlanetBossAttacks(bossObj, dt) {
+            if (!bossObj.attackName) {
+                bossObj.attackCooldown -= dt;
+                if (bossObj.attackCooldown <= 0 && bossObj.x < width - 60) beginBitshiftPlanetAttack(bossObj);
+                return;
+            }
+
+            bossObj.attackTimer += dt;
+            if (bossObj.attackName === 'tidalLance') {
+                if (bossObj.attackStep === 0 && bossObj.attackTimer >= 0.28) {
+                    bossObj.attackStep = 1;
+                    spawnBitshiftTidalLances(bossObj);
+                }
+                if (bossObj.attackTimer >= 2.65) endBitshiftPlanetAttack(bossObj, 1.25);
+            } else if (bossObj.attackName === 'moonBloom') {
+                if (bossObj.attackTimer >= bossObj.attackStep * 0.42) {
+                    fireBitshiftMoonBloom(bossObj, bossObj.attackStep);
+                    bossObj.attackStep++;
+                    bossObj.flareTimer = 0.22;
+                }
+                if (bossObj.attackStep >= 6 && bossObj.attackTimer >= 2.65) endBitshiftPlanetAttack(bossObj, 1.15);
+            } else if (bossObj.attackName === 'eventHorizon') {
+                if (bossObj.attackStep === 0 && bossObj.attackTimer >= 0.32) {
+                    bossObj.attackStep = 1;
+                    spawnBitshiftEventHorizons(bossObj);
+                }
+                applyBitshiftBossGravity(dt, 58 + Math.max(0, 1 - bossObj.hp / bossObj.maxHp) * 26);
+                if (bossObj.attackTimer >= 3.15) endBitshiftPlanetAttack(bossObj, 1.45);
+            } else if (bossObj.attackName === 'orbitalGuillotine') {
+                if (bossObj.attackTimer >= bossObj.attackStep * 0.50) {
+                    fireBitshiftOrbitalGuillotine(bossObj, bossObj.attackStep);
+                    bossObj.attackStep++;
+                    bossObj.flareTimer = 0.18;
+                }
+                if (bossObj.attackStep >= 5 && bossObj.attackTimer >= 2.9) endBitshiftPlanetAttack(bossObj, 1.25);
+            }
+        }
+
+        function spawnBitshiftTidalLances(bossObj) {
+            const lanes = 5;
+            const playTop = 118;
+            const playBottom = getBitshiftPlayfieldBottom(82);
+            const playerLane = Math.max(0, Math.min(lanes - 1, Math.round(((player.y - playTop) / Math.max(1, playBottom - playTop)) * (lanes - 1))));
+            const firstLane = (playerLane + 1 + (bossObj.attackIndex % 2)) % lanes;
+            const secondLane = (playerLane + 3) % lanes;
+            [firstLane, secondLane].forEach((lane, index) => {
+                const y = playTop + (playBottom - playTop) * (lane / (lanes - 1));
+                bitshiftScrollerState.hazards.push({
+                    type: 'planetBeam',
+                    x: 0,
+                    y: y - 15,
+                    w: width,
+                    h: 30,
+                    age: 0,
+                    windup: 0.72 + index * 0.10,
+                    duration: 0.54,
+                    damage: 16,
+                    color: index ? '#8ff7ff' : '#ff8a3d'
+                });
+            });
+            if (typeof addShake === 'function') addShake(10);
+        }
+
+        function fireBitshiftMoonBloom(bossObj, step) {
+            const petals = 11;
+            const gapAngle = Math.atan2(player.y - bossObj.y, player.x - bossObj.x);
+            const base = bossObj.ringAngle + step * 0.32;
+            for (let i = 0; i < petals; i++) {
+                const angle = base + (i / petals) * Math.PI * 2;
+                const angularGap = Math.abs(Math.atan2(Math.sin(angle - gapAngle), Math.cos(angle - gapAngle)));
+                if (angularGap < 0.18 && step % 2 === 0) continue;
+                const speed = 112 + step * 13 + (i % 3) * 16;
+                fireBitshiftEnemyBullet(
+                    bossObj.x + Math.cos(angle) * 62,
+                    bossObj.y + Math.sin(angle) * 62,
+                    angle,
+                    speed,
+                    { char: i % 3 === 0 ? '◌' : 'o', color: i % 2 ? '#b48cff' : '#ffcf6d', radius: 9, damage: 8, life: 7.0 }
+                );
+            }
+        }
+
+        function spawnBitshiftEventHorizons(bossObj) {
+            const offsets = [-0.18, 0.20];
+            offsets.forEach((offset, i) => {
+                const y = Math.max(135, Math.min(getBitshiftPlayfieldBottom(90), player.y + height * offset));
+                fireBitshiftEnemyBullet(
+                    bossObj.x - 84,
+                    y,
+                    Math.PI + (i ? -0.055 : 0.055),
+                    92,
+                    {
+                        char: '●',
+                        color: '#080812',
+                        radius: 24,
+                        damage: 14,
+                        life: 8.5,
+                        isGravityWell: true,
+                        pullRadius: 155,
+                        pullStrength: 78,
+                        haloColor: i ? '#8ff7ff' : '#b48cff'
+                    }
+                );
+            });
+            if (typeof addShake === 'function') addShake(14);
+        }
+
+        function fireBitshiftOrbitalGuillotine(bossObj, step) {
+            const playTop = 122;
+            const playBottom = getBitshiftPlayfieldBottom(88);
+            const lanes = 6;
+            const lane = (step * 2 + bossObj.attackIndex) % lanes;
+            const y = playTop + (playBottom - playTop) * (lane / (lanes - 1));
+            for (let i = 0; i < 4; i++) {
+                const phase = i * Math.PI * 0.5 + step * 0.35;
+                fireBitshiftEnemyBullet(
+                    bossObj.x - 60 + i * 12,
+                    y + Math.sin(phase) * 34,
+                    Math.PI,
+                    185 + i * 18,
+                    {
+                        char: i % 2 ? ')' : '(',
+                        color: i % 2 ? '#8ff7ff' : '#ff8a3d',
+                        radius: 11,
+                        damage: 10,
+                        life: 6.2,
+                        sineAmp: 28 + i * 4,
+                        sineSpeed: 3.2,
+                        phase
+                    }
+                );
+            }
+        }
+
+        function applyBitshiftBossGravity(dt, strength) {
+            if (!boss || !player || player.hp <= 0) return;
+            const dx = boss.x - player.x;
+            const dy = boss.y - player.y;
+            const dist = Math.max(80, Math.hypot(dx, dy));
+            const pull = Math.max(0, 1 - dist / 540) * strength * dt;
+            player.vx += (dx / dist) * pull;
+            player.vy += (dy / dist) * pull;
         }
 
         function fireBitshiftEnemyBullet(x, y, angle, speed, options = {}) {
@@ -651,10 +963,19 @@
                 x, y,
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
+                baseY: y,
                 char: options.char || 'o',
                 color: options.color || '#ff8a3d',
                 radius: options.radius || 9,
+                damage: options.damage || 9,
                 life: options.life || 5.4,
+                sineAmp: options.sineAmp || 0,
+                sineSpeed: options.sineSpeed || 0,
+                phase: options.phase || 0,
+                isGravityWell: !!options.isGravityWell,
+                pullRadius: options.pullRadius || 0,
+                pullStrength: options.pullStrength || 0,
+                haloColor: options.haloColor || options.color || '#8ff7ff',
                 isBitshiftBullet: true
             });
         }
@@ -664,6 +985,31 @@
                 const b = enemyBullets[i];
                 b.x += (b.vx || 0) * dt;
                 b.y += (b.vy || 0) * dt;
+                if (b.sineAmp) {
+                    b.y = b.baseY + Math.sin(bitshiftScrollerState.elapsed * b.sineSpeed + b.phase) * b.sineAmp;
+                }
+                if (b.isGravityWell && player && player.hp > 0) {
+                    const dx = b.x - player.x;
+                    const dy = b.y - player.y;
+                    const dist = Math.max(24, Math.hypot(dx, dy));
+                    const pullRadius = b.pullRadius || 130;
+                    if (dist < pullRadius) {
+                        const pull = (1 - dist / pullRadius) * (b.pullStrength || 60) * dt;
+                        player.vx += (dx / dist) * pull;
+                        player.vy += (dy / dist) * pull;
+                    }
+                    if (Math.random() < 0.45) {
+                        bitshiftScrollerState.particles.push({
+                            x: b.x + (Math.random() - 0.5) * pullRadius * 0.55,
+                            y: b.y + (Math.random() - 0.5) * pullRadius * 0.35,
+                            vx: (b.x - player.x) * 0.05,
+                            vy: (b.y - player.y) * 0.05,
+                            char: Math.random() < 0.5 ? '0' : '1',
+                            color: b.haloColor || '#8ff7ff',
+                            life: 0.18 + Math.random() * 0.22
+                        });
+                    }
+                }
                 b.life = (b.life || 4) - dt;
                 if (isBitshiftCircleTouchingPlayer(b.x, b.y, b.radius || 9)) {
                     damageBitshiftPlayer(b.damage || 9);
@@ -679,6 +1025,13 @@
         function updateBitshiftHazards(dt) {
             for (let i = bitshiftScrollerState.hazards.length - 1; i >= 0; i--) {
                 const h = bitshiftScrollerState.hazards[i];
+                if (h.type === 'planetBeam') {
+                    h.age = (h.age || 0) + dt;
+                    const active = h.age >= (h.windup || 0) && h.age <= (h.windup || 0) + (h.duration || 0.5);
+                    if (active && isBitshiftPlayerTouchingRect(h)) damageBitshiftPlayer(h.damage || 12);
+                    if (h.age > (h.windup || 0) + (h.duration || 0.5) + 0.16) bitshiftScrollerState.hazards.splice(i, 1);
+                    continue;
+                }
                 h.x -= bitshiftScrollerState.scrollSpeed * dt;
                 if (h.type === 'dataColumn') {
                     const topRect = { x: h.x, y: 0, w: h.w, h: h.gapY - h.gapH / 2 };
@@ -812,6 +1165,9 @@
         }
 
         function doesBitshiftProjectileHit(projectile, target, radius) {
+            if (target && target.isBitshiftBoss) {
+                return Math.hypot(projectile.x - target.x, projectile.y - target.y) < radius + (target.collisionRadius || 60);
+            }
             if (typeof doesProjectileHitTargetMask === 'function') {
                 return doesProjectileHitTargetMask(projectile, target, radius);
             }
@@ -1022,11 +1378,12 @@
             bitshiftScrollerState.stageCleared = true;
             bitshiftScrollerState.stagePhase = 'clear';
             bitshiftScrollerState.stageClearTimer = 0;
-            bitshiftScrollerState.message = 'VECTOR ROUTE CLEAR';
+            bitshiftScrollerState.message = 'NULLBYTE PLANET DEFEATED';
             bitshiftScrollerState.messageTimer = 6;
-            emitBitshiftHitSparks(defeated.x, defeated.y, '#ff8a3d', 48);
+            emitBitshiftHitSparks(defeated.x, defeated.y, defeated.isBitshiftPlanetBoss ? '#b48cff' : '#ff8a3d', defeated.isBitshiftPlanetBoss ? 72 : 48);
             if (typeof explodeEnemy === 'function') explodeEnemy(defeated);
-            if (typeof addScore === 'function') addScore(5000, false);
+            if (typeof addShake === 'function') addShake(defeated.isBitshiftPlanetBoss ? 34 : 18);
+            if (typeof addScore === 'function') addScore(defeated.isBitshiftPlanetBoss ? 12000 : 5000, false);
         }
 
         function emitBitshiftHitSparks(x, y, color, count) {
@@ -1149,6 +1506,10 @@
 
         function drawBitshiftBoss() {
             if (!boss || !boss.isBitshiftBoss) return;
+            if (boss.isBitshiftPlanetBoss) {
+                drawBitshiftPlanetBoss(boss);
+                return;
+            }
             drawBitshiftSprite(boss.sprite, boss.x, boss.y, boss.color, boss.renderScale || 1, boss.flashTimer || 0);
             const barW = 230;
             const barX = boss.x - barW / 2;
@@ -1161,6 +1522,117 @@
             ctx.strokeRect(barX, barY, barW, 8);
         }
 
+        function drawBitshiftPlanetBoss(bossObj) {
+            const t = bitshiftScrollerState.elapsed;
+            const x = bossObj.x;
+            const y = bossObj.y;
+            const healthRatio = Math.max(0, bossObj.hp / bossObj.maxHp);
+            const rage = 1 - healthRatio;
+            const radius = 70 + Math.sin(t * 1.8) * 3 + (bossObj.flareTimer || 0) * 10;
+            const attackPulse = bossObj.attackName ? 1 : 0;
+            const gravityPulse = bossObj.gravityPulse || 0;
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            const halo = ctx.createRadialGradient(x, y, radius * 0.45, x, y, radius * (3.1 + gravityPulse * 0.8));
+            halo.addColorStop(0, `rgba(255, 255, 255, ${0.10 + attackPulse * 0.06})`);
+            halo.addColorStop(0.18, `rgba(180, 140, 255, ${0.20 + gravityPulse * 0.10})`);
+            halo.addColorStop(0.44, `rgba(255, 92, 72, ${0.10 + rage * 0.08})`);
+            halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = halo;
+            ctx.fillRect(x - radius * 3.6, y - radius * 3.6, radius * 7.2, radius * 7.2);
+
+            ctx.translate(x, y);
+            ctx.rotate(Math.sin(t * 0.36) * 0.08);
+            for (let ring = 0; ring < 4; ring++) {
+                const ringAngle = bossObj.ringAngle * (ring % 2 ? -1.1 : 1) + ring * 0.64;
+                const ringAlpha = 0.30 - ring * 0.045 + attackPulse * 0.08;
+                ctx.save();
+                ctx.rotate(ringAngle);
+                ctx.strokeStyle = ring % 2 ? `rgba(143, 247, 255, ${ringAlpha})` : `rgba(255, 138, 61, ${ringAlpha + rage * 0.08})`;
+                ctx.lineWidth = ring === 1 ? 4 : 2;
+                if (glowEnabled) {
+                    ctx.shadowColor = ring % 2 ? '#8ff7ff' : '#ff8a3d';
+                    ctx.shadowBlur = 12 + attackPulse * 10;
+                }
+                ctx.beginPath();
+                ctx.ellipse(0, 0, radius * (1.35 + ring * 0.13), radius * (0.38 + ring * 0.035), 0, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(0, 0, radius, 0, Math.PI * 2);
+            ctx.clip();
+            const body = ctx.createRadialGradient(-radius * 0.34, -radius * 0.36, 6, 0, 0, radius * 1.08);
+            body.addColorStop(0, bossObj.flashTimer > 0 ? '#ffffff' : '#34324d');
+            body.addColorStop(0.28, '#151424');
+            body.addColorStop(0.66, '#04040a');
+            body.addColorStop(1, '#000000');
+            ctx.fillStyle = body;
+            ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+            ctx.globalAlpha = 0.30 + rage * 0.16;
+            ctx.strokeStyle = '#b48cff';
+            ctx.lineWidth = 1;
+            for (let line = -5; line <= 5; line++) {
+                const yy = line * radius * 0.18 + Math.sin(t * 0.8 + line) * 3;
+                ctx.beginPath();
+                ctx.ellipse(0, yy, radius * (0.82 - Math.abs(line) * 0.045), radius * 0.05, 0, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 0.74;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = 'bold 13px Courier New';
+            for (let i = 0; i < 14; i++) {
+                const a = i * 2.399 + bossObj.ringAngle * 0.28;
+                const rr = radius * (0.18 + ((i * 37) % 64) / 100);
+                ctx.fillStyle = i % 3 === 0 ? '#8ff7ff' : (i % 3 === 1 ? '#ff8a3d' : '#d8c8ff');
+                ctx.fillText(i % 2 ? '0' : '1', Math.cos(a) * rr, Math.sin(a) * rr);
+            }
+            ctx.restore();
+            ctx.restore();
+
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i < 6; i++) {
+                const a = bossObj.moonAngle + i * Math.PI / 3;
+                const moonX = Math.cos(a) * radius * 1.72;
+                const moonY = Math.sin(a) * radius * 0.56;
+                ctx.globalAlpha = 0.58 + Math.sin(t * 2 + i) * 0.18;
+                ctx.fillStyle = i % 2 ? '#8ff7ff' : '#ffcf6d';
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.shadowBlur = glowEnabled ? 9 : 0;
+                ctx.font = `bold ${i % 2 ? 16 : 13}px Courier New`;
+                ctx.fillText(i % 2 ? '◌' : '●', moonX, moonY);
+            }
+            ctx.restore();
+
+            const barW = 270;
+            const barX = x - barW / 2;
+            const barY = y + radius + 34;
+            ctx.fillStyle = 'rgba(0,0,0,0.74)';
+            ctx.fillRect(barX, barY, barW, 9);
+            const hpGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+            hpGrad.addColorStop(0, '#8ff7ff');
+            hpGrad.addColorStop(0.42, '#b48cff');
+            hpGrad.addColorStop(1, '#ff4f4a');
+            ctx.fillStyle = hpGrad;
+            ctx.fillRect(barX, barY, barW * healthRatio, 9);
+            ctx.strokeStyle = '#fff1e8';
+            ctx.strokeRect(barX, barY, barW, 9);
+            ctx.textAlign = 'center';
+            ctx.font = `bold 12px 'Electrolize', sans-serif`;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#b48cff';
+            ctx.shadowBlur = glowEnabled ? 8 : 0;
+            ctx.fillText(bossObj.name, x, barY + 26);
+        }
+
         function drawBitshiftHazards() {
             ctx.save();
             ctx.textAlign = 'center';
@@ -1170,7 +1642,21 @@
                 ctx.strokeStyle = '#ff8a3d';
                 ctx.shadowColor = '#ff4f4a';
                 ctx.shadowBlur = glowEnabled ? 9 : 0;
-                if (h.type === 'dataColumn') {
+                if (h.type === 'planetBeam') {
+                    const active = (h.age || 0) >= (h.windup || 0);
+                    const pulse = active ? 0.62 + Math.sin(bitshiftScrollerState.elapsed * 24) * 0.18 : 0.18 + Math.sin(bitshiftScrollerState.elapsed * 18) * 0.08;
+                    ctx.fillStyle = active
+                        ? `rgba(255, 255, 255, ${0.10 + pulse * 0.05})`
+                        : `rgba(255, 138, 61, ${0.05 + pulse * 0.04})`;
+                    ctx.strokeStyle = h.color || '#ff8a3d';
+                    ctx.shadowColor = h.color || '#ff8a3d';
+                    ctx.shadowBlur = glowEnabled ? (active ? 18 : 8) : 0;
+                    ctx.fillRect(h.x, h.y, h.w, h.h);
+                    ctx.strokeRect(h.x, h.y, h.w, h.h);
+                    ctx.font = 'bold 12px Courier New';
+                    ctx.fillStyle = active ? '#ffffff' : (h.color || '#ff8a3d');
+                    for (let x = 18; x < width; x += 78) ctx.fillText(active ? '====' : 'WARN', x, h.y + h.h / 2);
+                } else if (h.type === 'dataColumn') {
                     const topH = Math.max(0, h.gapY - h.gapH / 2);
                     const bottomY = h.gapY + h.gapH / 2;
                     ctx.fillRect(h.x, 0, h.w, topH);
@@ -1238,10 +1724,30 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             for (const b of enemyBullets) {
+                if (b.isGravityWell) {
+                    const pulse = 0.5 + Math.sin(bitshiftScrollerState.elapsed * 5 + b.x * 0.01) * 0.5;
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'screen';
+                    const r = b.pullRadius || 130;
+                    const well = ctx.createRadialGradient(b.x, b.y, 4, b.x, b.y, r);
+                    well.addColorStop(0, 'rgba(255,255,255,0.10)');
+                    well.addColorStop(0.24, `rgba(180, 140, 255, ${0.16 + pulse * 0.05})`);
+                    well.addColorStop(0.62, `rgba(143, 247, 255, ${0.05 + pulse * 0.04})`);
+                    well.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = well;
+                    ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
+                    ctx.strokeStyle = b.haloColor || '#8ff7ff';
+                    ctx.globalAlpha = 0.32 + pulse * 0.22;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.ellipse(b.x, b.y, r * 0.36, r * 0.16, bitshiftScrollerState.elapsed * 1.6, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
                 ctx.fillStyle = b.color || '#ff8a3d';
                 ctx.shadowColor = b.color || '#ff8a3d';
-                ctx.shadowBlur = glowEnabled ? 7 : 0;
-                ctx.font = 'bold 17px Courier New';
+                ctx.shadowBlur = glowEnabled ? (b.isGravityWell ? 15 : 7) : 0;
+                ctx.font = `bold ${b.isGravityWell ? 24 : 17}px Courier New`;
                 ctx.fillText(b.char || 'o', b.x | 0, b.y | 0);
             }
             ctx.restore();
@@ -1308,7 +1814,7 @@
 
         function drawBitshiftMessages() {
             if (bitshiftScrollerState.messageTimer <= 0 && !bitshiftScrollerState.stageCleared) return;
-            const text = bitshiftScrollerState.stageCleared ? 'VECTOR ROUTE CLEAR' : bitshiftScrollerState.message;
+            const text = bitshiftScrollerState.stageCleared ? (bitshiftScrollerState.message || 'VECTOR ROUTE CLEAR') : bitshiftScrollerState.message;
             if (!text) return;
             ctx.save();
             ctx.textAlign = 'center';
@@ -1334,10 +1840,14 @@
                 elapsed: bitshiftScrollerState ? bitshiftScrollerState.elapsed : 0,
                 distance: bitshiftScrollerState ? bitshiftScrollerState.distance : 0,
                 stagePhase: bitshiftScrollerState ? bitshiftScrollerState.stagePhase : 'offline',
+                waveNumber: bitshiftScrollerState ? bitshiftScrollerState.waveNumber : 0,
+                waveName: bitshiftScrollerState ? bitshiftScrollerState.waveName : '',
+                waveTimer: bitshiftScrollerState ? bitshiftScrollerState.waveTimer : 0,
                 enemyCount: Array.isArray(enemies) ? enemies.filter(enemy => enemy && enemy.isBitshiftEnemy).length : 0,
                 hazardCount: bitshiftScrollerState && Array.isArray(bitshiftScrollerState.hazards) ? bitshiftScrollerState.hazards.length : 0,
                 projectileCount: Array.isArray(comboProjectiles) ? comboProjectiles.length : 0,
                 bossSpawned: !!(bitshiftScrollerState && bitshiftScrollerState.bossSpawned),
+                bossAttackName: bitshiftScrollerState ? bitshiftScrollerState.bossAttackName : '',
                 bossDefeated: !!(bitshiftScrollerState && bitshiftScrollerState.bossDefeated),
                 stageCleared: !!(bitshiftScrollerState && bitshiftScrollerState.stageCleared),
                 player: player ? {
