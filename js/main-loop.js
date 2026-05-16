@@ -56,6 +56,9 @@
             const loader = document.getElementById('initial-load-screen');
             if (!loader || loader.dataset.dismissed === 'true') return;
             loader.dataset.dismissed = 'true';
+            if (typeof startGalaxySelectIntroReveal === 'function') {
+                startGalaxySelectIntroReveal(performance.now());
+            }
             const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
             if (reducedMotion) {
                 loader.remove();
@@ -64,7 +67,7 @@
             loader.classList.add('is-breaking');
             window.setTimeout(() => {
                 if (loader && loader.parentNode) loader.parentNode.removeChild(loader);
-            }, 520);
+            }, 900);
         }
 
         function startGameLoop() {

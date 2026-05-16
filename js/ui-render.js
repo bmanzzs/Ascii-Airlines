@@ -1972,7 +1972,11 @@
             const focused = pauseSelection === -1 && player.weapons.length > 0;
             const selectedIndex = Math.max(0, Math.min(Math.max(0, player.weapons.length - 1), pausePowerupSelection));
             pausePowerupSelection = selectedIndex;
-            const detailH = focused ? 78 : 0;
+            const detailPanelH = 76;
+            const detailGap = 14;
+            const detailInset = 16;
+            const detailBottomPad = 12;
+            const detailH = focused ? detailGap + detailPanelH + detailBottomPad : 0;
             const panelX = tableX - 12;
             const panelY = tableY - 26;
             const panelW = tableW + 24;
@@ -2072,7 +2076,12 @@
             }
 
             if (focused && player.weapons.length > 0) {
-                drawPausePowerupDetail(player.weapons[selectedIndex], tableX, tableY + tableH + 14, tableW);
+                drawPausePowerupDetail(
+                    player.weapons[selectedIndex],
+                    panelX + detailInset,
+                    tableY + tableH + detailGap,
+                    panelW - detailInset * 2
+                );
             }
             ctx.restore();
             return cursorTarget;
@@ -2093,16 +2102,20 @@
                 const showPowerups = isPausePowerupMenuAvailable();
                 const powerupCell = 38;
                 const powerupGap = 7;
-                const powerupDetailReserve = showPowerups ? 78 : 0;
+                const powerupDetailReserve = showPowerups ? 102 : 0;
                 const powerupPanelH = showPowerups ? 2 * powerupCell + powerupGap + 38 + powerupDetailReserve : 0;
-                const powerupPanelBottomMargin = Math.max(104, Math.round(height * 0.13));
-                const powerupTableY = Math.round(height - powerupPanelBottomMargin - powerupPanelH + 26);
-                const powerupPanelTop = showPowerups ? powerupTableY - 26 : Math.round(height * 0.78);
                 const textBlockH = (options.length - 1) * pauseOptionGap;
-                const preferredMidY = Math.round(height * (showPowerups ? 0.235 : 0.30));
-                const maxMidY = powerupPanelTop - 70 - textBlockH;
+                const powerupPanelTop = Math.round(Math.max(54, height * 0.072));
+                const powerupTableY = showPowerups ? powerupPanelTop + 26 : Math.round(height * 0.78);
+                const menuTopAfterPowerups = powerupPanelTop + powerupPanelH + 54;
+                const preferredMidY = showPowerups
+                    ? menuTopAfterPowerups
+                    : Math.round(height * 0.30);
+                const maxMidY = Math.round(height - Math.max(112, height * 0.12) - textBlockH);
                 const minMidY = Math.round(height * 0.16);
-                const midY = Math.max(minMidY, Math.min(preferredMidY, maxMidY));
+                const midY = showPowerups
+                    ? Math.max(menuTopAfterPowerups, Math.min(preferredMidY, maxMidY))
+                    : Math.max(minMidY, Math.min(preferredMidY, maxMidY));
                 if (showPowerups) shipCursorTarget = drawPausePowerupBar(powerupTableY);
                 const volumeIndex = options.indexOf('VOLUME');
 
@@ -3173,6 +3186,8 @@
         const GALAXY_SELECT_SPRITE_CACHE_FPS_GLYPH_HEAVY_SELECTED = 48;
         const GALAXY_SELECT_SPRITE_CACHE_FPS_GLYPH_HEAVY_IDLE = 32;
         const GALAXY_SELECT_SPRITE_CACHE_MAX = 96;
+        const GALAXY_SELECT_INTRO_REVEAL_DURATION = 860;
+        const GALAXY_SELECT_INTRO_CURSOR_START_MARGIN = 56;
         const PRISM_ARRAY_ANIMATION_SPEED_SCALE = 0.5;
         const PRISM_ARRAY_OUTER_RING_DENSITY_SCALE = 1;
         const PRISM_ARRAY_BODY_CLUSTER_INNER_RADIUS = 0.16;
@@ -3180,6 +3195,15 @@
         const PRISM_ARRAY_OUTER_GLYPH_CACHE_MAX = 160;
         const galaxySelectSpriteFrameCache = new Map();
         const prismArrayOuterGlyphCache = new Map();
+        const galaxySelectIntroContentLayer = {
+            width: 0,
+            height: 0,
+            canvas: null,
+            ctx: null
+        };
+        let galaxySelectIntroRevealStart = null;
+        let galaxySelectIntroRevealComplete = false;
+        let galaxySelectIntroCursorPrimed = false;
         const TENSOR_MIRAGE_FIELD_GLYPHS = [
             '\u2297', '\u03BB', '\u2207', '\u2202', '\u03A3', '\u0394', '\u03C0', '\u00D7',
             'x', 'y', 'z', 'w', 'i', 'j', 'k', 'T', 'M', '[]', '<>', '::', '//', 'x/y'
@@ -3216,6 +3240,10 @@
             GALAXY_SPRITE_POINT_CACHE.clear();
             galaxySelectSpriteFrameCache.clear();
             prismArrayOuterGlyphCache.clear();
+            galaxySelectIntroContentLayer.width = 0;
+            galaxySelectIntroContentLayer.height = 0;
+            galaxySelectIntroContentLayer.canvas = null;
+            galaxySelectIntroContentLayer.ctx = null;
             galaxySelectBackgroundFrameCache.bucket = -1;
             galaxySelectBackgroundFrameCache.canvas = null;
             pauseMenuBackdropGradientCache.gradient = null;
@@ -5657,7 +5685,40 @@
             galaxyCtx.globalAlpha = 1;
         }
 
-        function drawGalaxySelectCursor(target) {
+        function primeGalaxySelectIntroCursorFlyIn(target, now) {
+            if (galaxySelectIntroCursorPrimed || !target || !pauseMenuShipCursor || pauseMenuShipCursor.initialized) return;
+
+            const cursor = pauseMenuShipCursor;
+            const startX = -GALAXY_SELECT_INTRO_CURSOR_START_MARGIN;
+            const startY = Math.max(96, Math.min(height - 120, target.y + 10));
+            const dx = target.x - startX;
+            const dy = target.y - startY;
+            const targetKey = target.key || '';
+
+            cursor.x = startX;
+            cursor.y = startY;
+            cursor.vx = Math.max(280, Math.min(520, Math.abs(dx) * 2.8));
+            cursor.vy = dy * 1.8;
+            cursor.rot = Math.atan2(dy, dx) + Math.PI / 2;
+            cursor.scale = target.scale || 0.24;
+            cursor.speed = Math.hypot(cursor.vx, cursor.vy);
+            cursor.trail = [];
+            cursor.trailEmitAcc = 0;
+            cursor.settleBlend = 0;
+            cursor.initialized = true;
+            cursor.lastNow = now || currentFrameNow || performance.now();
+            cursor.targetKey = targetKey;
+            cursor.routeKey = targetKey;
+            cursor.approachComplete = true;
+            cursor.renderX = startX;
+            cursor.renderY = startY;
+            cursor.renderRot = cursor.rot;
+            cursor.renderScale = cursor.scale;
+            galaxySelectIntroCursorPrimed = true;
+        }
+
+        function drawGalaxySelectCursor(target, options = {}) {
+            if (options.introFlyIn) primeGalaxySelectIntroCursorFlyIn(target, currentFrameNow);
             const cursor = updatePauseMenuShipCursor(target, currentFrameNow);
             if (!cursor) return;
             const speedRatio = Math.min(1, cursor.speed / 310);
@@ -5668,7 +5729,7 @@
             if (pauseMenuShipCursor.trail.length > GALAXY_CURSOR_TRAIL_MAX) {
                 pauseMenuShipCursor.trail.splice(0, pauseMenuShipCursor.trail.length - GALAXY_CURSOR_TRAIL_MAX);
             }
-            drawPauseMenuShipTrail(cursor.dt);
+            if (!options.suppressTrail) drawPauseMenuShipTrail(cursor.dt);
             galaxyCtx.save();
             galaxyCtx.translate(cursor.x, cursor.y);
             galaxyCtx.rotate(cursor.rot);
@@ -5688,7 +5749,7 @@
             galaxyCtx.restore();
             galaxyCtx.shadowBlur = 0;
             galaxyCtx.globalAlpha = 1;
-            emitPauseMenuShipExhaustTrail(cursor, currentFrameNow, speedRatio * 0.75, 0.46, GALAXY_CURSOR_TRAIL_MAX);
+            if (!options.suppressTrail) emitPauseMenuShipExhaustTrail(cursor, currentFrameNow, speedRatio * 0.75, 0.46, GALAXY_CURSOR_TRAIL_MAX);
         }
 
         function drawCenteredWrappedText(text, x, y, maxWidth, lineHeight, font, color, maxLines = 2) {
@@ -5785,9 +5846,56 @@
             galaxyCtx.shadowBlur = 0;
         }
 
-        function drawGalaxySelectWorldLayerDirect(now, selectedIndex) {
+        function prefersGalaxySelectIntroReducedMotion() {
+            return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        }
+
+        function startGalaxySelectIntroReveal(now = currentFrameNow || performance.now()) {
+            if (galaxySelectIntroRevealComplete) return;
+            galaxySelectIntroRevealStart = now;
+            galaxySelectIntroCursorPrimed = false;
+            if (typeof resetPauseMenuShipCursor === 'function') {
+                resetPauseMenuShipCursor();
+            }
+        }
+
+        function getGalaxySelectIntroRevealAlpha(now) {
+            if (galaxySelectIntroRevealComplete || gameState !== 'GALAXY_SELECT' || prefersGalaxySelectIntroReducedMotion()) {
+                galaxySelectIntroRevealComplete = true;
+                return 1;
+            }
+            if (galaxySelectIntroRevealStart === null) {
+                galaxySelectIntroRevealStart = now;
+            }
+            const t = Math.max(0, Math.min(1, (now - galaxySelectIntroRevealStart) / GALAXY_SELECT_INTRO_REVEAL_DURATION));
+            if (t >= 1) {
+                galaxySelectIntroRevealComplete = true;
+                return 1;
+            }
+            return t * t * (3 - 2 * t);
+        }
+
+        function ensureGalaxySelectIntroContentLayer() {
+            if (
+                galaxySelectIntroContentLayer.canvas &&
+                galaxySelectIntroContentLayer.ctx &&
+                galaxySelectIntroContentLayer.width === width &&
+                galaxySelectIntroContentLayer.height === height
+            ) {
+                return galaxySelectIntroContentLayer;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, width);
+            canvas.height = Math.max(1, height);
+            galaxySelectIntroContentLayer.width = canvas.width;
+            galaxySelectIntroContentLayer.height = canvas.height;
+            galaxySelectIntroContentLayer.canvas = canvas;
+            galaxySelectIntroContentLayer.ctx = canvas.getContext('2d', { alpha: true });
+            return galaxySelectIntroContentLayer;
+        }
+
+        function drawGalaxySelectGalaxyLayerDirect(now, selectedIndex) {
             const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [getGalaxyDefinition(0)];
-            drawGalaxySelectBackground(now);
             for (let i = 0; i < galaxies.length; i++) {
                 const galaxy = galaxies[i];
                 const slot = getGalaxySelectSlot(i);
@@ -5805,6 +5913,11 @@
                     }
                 }
             }
+        }
+
+        function drawGalaxySelectWorldLayerDirect(now, selectedIndex) {
+            drawGalaxySelectBackground(now);
+            drawGalaxySelectGalaxyLayerDirect(now, selectedIndex);
         }
 
         function addSortedGradientStops(gradient, stops) {
@@ -5924,6 +6037,52 @@
             drawGalaxySelectUiLayer(now, galaxies, selectedIndex);
         }
 
+        function drawGalaxySelectContentDirect(now, selectedIndex, showCursor = true) {
+            const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [getGalaxyDefinition(0)];
+            drawGalaxySelectGalaxyLayerDirect(now, selectedIndex);
+            drawGalaxySelectUiLayer(now, galaxies, selectedIndex);
+            const cursorTarget = showCursor ? getGalaxySelectCurrentCursorTarget(now, selectedIndex) : null;
+            if (showCursor && cursorTarget) drawGalaxySelectCursor(cursorTarget, { suppressTrail: true });
+        }
+
+        function drawGalaxySelectIntroContentLayer(now, selectedIndex, showCursor, alpha) {
+            const layer = ensureGalaxySelectIntroContentLayer();
+            if (!layer || !layer.ctx || !layer.canvas) {
+                drawGalaxySelectContentDirect(now, selectedIndex, showCursor);
+                return;
+            }
+
+            const previousGalaxyCtx = galaxyCtx;
+            galaxyCtx = layer.ctx;
+            layer.ctx.setTransform(1, 0, 0, 1, 0, 0);
+            layer.ctx.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
+            layer.ctx.globalAlpha = 1;
+            layer.ctx.globalCompositeOperation = 'source-over';
+            layer.ctx.shadowBlur = 0;
+            try {
+                drawGalaxySelectContentDirect(now, selectedIndex, false);
+            } finally {
+                galaxyCtx = previousGalaxyCtx;
+            }
+
+            galaxyCtx.save();
+            galaxyCtx.globalAlpha = alpha;
+            galaxyCtx.drawImage(layer.canvas, 0, 0);
+            galaxyCtx.restore();
+            galaxyCtx.globalAlpha = 1;
+            galaxyCtx.shadowBlur = 0;
+
+            const cursorTarget = showCursor ? getGalaxySelectCurrentCursorTarget(now, selectedIndex) : null;
+            if (showCursor && cursorTarget) {
+                galaxyCtx.save();
+                galaxyCtx.globalAlpha = alpha;
+                drawGalaxySelectCursor(cursorTarget, { suppressTrail: true, introFlyIn: true });
+                galaxyCtx.restore();
+                galaxyCtx.globalAlpha = 1;
+                galaxyCtx.shadowBlur = 0;
+            }
+        }
+
         function getGalaxySelectCurrentCursorTarget(now, selectedIndex = selectedGalaxyIndex) {
             const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [getGalaxyDefinition(0)];
             const galaxy = galaxies[selectedIndex] || galaxies[0];
@@ -5935,6 +6094,12 @@
         }
 
         function drawGalaxySelectScreen(now, showCursor = true) {
+            const revealAlpha = getGalaxySelectIntroRevealAlpha(now);
+            if (revealAlpha < 0.999) {
+                drawGalaxySelectBackground(now);
+                drawGalaxySelectIntroContentLayer(now, selectedGalaxyIndex, showCursor, revealAlpha);
+                return;
+            }
             drawGalaxySelectBaseLayerDirect(now, selectedGalaxyIndex);
             const cursorTarget = showCursor ? getGalaxySelectCurrentCursorTarget(now, selectedGalaxyIndex) : null;
             if (showCursor && cursorTarget) drawGalaxySelectCursor(cursorTarget);

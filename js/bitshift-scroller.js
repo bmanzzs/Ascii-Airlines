@@ -3,6 +3,9 @@
 
         const BITSHIFT_MODE_ID = 'bitshiftScroller';
         const BITSHIFT_FIRE_ANGLE = 0;
+        const BITSHIFT_SHIP_RENDER_ROTATION = Math.PI / 2;
+        const BITSHIFT_SCREEN_SHAKE_DECAY = 0.88;
+        const BITSHIFT_WOBBLE_DECAY = 0.82;
         const BITSHIFT_STAGE_CLEAR_DELAY = 4.2;
         const BITSHIFT_BOSS_SPAWN_TIME = 125;
         const BITSHIFT_STAGE_EVENTS = Object.freeze([
@@ -285,6 +288,19 @@
             updateBitshiftPickups(safeDt);
             updateBitshiftParticles(safeDt);
             updateBitshiftStageClear(safeDt);
+            decayBitshiftScreenFeedback(safeDt);
+        }
+
+        function decayBitshiftScreenFeedback(dt) {
+            const frameScale = Math.max(0, dt || 0) * 60;
+            if (typeof shake === 'number' && shake > 0) {
+                shake *= Math.pow(BITSHIFT_SCREEN_SHAKE_DECAY, frameScale);
+                if (shake < 0.35) shake = 0;
+            }
+            if (typeof wobble === 'number' && Math.abs(wobble) > 0.01) {
+                wobble *= Math.pow(BITSHIFT_WOBBLE_DECAY, frameScale);
+                if (Math.abs(wobble) < 0.01) wobble = 0;
+            }
         }
 
         function updateBitshiftStarfield(dt) {
@@ -1189,7 +1205,7 @@
                 ctx.shadowColor = p.color || '#ffffff';
                 ctx.shadowBlur = glowEnabled ? 8 : 0;
                 ctx.font = `bold ${Math.round(16 * ((p.stats && p.stats.sizeMult) || 1))}px Courier New`;
-                ctx.fillText(p.sprite || '>', p.x | 0, p.y | 0);
+                ctx.fillText(getBitshiftProjectileSprite(p), p.x | 0, p.y | 0);
             }
             for (const bombObj of bombProjectiles) {
                 ctx.globalAlpha = 1;
@@ -1208,6 +1224,13 @@
             }
             ctx.restore();
             ctx.globalAlpha = 1;
+        }
+
+        function getBitshiftProjectileSprite(projectile) {
+            const sprite = projectile && projectile.sprite ? projectile.sprite : '>';
+            if (sprite !== '|' && sprite !== '!') return sprite;
+            const vx = projectile.baseVx || projectile.vx || Math.cos(projectile.releaseAngle || BITSHIFT_FIRE_ANGLE);
+            return vx < -1 ? '<=' : '=>';
         }
 
         function drawBitshiftEnemyBullets() {
@@ -1276,6 +1299,9 @@
             ctx.fillStyle = player.color;
             ctx.shadowColor = '#8ff7ff';
             ctx.shadowBlur = glowEnabled ? pulseVisuals.glow : 0;
+            ctx.translate(player.x, player.y);
+            ctx.rotate(BITSHIFT_SHIP_RENDER_ROTATION);
+            ctx.translate(-player.x, -player.y);
             drawPlayerShip(player, 'center');
             ctx.restore();
         }
