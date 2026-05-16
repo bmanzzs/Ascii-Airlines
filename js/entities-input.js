@@ -468,10 +468,14 @@
                                     setCanvasFilterIndex(canvasFilterIndex + direction);
                                 }
                             } else if (settingsSelection === 3 && isToggleKey) {
-                                glowEnabled = !glowEnabled;
-                                sessionStorage.setItem('ascii_glow_enabled', glowEnabled.toString());
-                                if (typeof invalidateGraphicsRenderCaches === 'function') invalidateGraphicsRenderCaches();
-                                applyTheme();
+                                if (typeof cycleGlowQualityMode === 'function') {
+                                    cycleGlowQualityMode(direction);
+                                } else {
+                                    glowEnabled = !glowEnabled;
+                                    sessionStorage.setItem('ascii_glow_enabled', glowEnabled.toString());
+                                    if (typeof invalidateGraphicsRenderCaches === 'function') invalidateGraphicsRenderCaches();
+                                    applyTheme();
+                                }
                             } else if (settingsSelection === 4 && isToggleKey) {
                                 if (typeof setVisualQualityIndex === 'function') {
                                     setVisualQualityIndex(visualQualityIndex + direction);

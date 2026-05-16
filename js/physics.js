@@ -1210,8 +1210,15 @@
             if (inputX !== 0 && inputY !== 0) { inputX *= 0.707; inputY *= 0.707; }
             
             const playerMoveSpeedScale = getPlayerMoveSpeedScale();
-            player.vx = (player.vx + inputX * P_ACCEL * playerMoveSpeedScale * dt) * P_FRICTION;
-            player.vy = (player.vy + inputY * P_ACCEL * playerMoveSpeedScale * dt) * P_FRICTION;
+            const accelX = inputX * P_ACCEL * playerMoveSpeedScale;
+            const accelY = inputY * P_ACCEL * playerMoveSpeedScale;
+            if (typeof applyFrameNormalizedPlayerFriction === 'function') {
+                player.vx = applyFrameNormalizedPlayerFriction(player.vx, accelX, dt);
+                player.vy = applyFrameNormalizedPlayerFriction(player.vy, accelY, dt);
+            } else {
+                player.vx = (player.vx + accelX * dt) * P_FRICTION;
+                player.vy = (player.vy + accelY * dt) * P_FRICTION;
+            }
             player.x = Math.max(50, Math.min(width - 50, player.x + player.vx * dt));
             player.y = Math.max(50, Math.min(getGameplayBottomLimit(50), player.y + player.vy * dt));
             const playerSpeedRatio = Math.min(1, Math.sqrt(player.vx * player.vx + player.vy * player.vy) / P_MAX_SPEED);

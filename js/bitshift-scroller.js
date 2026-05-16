@@ -388,8 +388,15 @@
             const inputY = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
             const diagonal = inputX !== 0 && inputY !== 0 ? 0.707 : 1;
             const moveScale = typeof getPlayerMoveSpeedScale === 'function' ? getPlayerMoveSpeedScale() : 1;
-            player.vx = (player.vx + inputX * diagonal * P_ACCEL * moveScale * dt) * P_FRICTION;
-            player.vy = (player.vy + inputY * diagonal * P_ACCEL * moveScale * dt) * P_FRICTION;
+            const accelX = inputX * diagonal * P_ACCEL * moveScale;
+            const accelY = inputY * diagonal * P_ACCEL * moveScale;
+            if (typeof applyFrameNormalizedPlayerFriction === 'function') {
+                player.vx = applyFrameNormalizedPlayerFriction(player.vx, accelX, dt);
+                player.vy = applyFrameNormalizedPlayerFriction(player.vy, accelY, dt);
+            } else {
+                player.vx = (player.vx + accelX * dt) * P_FRICTION;
+                player.vy = (player.vy + accelY * dt) * P_FRICTION;
+            }
 
             const bounds = getBitshiftBounds();
             player.x = Math.max(bounds.left, Math.min(bounds.right, player.x + player.vx * dt));

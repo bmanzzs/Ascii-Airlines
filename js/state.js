@@ -98,6 +98,7 @@
             visualQualityIndex = ((index % count) + count) % count;
             sessionStorage.setItem('ascii_visual_quality', visualQualityIndex.toString());
             if (typeof invalidateGraphicsRenderCaches === 'function') invalidateGraphicsRenderCaches();
+            if (typeof clearGlowRenderCaches === 'function') clearGlowRenderCaches();
             if (typeof rebuildField === 'function') rebuildField();
         }
         
@@ -212,7 +213,23 @@
         const SURVIVOR_COMBINED_FOCUS_SHRINK_SCALE = 0.925;
         let P_ACCEL = 3800;
         const P_FRICTION = 0.95;
+        const PLAYER_MOVEMENT_REFERENCE_FPS = 144;
         let P_MAX_SPEED = 720;
+
+        function applyFrameNormalizedPlayerFriction(velocity, accelerationPerSecond, dt, perFrameFriction = P_FRICTION, referenceFps = PLAYER_MOVEMENT_REFERENCE_FPS) {
+            const safeVelocity = Number.isFinite(velocity) ? velocity : 0;
+            const safeAccel = Number.isFinite(accelerationPerSecond) ? accelerationPerSecond : 0;
+            const safeDt = Math.max(0, Math.min(0.05, Number.isFinite(dt) ? dt : 0));
+            const safeFriction = Math.max(0, Math.min(1, Number.isFinite(perFrameFriction) ? perFrameFriction : P_FRICTION));
+            const safeReferenceFps = Math.max(1, Number.isFinite(referenceFps) ? referenceFps : PLAYER_MOVEMENT_REFERENCE_FPS);
+            if (safeDt <= 0) return safeVelocity;
+            if (safeFriction >= 0.9999) return safeVelocity + safeAccel * safeDt;
+            const referenceFrames = safeDt * safeReferenceFps;
+            const decay = Math.pow(safeFriction, referenceFrames);
+            const referenceFrameAccel = safeAccel / safeReferenceFps;
+            const accelContribution = referenceFrameAccel * safeFriction * (1 - decay) / (1 - safeFriction);
+            return safeVelocity * decay + accelContribution;
+        }
 
         // Cyberpunk Synthwave Palette
         const COLORS = ['#0b1028', '#141f3f', '#47337d', '#6aa8ff', '#ff5e8a'];

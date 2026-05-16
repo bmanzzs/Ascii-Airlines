@@ -73,7 +73,7 @@
             ctx.textBaseline = 'middle';
             ctx.globalAlpha = alpha;
             ctx.fillStyle = flicker > 0.72 || visual.pop > 0.88 ? '#ffffff' : color;
-            if (glowEnabled) {
+            if (glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
                 ctx.shadowColor = color;
                 ctx.shadowBlur = (options.glow || 10) * alpha + visual.pop * 4;
             }
@@ -88,7 +88,7 @@
                 const terminalAlpha = Math.min(1, visual.terminalAlpha * alphaScale);
                 const moteSize = Math.max(4, Math.round(baseSize * (0.12 + visual.terminal * 0.08)));
                 const moteRadius = Math.max(2, baseSize * 0.18 * visual.terminal);
-                ctx.shadowBlur = glowEnabled ? 5 * terminalAlpha : 0;
+                ctx.shadowBlur = glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('low')) ? 5 * terminalAlpha : 0;
                 ctx.fillStyle = '#ffffff';
                 ctx.globalAlpha = terminalAlpha * 0.56;
                 ctx.font = `bold ${moteSize}px Courier New`;
@@ -246,19 +246,24 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            if (glowEnabled) {
-                ctx.shadowColor = color;
-                ctx.shadowBlur = 8 + Math.sin(phase * 1.3) * 1.5;
-            }
-            ctx.font = `bold 21px Courier New`;
-            ctx.globalAlpha = 0.84;
-            ctx.fillStyle = color;
-            ctx.fillText('\u25cb', 0, 0);
+            if (glowEnabled && typeof drawCachedGlowGlyph === 'function') {
+                drawCachedGlowGlyph(ctx, '\u25cb', 0, 0, 'bold 21px Courier New', color, color, 8, { alpha: 0.84 });
+                drawCachedGlowGlyph(ctx, '\u25cf', 0, 0, 'bold 12px Courier New', color, color, 4, { alpha: 0.68 });
+            } else {
+                if (glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
+                    ctx.shadowColor = color;
+                    ctx.shadowBlur = 8 + Math.sin(phase * 1.3) * 1.5;
+                }
+                ctx.font = `bold 21px Courier New`;
+                ctx.globalAlpha = 0.84;
+                ctx.fillStyle = color;
+                ctx.fillText('\u25cb', 0, 0);
 
-            ctx.shadowBlur = glowEnabled ? 4 : 0;
-            ctx.font = `bold 12px Courier New`;
-            ctx.globalAlpha = 0.68;
-            ctx.fillText('\u25cf', 0, 0);
+                ctx.shadowBlur = glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('low')) ? 4 : 0;
+                ctx.font = `bold 12px Courier New`;
+                ctx.globalAlpha = 0.68;
+                ctx.fillText('\u25cf', 0, 0);
+            }
 
             ctx.shadowBlur = 0;
             ctx.font = `bold 9px Courier New`;
@@ -2160,7 +2165,7 @@
                         'FPS CAP 60: < ' + (userFpsCap ? 'ON' : 'OFF') + ' >',
                         'CANVAS SHARP: < ' + (typeof getCanvasSharpnessLabel === 'function' ? getCanvasSharpnessLabel() : 'PERFORMANCE 1.00X') + ' >',
                         'CANVAS FILTER: < ' + (typeof getCanvasFilterLabel === 'function' ? getCanvasFilterLabel() : 'PIXEL') + ' >',
-                        'GLOW EFFECT: < ' + (glowEnabled ? 'ON' : 'OFF') + ' >',
+                        'GLOW QUALITY: < ' + (typeof getGlowQualityLabel === 'function' ? getGlowQualityLabel() : (glowEnabled ? 'SOFT' : 'OFF')) + ' >',
                         'VISUAL QUALITY: < ' + (typeof getVisualQualityLabel === 'function' ? getVisualQualityLabel() : 'NORMAL') + ' >',
                         'GO BACK'
                     ]
@@ -9042,6 +9047,9 @@
                 return;
             }
             const renderNow = currentFrameNow;
+            if (typeof resetGlowBudgetForFrame === 'function') {
+                resetGlowBudgetForFrame(renderNow);
+            }
             if (
                 typeof musicPlayerFullscreen !== 'undefined'
                 && musicPlayerFullscreen
@@ -9115,7 +9123,7 @@
                     }
                     ctx.fillStyle = highlight > 0.42 || fpColor[i] === 1 ? '#dfeaff' : currentThemeColor;
                     ctx.globalAlpha = alpha;
-                    if (glowEnabled && highlight > 0.32) {
+                    if (glowEnabled && highlight > 0.32 && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('low'))) {
                         ctx.shadowColor = ctx.fillStyle;
                         ctx.shadowBlur = 3 + highlight * 7;
                     } else {
@@ -9356,7 +9364,12 @@
                             hugeFontSet = true;
                         }
                         ctx.fillStyle = bulletColor;
-                        if (b.isGlitchBullet && glowEnabled) { ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 25; }
+                        if (b.isGlitchBullet && glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
+                            ctx.shadowColor = '#00ff41';
+                            ctx.shadowBlur = 25;
+                        } else {
+                            ctx.shadowBlur = 0;
+                        }
                         const scale = Math.max(0.01, b.life);
                         drawFocusBulletTrailGlyph(b, b.char, bulletColor, `bold ${Math.max(12, Math.round(120 * scale))}px Courier New`, 0.72);
                         ctx.save();
@@ -9380,7 +9393,12 @@
                     if (b.isCodeLine) {
                         ctx.fillStyle = '#00ff41';
                         ctx.font = `bold 14px Courier New`;
-                        if (glowEnabled) { ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 20 + Math.random() * 10; }
+                        if (glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('low'))) {
+                            ctx.shadowColor = '#00ff41';
+                            ctx.shadowBlur = 20 + Math.random() * 10;
+                        } else {
+                            ctx.shadowBlur = 0;
+                        }
                         drawFocusBulletTrailGlyph(b, b.char, '#00ff41', `bold 14px Courier New`, 0.65);
                         ctx.save();
                         ctx.translate(
@@ -9402,22 +9420,24 @@
                     else if (b.isPhantomBullet) ctx.font = `bold 35px Courier New`;
                     else if (b.isVoidProjectile) ctx.font = `bold ${b.voidBulletSize || 24}px Courier New`;
                     else ctx.font = `bold 20px Courier New`;
-                    if (b.isGlitchBullet && glowEnabled) {
+                    if (b.isGlitchBullet && glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
                         ctx.shadowColor = '#00ff41';
                         ctx.shadowBlur = 18 + Math.random() * 8;
-                    } else if (b.isLargeWraith && glowEnabled) {
+                    } else if (b.isLargeWraith && glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
                         const wraithGlowPulse = getWraithBulletBreath(b, renderNow);
                         ctx.shadowColor = '#c8ffff';
                         ctx.shadowBlur = 6 + wraithGlowPulse * 8;
-                    } else if (b.isWraithBolt && glowEnabled) {
+                    } else if (b.isWraithBolt && glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
                         ctx.shadowColor = '#f4f7fb';
                         ctx.shadowBlur = 5 + getWraithBulletBreath(b, renderNow) * 7;
-                    } else if (b.isVoidProjectile && glowEnabled) {
+                    } else if (b.isVoidProjectile && glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('high'))) {
                         ctx.shadowColor = b.color;
                         ctx.shadowBlur = 18;
-                    } else if (b.isFlyByBullet && glowEnabled) {
+                    } else if (b.isFlyByBullet && glowEnabled && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
                         ctx.shadowColor = b.color;
                         ctx.shadowBlur = 14;
+                    } else {
+                        ctx.shadowBlur = 0;
                     }
                     const useOrbBulletVisual = !b.decay &&
                         !b.isGlitchBullet && !b.isLargeFlame && !b.isLargeWraith &&
@@ -10154,7 +10174,7 @@
                     ctx.fillStyle = p.color; 
                     if (p.isBombShrapnel) {
                         ctx.font = `bold 22px Courier New`;
-                        if (glowEnabled) {
+                        if (glowEnabled && typeof drawCachedGlowGlyph !== 'function' && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
                             ctx.shadowColor = p.color;
                             ctx.shadowBlur = 12;
                         }
@@ -10188,15 +10208,21 @@
                         continue;
                     }
                     if (p.isBurstRound) {
-                        if (glowEnabled) {
+                        const burstFont = `bold 22px Courier New`;
+                        const useCachedBurstGlow = glowEnabled && typeof drawCachedGlowGlyph === 'function';
+                        if (glowEnabled && !useCachedBurstGlow && (typeof shouldUseLiveShadowBlur !== 'function' || shouldUseLiveShadowBlur('normal'))) {
                             ctx.shadowColor = '#aa00ff';
                             ctx.shadowBlur = 10;
                         }
                         ctx.fillStyle = p.color;
-                        ctx.font = `bold 22px Courier New`;
+                        ctx.font = burstFont;
                         ctx.rotate(getPlayerProjectileGlyphRotation(p));
                         ctx.scale(scale * 0.92, scale * 1.05);
-                        ctx.fillText('|', 0, 0);
+                        if (useCachedBurstGlow) {
+                            drawCachedGlowGlyph(ctx, '|', 0, 0, burstFont, p.color, '#aa00ff', 10);
+                        } else {
+                            ctx.fillText('|', 0, 0);
+                        }
                         ctx.fillStyle = '#ffffff';
                         ctx.font = `bold 8px Courier New`;
                         ctx.fillText('.', 0, -5);
@@ -10208,7 +10234,11 @@
                         ctx.rotate(getPlayerProjectileGlyphRotation(p));
                     }
                     ctx.scale(scale, scale);
-                    ctx.fillText(p.sprite, 0, 0); 
+                    if (p.isBombShrapnel && glowEnabled && typeof drawCachedGlowGlyph === 'function') {
+                        drawCachedGlowGlyph(ctx, p.sprite, 0, 0, `bold 22px Courier New`, p.color, p.color, 12);
+                    } else {
+                        ctx.fillText(p.sprite, 0, 0);
+                    }
                     ctx.restore();
                     if (p.isBombShrapnel) ctx.shadowBlur = 0;
                 }
