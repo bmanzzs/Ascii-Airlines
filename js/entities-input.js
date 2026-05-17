@@ -151,6 +151,24 @@
                 return;
             }
 
+            if (gameState === BENCHMARK_GAME_STATE) {
+                e.preventDefault();
+                clearGameplayKeys();
+                if (k === 'escape') {
+                    if (typeof finishGraphicsBenchmarkMode === 'function') finishGraphicsBenchmarkMode(true);
+                    return;
+                }
+                if ((k === 'enter' || k === ' ') && typeof isGraphicsBenchmarkComplete === 'function' && isGraphicsBenchmarkComplete()) {
+                    if (typeof applyGraphicsBenchmarkRecommendation === 'function') {
+                        applyGraphicsBenchmarkRecommendation();
+                    } else if (typeof finishGraphicsBenchmarkMode === 'function') {
+                        finishGraphicsBenchmarkMode(false);
+                    }
+                    return;
+                }
+                return;
+            }
+
             if (bossCinematic && bossCinematic.paused) {
                 e.preventDefault();
                 return;
@@ -485,6 +503,10 @@
                             } else if (settingsSelection === 4 && isToggleKey) {
                                 if (typeof setVisualQualityIndex === 'function') {
                                     setVisualQualityIndex(visualQualityIndex + direction);
+                                }
+                            } else if (settingsSelection === GRAPHICS_BENCHMARK_MENU_INDEX && (k === 'enter' || k === ' ')) {
+                                if (typeof beginGraphicsBenchmarkMode === 'function') {
+                                    beginGraphicsBenchmarkMode();
                                 }
                             } else if (settingsSelection === lastSettingsIndex && (k === 'enter' || k === ' ' || k === 'arrowleft' || k === 'a')) {
                                 pauseState = 'MAIN';

@@ -1831,6 +1831,12 @@
             ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
                 ? getLiveGlowBlur(pulseVisuals.glow, 'high', 1, 0.38)
                 : (glowEnabled ? pulseVisuals.glow : 0);
+            if (typeof drawCheapGlowDot === 'function') {
+                drawCheapGlowDot(ctx, player.x, player.y, player.flashTimer > 0 ? 30 : 24, '#8ff7ff', {
+                    alpha: player.flashTimer > 0 ? 0.16 : 0.08,
+                    core: false
+                });
+            }
             ctx.translate(player.x, player.y);
             ctx.rotate(BITSHIFT_SHIP_RENDER_ROTATION);
             ctx.translate(-player.x, -player.y);

@@ -272,12 +272,21 @@
                 drawCachedGlowGlyph(ctx, '\u25cb', 0, 0, 'bold 21px Courier New', color, color, 8, { alpha: 0.84 });
                 drawCachedGlowGlyph(ctx, '\u25cf', 0, 0, 'bold 12px Courier New', color, color, 4, { alpha: 0.68 });
             } else {
-                if (softGlow && glowEnabled) {
-                    ctx.font = `bold 24px Courier New`;
-                    ctx.globalAlpha = 0.14;
-                    ctx.fillStyle = color;
-                    ctx.fillText('\u25cf', 0, 0);
-                    ctx.globalAlpha = 0.72;
+                if (softGlow) {
+                    if (typeof drawCheapGlowGlyph === 'function') {
+                        drawCheapGlowGlyph(ctx, '\u25cf', 0, 0, 'bold 21px Courier New', color, {
+                            alpha: 0.12,
+                            echoAlpha: 0.045,
+                            sizeBoost: 1.22,
+                            maxFontSize: 26
+                        });
+                    } else {
+                        ctx.font = `bold 24px Courier New`;
+                        ctx.globalAlpha = 0.14;
+                        ctx.fillStyle = color;
+                        ctx.fillText('\u25cf', 0, 0);
+                        ctx.globalAlpha = 0.72;
+                    }
                 }
                 const orbGlowBlur = typeof getLiveGlowBlur === 'function'
                     ? getLiveGlowBlur(8 + Math.sin(phase * 1.3) * 1.5, 'normal', 1, 0.30)
@@ -550,7 +559,10 @@
             const x = snapSpriteCoord(b.x);
             const y = snapSpriteCoord(b.y);
             const isWraithLarge = b.signalBulletType === 'wraithLarge';
-            const allowGlow = glowEnabled && load <= (isWraithLarge ? 18 : BOSS_PROJECTILE_GLOW_LIMIT) && !b.isPhantomBullet;
+            const allowGlow = glowEnabled
+                && !(typeof isCheapSoftGlowQuality === 'function' && isCheapSoftGlowQuality())
+                && load <= (isWraithLarge ? 18 : BOSS_PROJECTILE_GLOW_LIMIT)
+                && !b.isPhantomBullet;
             const allowCore = !!style.core && load <= (b.isPhantomBullet ? 12 : BOSS_PROJECTILE_CORE_LIMIT);
             const sprite = getBossProjectileSprite(style, allowGlow, allowCore);
             const focusTrail = getFocusTrailIntensity();
@@ -2419,6 +2431,7 @@
                         'CANVAS FILTER: < ' + (typeof getCanvasFilterLabel === 'function' ? getCanvasFilterLabel() : 'PIXEL') + ' >',
                         'GLOW QUALITY: < ' + (typeof getGlowQualityLabel === 'function' ? getGlowQualityLabel() : (glowEnabled ? 'SOFT' : 'OFF')) + ' >',
                         'VISUAL QUALITY: < ' + (typeof getVisualQualityLabel === 'function' ? getVisualQualityLabel() : 'NORMAL') + ' >',
+                        'AUTO ADJUST SETTINGS',
                         'GO BACK'
                     ]
                     : [
@@ -2442,6 +2455,1601 @@
                 drawPauseMenuShipCursor(shipCursorTarget);
             }
         }
+
+        function getGraphicsBenchmarkPlayRect() {
+            const marginX = Math.max(36, Math.round(width * 0.055));
+            const top = Math.max(82, Math.round(height * 0.10));
+            const bottomReserve = Math.max(230, Math.round(height * 0.26));
+            return {
+                x: marginX,
+                y: top,
+                w: Math.max(320, width - marginX * 2),
+                h: Math.max(300, height - top - bottomReserve)
+            };
+        }
+
+        function benchmarkClamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function benchmarkRandom(state) {
+            state.rngState = (Math.imul(state.rngState || 1, 1664525) + 1013904223) >>> 0;
+            return state.rngState / 4294967296;
+        }
+
+        const GRAPHICS_BENCHMARK_SCENE_TRANSITION_SECONDS = 0.26;
+
+        function buildGraphicsBenchmarkModeScenes() {
+            return [
+                {
+                    id: 'binary',
+                    label: 'BINARY QUASAR',
+                    subtitle: 'BULLET ROUTE',
+                    color: '#dcecff',
+                    accent: '#8ff7ff'
+                },
+                {
+                    id: 'prism',
+                    label: 'PRISM ARRAY',
+                    subtitle: 'SURVIVAL RUN',
+                    color: '#bfffff',
+                    accent: '#ff8fd8'
+                },
+                {
+                    id: 'matrix',
+                    label: 'MATRIX NEBULA',
+                    subtitle: 'NODE CRAWLER',
+                    color: '#65ffb8',
+                    accent: '#9bffcf'
+                },
+                {
+                    id: 'bitshift',
+                    label: 'BITSHIFT DWARF',
+                    subtitle: 'VECTOR SCROLL',
+                    color: '#ff9a73',
+                    accent: '#8ff7ff'
+                }
+            ];
+        }
+
+        function getGraphicsBenchmarkScene(state, index = null) {
+            const scenes = state && state.modeScenes && state.modeScenes.length
+                ? state.modeScenes
+                : buildGraphicsBenchmarkModeScenes();
+            const rawIndex = index === null ? (state ? state.sceneIndex || 0 : 0) : index;
+            return scenes[Math.max(0, Math.min(scenes.length - 1, rawIndex))] || scenes[0];
+        }
+
+        function resetGraphicsBenchmarkSceneEntities(state, rect) {
+            if (!state) return;
+            const scene = getGraphicsBenchmarkScene(state);
+            state.enemies.length = 0;
+            state.enemyBullets.length = 0;
+            state.playerShots.length = 0;
+            state.particles.length = 0;
+            state.spawnClock = 0;
+            state.shotClock = scene.id === 'binary' ? 0.08 : 0.12;
+            state.sceneElapsed = 0;
+
+            const pilot = state.pilot;
+            if (scene.id === 'binary') {
+                pilot.x = rect.x + rect.w * 0.50;
+                pilot.y = rect.y + rect.h * 0.77;
+                pilot.aimX = 0;
+                pilot.aimY = -1;
+            } else if (scene.id === 'prism') {
+                pilot.x = rect.x + rect.w * 0.50;
+                pilot.y = rect.y + rect.h * 0.52;
+                pilot.aimX = 1;
+                pilot.aimY = 0;
+            } else if (scene.id === 'matrix') {
+                pilot.x = rect.x + rect.w * 0.48;
+                pilot.y = rect.y + rect.h * 0.56;
+                pilot.aimX = 1;
+                pilot.aimY = -0.15;
+            } else {
+                pilot.x = rect.x + rect.w * 0.23;
+                pilot.y = rect.y + rect.h * 0.52;
+                pilot.aimX = 1;
+                pilot.aimY = 0;
+            }
+            pilot.vx = 0;
+            pilot.vy = 0;
+
+            const initialEnemies = scene.id === 'prism' ? 4 : (scene.id === 'matrix' ? 2 : 3);
+            for (let i = 0; i < initialEnemies; i++) {
+                spawnGraphicsBenchmarkEnemy(state, rect);
+            }
+        }
+
+        function updateGraphicsBenchmarkSceneTiming(state, dt, rect) {
+            if (!state) return;
+            if (!state.modeScenes || !state.modeScenes.length) state.modeScenes = buildGraphicsBenchmarkModeScenes();
+            const sceneCount = Math.max(1, state.modeScenes.length);
+            state.sceneDuration = Math.max(0.4, (state.profileDuration || GRAPHICS_BENCHMARK_PROFILE_SECONDS) / sceneCount);
+            const targetSceneIndex = Math.min(sceneCount - 1, Math.floor((state.profileElapsed || 0) / state.sceneDuration));
+            if (targetSceneIndex !== state.sceneIndex) {
+                state.previousSceneIndex = state.sceneIndex;
+                state.sceneIndex = targetSceneIndex;
+                state.lastSceneIndex = targetSceneIndex;
+                state.sceneTransition = GRAPHICS_BENCHMARK_SCENE_TRANSITION_SECONDS;
+                resetGraphicsBenchmarkSceneEntities(state, rect);
+            }
+            state.sceneElapsed += dt;
+            state.sceneTransition = Math.max(0, (state.sceneTransition || 0) - dt);
+        }
+
+        function getGraphicsBenchmarkStorageSnapshot() {
+            const keys = [
+                'ascii_fps_cap',
+                'ascii_canvas_sharpness',
+                'ascii_canvas_filter',
+                'ascii_visual_quality',
+                'ascii_glow_enabled',
+                'ascii_glow_quality'
+            ];
+            const snapshot = {};
+            for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                snapshot[key] = sessionStorage.getItem(key);
+            }
+            return snapshot;
+        }
+
+        function restoreGraphicsBenchmarkStorage(snapshot) {
+            if (!snapshot) return;
+            Object.keys(snapshot).forEach(key => {
+                if (snapshot[key] === null || typeof snapshot[key] === 'undefined') {
+                    sessionStorage.removeItem(key);
+                } else {
+                    sessionStorage.setItem(key, snapshot[key]);
+                }
+            });
+        }
+
+        function captureGraphicsBenchmarkSettings() {
+            return {
+                fpsCap: !!userFpsCap,
+                canvasSharpnessIndex,
+                canvasFilterIndex,
+                visualQualityIndex,
+                glowQuality: typeof getGlowQualityMode === 'function'
+                    ? getGlowQualityMode()
+                    : (glowEnabled ? 'FULL' : 'OFF')
+            };
+        }
+
+        function clampGraphicsBenchmarkIndex(value, count, fallback = 0) {
+            const n = Number.isFinite(value) ? Math.round(value) : fallback;
+            return Math.max(0, Math.min(count - 1, n));
+        }
+
+        function applyGraphicsBenchmarkSettings(settings, persist = false) {
+            if (!settings) return;
+            const sharpIndex = clampGraphicsBenchmarkIndex(settings.canvasSharpnessIndex, CANVAS_SHARPNESS_OPTIONS.length, canvasSharpnessIndex);
+            const filterIndex = clampGraphicsBenchmarkIndex(settings.canvasFilterIndex, CANVAS_FILTER_OPTIONS.length, canvasFilterIndex);
+            const visualIndex = clampGraphicsBenchmarkIndex(settings.visualQualityIndex, VISUAL_QUALITY_OPTIONS.length, visualQualityIndex);
+            const glowQuality = settings.glowQuality || settings.glow || 'OFF';
+
+            if (persist) {
+                userFpsCap = !!settings.fpsCap;
+                sessionStorage.setItem('ascii_fps_cap', userFpsCap.toString());
+                if (typeof setCanvasSharpnessIndex === 'function') setCanvasSharpnessIndex(sharpIndex);
+                if (typeof setCanvasFilterIndex === 'function') setCanvasFilterIndex(filterIndex);
+                if (typeof setVisualQualityIndex === 'function') setVisualQualityIndex(visualIndex);
+                if (typeof setGlowQualityMode === 'function') setGlowQualityMode(glowQuality);
+                return;
+            }
+
+            userFpsCap = !!settings.fpsCap;
+            canvasSharpnessIndex = sharpIndex;
+            canvasFilterIndex = filterIndex;
+            visualQualityIndex = visualIndex;
+            if (typeof glowQualityMode !== 'undefined' && typeof normalizeGlowQualityMode === 'function') {
+                glowQualityMode = normalizeGlowQualityMode(glowQuality);
+                if (typeof syncLegacyGlowEnabledFlag === 'function') syncLegacyGlowEnabledFlag();
+            } else {
+                glowEnabled = glowQuality !== 'OFF';
+            }
+            if (typeof resize === 'function') resize();
+            if (typeof applyCanvasFilterSetting === 'function') applyCanvasFilterSetting();
+            if (typeof invalidateGraphicsRenderCaches === 'function') invalidateGraphicsRenderCaches();
+            if (typeof clearGlowRenderCaches === 'function') clearGlowRenderCaches();
+            if (typeof rebuildField === 'function') rebuildField();
+            if (typeof applyTheme === 'function') applyTheme();
+        }
+
+        function restoreGraphicsBenchmarkPreviousSettings(state) {
+            if (!state || !state.previousSettings) return;
+            applyGraphicsBenchmarkSettings(state.previousSettings, false);
+            restoreGraphicsBenchmarkStorage(state.previousStorage);
+        }
+
+        function getGraphicsBenchmarkProfileSettings(profile, targetFps) {
+            const capAt60 = targetFps <= 65;
+            return {
+                fpsCap: capAt60,
+                canvasSharpnessIndex: profile.canvasSharpnessIndex,
+                canvasFilterIndex: profile.canvasFilterIndex,
+                visualQualityIndex: profile.visualQualityIndex,
+                glowQuality: profile.glowQuality
+            };
+        }
+
+        function buildGraphicsBenchmarkProfiles() {
+            return [
+                {
+                    id: 'performance',
+                    label: 'PERFORMANCE',
+                    qualityScore: 10,
+                    canvasSharpnessIndex: 0,
+                    canvasFilterIndex: 0,
+                    visualQualityIndex: 0,
+                    glowQuality: 'OFF',
+                    note: 'stability first'
+                },
+                {
+                    id: 'balanced',
+                    label: 'BALANCED',
+                    qualityScore: 22,
+                    canvasSharpnessIndex: 1,
+                    canvasFilterIndex: 1,
+                    visualQualityIndex: 1,
+                    glowQuality: 'OFF',
+                    note: 'clean baseline'
+                },
+                {
+                    id: 'crisp',
+                    label: 'CRISP HIGH',
+                    qualityScore: 36,
+                    canvasSharpnessIndex: 2,
+                    canvasFilterIndex: 1,
+                    visualQualityIndex: 2,
+                    glowQuality: 'OFF',
+                    note: 'sharp no-glow'
+                },
+                {
+                    id: 'ultra',
+                    label: 'ULTRA CLEAR',
+                    qualityScore: 48,
+                    canvasSharpnessIndex: 3,
+                    canvasFilterIndex: 1,
+                    visualQualityIndex: 2,
+                    glowQuality: 'OFF',
+                    note: 'maximum resolution'
+                },
+                {
+                    id: 'softGlow',
+                    label: 'SOFT GLOW',
+                    qualityScore: 52,
+                    canvasSharpnessIndex: 1,
+                    canvasFilterIndex: 1,
+                    visualQualityIndex: 1,
+                    glowQuality: 'SOFT',
+                    note: 'cheap glow probe'
+                },
+                {
+                    id: 'fullGlow',
+                    label: 'FULL GLOW',
+                    qualityScore: 64,
+                    canvasSharpnessIndex: 2,
+                    canvasFilterIndex: 1,
+                    visualQualityIndex: 2,
+                    glowQuality: 'FULL',
+                    note: 'desktop glow probe'
+                }
+            ];
+        }
+
+        function createGraphicsBenchmarkMetricBucket() {
+            return {
+                samples: [],
+                sum: 0,
+                sumSq: 0,
+                min: Infinity,
+                max: 0,
+                valid: 0,
+                spikes: 0
+            };
+        }
+
+        function addGraphicsBenchmarkSample(bucket, fps, targetFps) {
+            if (!bucket || !Number.isFinite(fps) || fps <= 0 || fps > 360) return false;
+            bucket.samples.push(fps);
+            bucket.sum += fps;
+            bucket.sumSq += fps * fps;
+            bucket.min = Math.min(bucket.min, fps);
+            bucket.max = Math.max(bucket.max, fps);
+            bucket.valid++;
+            if (targetFps && fps < targetFps * 0.72) bucket.spikes++;
+            return true;
+        }
+
+        function summarizeGraphicsBenchmarkSamples(bucket, targetFps, refreshUncertain = false) {
+            const count = bucket && bucket.valid ? bucket.valid : 0;
+            if (!count) {
+                return {
+                    sampleCount: 0,
+                    avgFps: 0,
+                    lowFps: 0,
+                    minFps: 0,
+                    maxFps: 0,
+                    stdDev: 0,
+                    stability: 0,
+                    confidence: 0,
+                    confidenceLabel: 'LOW'
+                };
+            }
+            const samples = bucket.samples.slice().sort((a, b) => a - b);
+            const avg = bucket.sum / count;
+            const variance = Math.max(0, bucket.sumSq / count - avg * avg);
+            const stdDev = Math.sqrt(variance);
+            const lowIndex = Math.max(0, Math.floor(count * 0.01));
+            const lowCount = Math.max(1, Math.ceil(count * 0.03));
+            let lowSum = 0;
+            for (let i = 0; i < lowCount; i++) lowSum += samples[Math.min(samples.length - 1, lowIndex + i)];
+            const lowFps = lowSum / lowCount;
+            const avgScore = benchmarkClamp((avg / targetFps - 0.82) / 0.22, 0, 1);
+            const lowScore = benchmarkClamp((lowFps / targetFps - 0.68) / 0.24, 0, 1);
+            const spikePenalty = benchmarkClamp(bucket.spikes / Math.max(1, count * 0.12), 0, 1);
+            const stability = benchmarkClamp(1 - (stdDev / Math.max(1, targetFps)) / 0.18 - spikePenalty * 0.22, 0, 1);
+            const sampleScore = benchmarkClamp(count / 80, 0, 1);
+            const uncertaintyScale = refreshUncertain ? 0.88 : 1;
+            const confidence = Math.round(100 * uncertaintyScale * (
+                avgScore * 0.30 +
+                lowScore * 0.34 +
+                stability * 0.24 +
+                sampleScore * 0.12
+            ));
+            return {
+                sampleCount: count,
+                avgFps: avg,
+                lowFps,
+                minFps: Number.isFinite(bucket.min) ? bucket.min : 0,
+                maxFps: bucket.max,
+                stdDev,
+                stability,
+                confidence: benchmarkClamp(confidence, 0, 100),
+                confidenceLabel: getGraphicsBenchmarkConfidenceLabel(confidence, avg, lowFps, targetFps)
+            };
+        }
+
+        function getGraphicsBenchmarkConfidenceLabel(confidence, avgFps, lowFps, targetFps) {
+            if (confidence >= 92 && avgFps >= targetFps * 0.98 && lowFps >= targetFps * 0.86) return 'LOCKED';
+            if (confidence >= 78) return 'HIGH';
+            if (confidence >= 58) return 'STABLE';
+            return 'LOW';
+        }
+
+        function updateGraphicsBenchmarkRefreshEstimate(state, fps) {
+            if (!state || !Number.isFinite(fps) || fps < 35 || fps > 260) return;
+            if (state.elapsed > GRAPHICS_BENCHMARK_REFRESH_SAMPLE_SECONDS) return;
+            state.refreshSamples.push(fps);
+            const sorted = state.refreshSamples.slice().sort((a, b) => a - b);
+            if (sorted.length < 20) {
+                state.refreshEstimate = GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS;
+                state.targetFps = GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS;
+                state.refreshConfidence = Math.round(sorted.length / 20 * 45);
+                state.refreshUncertain = true;
+                return;
+            }
+            const high = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.86))];
+            const median = sorted[Math.floor(sorted.length * 0.5)];
+            const measured = Math.max(median, high * 0.96);
+            let estimate = GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS;
+            if (measured >= 132) estimate = GRAPHICS_BENCHMARK_MAX_TARGET_FPS;
+            else if (measured >= 110) estimate = 120;
+            else if (measured >= 85) estimate = 90;
+            else if (measured >= 70) estimate = 75;
+            else estimate = 60;
+            const closeness = 1 - Math.min(1, Math.abs(measured - estimate) / Math.max(estimate, 1));
+            state.refreshEstimate = estimate;
+            state.targetFps = Math.min(GRAPHICS_BENCHMARK_MAX_TARGET_FPS, estimate);
+            state.refreshConfidence = Math.round(benchmarkClamp(closeness, 0, 1) * 100);
+            state.refreshUncertain = sorted.length < 45 || state.refreshConfidence < 72;
+        }
+
+        function getGraphicsBenchmarkProfileSettingsLabel(profile, targetFps) {
+            if (!profile) return '--';
+            const cap = targetFps <= 65 ? 'ON' : 'OFF';
+            const sharp = CANVAS_SHARPNESS_OPTIONS[profile.canvasSharpnessIndex] || CANVAS_SHARPNESS_OPTIONS[0];
+            const filter = CANVAS_FILTER_OPTIONS[profile.canvasFilterIndex] || CANVAS_FILTER_OPTIONS[0];
+            const visual = VISUAL_QUALITY_OPTIONS[profile.visualQualityIndex] || VISUAL_QUALITY_OPTIONS[1];
+            return `FPS CAP ${cap} | ${sharp.label} ${sharp.scale.toFixed(2)}X | ${filter.label} | ${profile.glowQuality} | ${visual.label}`;
+        }
+
+        function shouldGraphicsBenchmarkProfilePass(result, targetFps, refreshUncertain) {
+            if (!result || result.sampleCount < 28) return false;
+            const glowMode = result.profile && result.profile.glowQuality;
+            if (glowMode === 'FULL' && (
+                result.avgFps < targetFps * 1.14 ||
+                result.lowFps < targetFps * 0.98 ||
+                result.stability < 0.72
+            )) {
+                return false;
+            }
+            if (glowMode === 'SOFT' && (
+                result.avgFps < targetFps * 1.04 ||
+                result.lowFps < targetFps * 0.90 ||
+                result.stability < 0.60
+            )) {
+                return false;
+            }
+            const avgGate = refreshUncertain ? 1.00 : 0.96;
+            const lowGate = refreshUncertain ? 0.80 : 0.76;
+            return result.avgFps >= targetFps * avgGate
+                && result.lowFps >= targetFps * lowGate
+                && result.stability >= 0.46
+                && result.confidence >= (refreshUncertain ? 64 : 58);
+        }
+
+        function chooseGraphicsBenchmarkRecommendation(state) {
+            const targetFps = state.targetFps || GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS;
+            let best = null;
+            for (let i = 0; i < state.profileResults.length; i++) {
+                const result = state.profileResults[i];
+                if (!shouldGraphicsBenchmarkProfilePass(result, targetFps, state.refreshUncertain)) continue;
+                if (!best || result.profile.qualityScore > best.profile.qualityScore) best = result;
+            }
+            if (!best) {
+                for (let i = 0; i < state.profileResults.length; i++) {
+                    const result = state.profileResults[i];
+                    const glowPenalty = result.profile.glowQuality === 'FULL'
+                        ? 26
+                        : result.profile.glowQuality === 'SOFT'
+                            ? 12
+                            : 0;
+                    const score = result.confidence + Math.min(result.profile.qualityScore, 48) * 0.14 - glowPenalty;
+                    const bestGlowPenalty = best && best.profile.glowQuality === 'FULL'
+                        ? 26
+                        : best && best.profile.glowQuality === 'SOFT'
+                            ? 12
+                            : 0;
+                    const bestScore = best
+                        ? best.confidence + Math.min(best.profile.qualityScore, 48) * 0.14 - bestGlowPenalty
+                        : -Infinity;
+                    if (!best || score > bestScore) {
+                        best = result;
+                    }
+                }
+            }
+            if (!best && state.profiles.length) {
+                const profile = state.profiles[0];
+                best = Object.assign(
+                    summarizeGraphicsBenchmarkSamples(createGraphicsBenchmarkMetricBucket(), targetFps, true),
+                    {
+                        profile,
+                        targetFps,
+                        settings: getGraphicsBenchmarkProfileSettings(profile, targetFps),
+                        reason: 'fallback profile'
+                    }
+                );
+            }
+            state.recommendedResult = best;
+            state.recommendedProfile = best ? best.profile : null;
+            if (best) {
+                best.targetFps = targetFps;
+                best.settings = getGraphicsBenchmarkProfileSettings(best.profile, targetFps);
+                if (best.avgFps < targetFps * 0.86) {
+                    state.recommendation = 'STABILITY PRIORITIZED';
+                } else if (best.profile.glowQuality !== 'OFF') {
+                    state.recommendation = 'GLOW CLEARED';
+                } else {
+                    state.recommendation = 'ANALYSIS READY';
+                }
+                state.confidence = best.confidence;
+                state.confidenceLabel = best.confidenceLabel;
+                state.averageFps = best.avgFps;
+                state.lowFps = best.lowFps;
+                state.frameStability = best.stability;
+                state.sampleCount = best.sampleCount;
+            }
+        }
+
+        function resetGraphicsBenchmarkDemo(state) {
+            const rect = getGraphicsBenchmarkPlayRect();
+            state.modeScenes = buildGraphicsBenchmarkModeScenes();
+            state.sceneIndex = 0;
+            state.lastSceneIndex = -1;
+            state.previousSceneIndex = -1;
+            state.sceneElapsed = 0;
+            state.sceneDuration = Math.max(0.4, (state.profileDuration || GRAPHICS_BENCHMARK_PROFILE_SECONDS) / state.modeScenes.length);
+            state.sceneTransition = GRAPHICS_BENCHMARK_SCENE_TRANSITION_SECONDS;
+            state.stars.length = 0;
+
+            const starChars = ['.', '.', '.', '+', ':', '0', '1'];
+            for (let i = 0; i < 92; i++) {
+                const depth = 0.35 + benchmarkRandom(state) * 0.9;
+                state.stars.push({
+                    x: rect.x + benchmarkRandom(state) * rect.w,
+                    y: rect.y + benchmarkRandom(state) * rect.h,
+                    speed: 28 + depth * 72,
+                    depth,
+                    char: starChars[Math.floor(benchmarkRandom(state) * starChars.length)],
+                    alpha: 0.10 + benchmarkRandom(state) * 0.32
+                });
+            }
+            resetGraphicsBenchmarkSceneEntities(state, rect);
+        }
+
+        function beginGraphicsBenchmarkMode() {
+            graphicsBenchmarkState = createGraphicsBenchmarkState();
+            const state = graphicsBenchmarkState;
+            state.previousSettings = captureGraphicsBenchmarkSettings();
+            state.previousStorage = getGraphicsBenchmarkStorageSnapshot();
+            state.profiles = buildGraphicsBenchmarkProfiles();
+            state.duration = state.profiles.length * GRAPHICS_BENCHMARK_PROFILE_SECONDS;
+            state.profileDuration = GRAPHICS_BENCHMARK_PROFILE_SECONDS;
+            state.profileWarmup = GRAPHICS_BENCHMARK_PROFILE_WARMUP_SECONDS;
+            state.modeScenes = buildGraphicsBenchmarkModeScenes();
+            state.sceneDuration = Math.max(0.4, state.profileDuration / state.modeScenes.length);
+            state.profileMetrics = createGraphicsBenchmarkMetricBucket();
+            state.currentProfileIndex = 0;
+            state.currentProfile = state.profiles[0] || null;
+            state.active = true;
+            state.startedAt = currentFrameNow || performance.now();
+            state.seed = (0xA51C + Math.round(width * 13 + height * 7)) >>> 0;
+            state.rngState = state.seed;
+            if (state.currentProfile) {
+                const settings = getGraphicsBenchmarkProfileSettings(state.currentProfile, state.targetFps);
+                settings.fpsCap = false;
+                applyGraphicsBenchmarkSettings(settings, false);
+            }
+            resetGraphicsBenchmarkDemo(state);
+            gameState = BENCHMARK_GAME_STATE;
+            pauseState = 'GRAPHICS';
+            settingsSelection = GRAPHICS_BENCHMARK_MENU_INDEX;
+            if (typeof clearGameplayKeys === 'function') clearGameplayKeys();
+            if (typeof resetPauseMenuShipCursor === 'function') resetPauseMenuShipCursor();
+        }
+
+        function finishGraphicsBenchmarkMode(cancelled = false) {
+            if (graphicsBenchmarkState) {
+                graphicsBenchmarkState.active = false;
+                graphicsBenchmarkState.cancelled = !!cancelled;
+                if (cancelled) {
+                    restoreGraphicsBenchmarkPreviousSettings(graphicsBenchmarkState);
+                } else if (graphicsBenchmarkState.recommendedResult && graphicsBenchmarkState.recommendedResult.settings) {
+                    graphicsBenchmarkState.applyingRecommendation = true;
+                    applyGraphicsBenchmarkSettings(graphicsBenchmarkState.recommendedResult.settings, true);
+                } else {
+                    restoreGraphicsBenchmarkPreviousSettings(graphicsBenchmarkState);
+                }
+                if (cancelled && !graphicsBenchmarkState.completed) {
+                    graphicsBenchmarkState.completed = true;
+                    graphicsBenchmarkState.completedAt = currentFrameNow || performance.now();
+                    graphicsBenchmarkState.recommendation = 'CANCELLED';
+                }
+            }
+            gameState = 'PAUSED';
+            pauseState = 'GRAPHICS';
+            settingsSelection = GRAPHICS_BENCHMARK_MENU_INDEX;
+            if (typeof clearGameplayKeys === 'function') clearGameplayKeys();
+            if (typeof resetPauseMenuShipCursor === 'function') resetPauseMenuShipCursor();
+        }
+
+        function isGraphicsBenchmarkComplete() {
+            return !!(graphicsBenchmarkState && graphicsBenchmarkState.completed);
+        }
+
+        function applyGraphicsBenchmarkRecommendation() {
+            finishGraphicsBenchmarkMode(false);
+        }
+
+        function getGraphicsBenchmarkPhase(elapsed, state = null) {
+            const scene = getGraphicsBenchmarkScene(state || graphicsBenchmarkState || {});
+            if (state && state.profileElapsed < state.profileWarmup) return `WARMING ${scene.subtitle}`;
+            return `SAMPLING ${scene.label}`;
+        }
+
+        function spawnGraphicsBenchmarkEnemy(state, rect) {
+            const scene = getGraphicsBenchmarkScene(state);
+            const roll = benchmarkRandom(state);
+            const lane = benchmarkRandom(state);
+            let enemy;
+
+            if (scene.id === 'binary') {
+                const elite = roll > 0.72;
+                enemy = {
+                    sceneId: scene.id,
+                    type: elite ? 'binaryElite' : (roll > 0.44 ? 'binarySkimmer' : 'binaryDrone'),
+                    x: rect.x + 46 + lane * Math.max(60, rect.w - 92),
+                    y: rect.y + 22 + benchmarkRandom(state) * 58,
+                    vx: (benchmarkRandom(state) - 0.5) * 52,
+                    vy: elite ? 118 : 92,
+                    hp: elite ? 3 : 2,
+                    radius: elite ? 22 : 18,
+                    char: elite ? 'A' : 'v',
+                    color: elite ? '#fff07a' : '#8fdcff',
+                    size: elite ? 27 : 23,
+                    phase: benchmarkRandom(state) * Math.PI * 2,
+                    fireClock: 0.44 + benchmarkRandom(state) * 0.85
+                };
+                if (typeof configureEnemyShipVisual === 'function') {
+                    configureEnemyShipVisual(enemy, elite ? 'armored' : 'base', {
+                        color: enemy.color,
+                        tier: elite ? 2 : 1,
+                        visualScale: elite ? 0.95 : 0.86
+                    });
+                }
+            } else if (scene.id === 'prism') {
+                const angle = benchmarkRandom(state) * Math.PI * 2;
+                const distance = Math.max(rect.w, rect.h) * (0.50 + benchmarkRandom(state) * 0.12);
+                const cx = rect.x + rect.w * 0.5;
+                const cy = rect.y + rect.h * 0.5;
+                enemy = {
+                    sceneId: scene.id,
+                    type: roll > 0.66 ? 'prismDiver' : 'prismSwarm',
+                    x: cx + Math.cos(angle) * distance,
+                    y: cy + Math.sin(angle) * distance,
+                    vx: 0,
+                    vy: 0,
+                    hp: roll > 0.66 ? 2 : 1,
+                    radius: roll > 0.66 ? 19 : 15,
+                    char: roll > 0.66 ? '<>' : '*',
+                    color: roll > 0.66 ? '#ff8fd8' : '#8ff7ff',
+                    size: roll > 0.66 ? 22 : 18,
+                    orbitSign: benchmarkRandom(state) > 0.5 ? 1 : -1,
+                    phase: benchmarkRandom(state) * Math.PI * 2,
+                    fireClock: 0.72 + benchmarkRandom(state) * 1.0
+                };
+                if (typeof configureEnemyShipVisual === 'function' && roll > 0.38) {
+                    configureEnemyShipVisual(enemy, roll > 0.66 ? 'elite' : 'base', {
+                        color: enemy.color,
+                        tier: roll > 0.66 ? 3 : 1,
+                        visualScale: roll > 0.66 ? 0.82 : 0.74
+                    });
+                }
+            } else if (scene.id === 'matrix') {
+                const sprite = roll > 0.72 && typeof NULL_PHANTOM_SOURCE !== 'undefined'
+                    ? NULL_PHANTOM_SOURCE
+                    : (typeof GLITCH_SPRITE_1 !== 'undefined' ? GLITCH_SPRITE_1 : [' #### ', '##[]##', ' #### ']);
+                enemy = {
+                    sceneId: scene.id,
+                    type: roll > 0.72 ? 'matrixPhantom' : 'matrixGlitch',
+                    x: rect.x + rect.w * (0.25 + benchmarkRandom(state) * 0.55),
+                    y: rect.y + rect.h * (0.24 + benchmarkRandom(state) * 0.54),
+                    vx: (benchmarkRandom(state) > 0.5 ? 1 : -1) * (42 + benchmarkRandom(state) * 32),
+                    vy: (benchmarkRandom(state) > 0.5 ? 1 : -1) * (36 + benchmarkRandom(state) * 28),
+                    hp: roll > 0.72 ? 5 : 2,
+                    radius: roll > 0.72 ? 32 : 22,
+                    char: '#',
+                    color: roll > 0.72 ? '#ff8fd8' : '#65ffb8',
+                    size: roll > 0.72 ? 14 : 18,
+                    sprite,
+                    spriteFontSize: roll > 0.72 ? 6 : 9,
+                    phase: benchmarkRandom(state) * Math.PI * 2,
+                    fireClock: 0.55 + benchmarkRandom(state) * 0.95
+                };
+            } else {
+                const keys = ['bitDrone', 'shiftSkimmer', 'registerTurret', 'parityMine'];
+                const type = keys[Math.min(keys.length - 1, Math.floor(roll * keys.length))];
+                const stats = typeof BITSHIFT_ENEMY_STATS !== 'undefined' && BITSHIFT_ENEMY_STATS[type]
+                    ? BITSHIFT_ENEMY_STATS[type]
+                    : { sprite: ['<0>'], color: '#ff9a73', hp: 14, speed: 160, radius: 20 };
+                enemy = {
+                    sceneId: scene.id,
+                    type,
+                    x: rect.x + rect.w - 18 - benchmarkRandom(state) * 72,
+                    y: rect.y + 42 + lane * Math.max(50, rect.h - 84),
+                    vx: -(stats.speed || 150) * (type === 'registerTurret' ? 0.54 : 0.72),
+                    vy: type === 'shiftSkimmer' ? (benchmarkRandom(state) > 0.5 ? -58 : 58) : 0,
+                    hp: type === 'registerTurret' ? 4 : (type === 'parityMine' ? 2 : 1),
+                    radius: stats.radius || 20,
+                    char: type === 'parityMine' ? '(*)' : '<0>',
+                    color: stats.color || '#ff9a73',
+                    size: 18,
+                    sprite: stats.sprite || ['<0>'],
+                    spriteFontSize: type === 'registerTurret' ? 11 : 13,
+                    phase: benchmarkRandom(state) * Math.PI * 2,
+                    fireClock: type === 'registerTurret' ? 0.42 + benchmarkRandom(state) * 0.55 : 0.95 + benchmarkRandom(state)
+                };
+            }
+            state.enemies.push(enemy);
+        }
+
+        function spawnGraphicsBenchmarkParticle(state, x, y, color, count = 8) {
+            for (let i = 0; i < count; i++) {
+                const a = benchmarkRandom(state) * Math.PI * 2;
+                const speed = 38 + benchmarkRandom(state) * 110;
+                state.particles.push({
+                    x,
+                    y,
+                    vx: Math.cos(a) * speed,
+                    vy: Math.sin(a) * speed,
+                    life: 0.35 + benchmarkRandom(state) * 0.48,
+                    maxLife: 0.75,
+                    color,
+                    char: benchmarkRandom(state) > 0.55 ? '*' : '.'
+                });
+            }
+        }
+
+        function updateGraphicsBenchmarkPilot(state, dt, rect) {
+            const scene = getGraphicsBenchmarkScene(state);
+            const pilot = state.pilot;
+            let desiredX = rect.x + rect.w * (0.28 + Math.sin(state.elapsed * 0.83) * 0.045);
+            let desiredY = rect.y + rect.h * (0.52 + Math.sin(state.elapsed * 1.17) * 0.24);
+            let minX = rect.x + 36;
+            let maxX = rect.x + rect.w * 0.56;
+            let minY = rect.y + 32;
+            let maxY = rect.y + rect.h - 32;
+            let fallbackAimX = 1;
+            let fallbackAimY = 0;
+
+            if (scene.id === 'binary') {
+                desiredX = rect.x + rect.w * (0.48 + Math.sin(state.sceneElapsed * 2.1) * 0.16);
+                desiredY = rect.y + rect.h * (0.76 + Math.sin(state.sceneElapsed * 1.6) * 0.06);
+                minX = rect.x + 44;
+                maxX = rect.x + rect.w - 44;
+                minY = rect.y + rect.h * 0.56;
+                fallbackAimX = 0;
+                fallbackAimY = -1;
+            } else if (scene.id === 'prism') {
+                desiredX = rect.x + rect.w * (0.50 + Math.sin(state.sceneElapsed * 1.25) * 0.20);
+                desiredY = rect.y + rect.h * (0.52 + Math.cos(state.sceneElapsed * 1.55) * 0.20);
+                minX = rect.x + rect.w * 0.20;
+                maxX = rect.x + rect.w * 0.80;
+            } else if (scene.id === 'matrix') {
+                desiredX = rect.x + rect.w * (0.48 + Math.sin(state.sceneElapsed * 1.45) * 0.19);
+                desiredY = rect.y + rect.h * (0.56 + Math.sin(state.sceneElapsed * 0.92 + 0.8) * 0.18);
+                minX = rect.x + rect.w * 0.18;
+                maxX = rect.x + rect.w * 0.82;
+                minY = rect.y + rect.h * 0.18;
+                maxY = rect.y + rect.h * 0.82;
+            } else {
+                desiredX = rect.x + rect.w * (0.24 + Math.sin(state.sceneElapsed * 1.42) * 0.045);
+                desiredY = rect.y + rect.h * (0.52 + Math.sin(state.sceneElapsed * 1.72) * 0.24);
+                minX = rect.x + 42;
+                maxX = rect.x + rect.w * 0.48;
+            }
+            let dodgeX = 0;
+            let dodgeY = 0;
+
+            for (let i = 0; i < state.enemyBullets.length; i++) {
+                const b = state.enemyBullets[i];
+                const dx = pilot.x - b.x;
+                const dy = pilot.y - b.y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 > 0.001 && d2 < 130 * 130) {
+                    const force = (1 - Math.sqrt(d2) / 130) * 520;
+                    const inv = 1 / Math.sqrt(d2);
+                    dodgeX += dx * inv * force;
+                    dodgeY += dy * inv * force;
+                }
+            }
+            for (let i = 0; i < state.enemies.length; i++) {
+                const e = state.enemies[i];
+                const dx = pilot.x - e.x;
+                const dy = pilot.y - e.y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 > 0.001 && d2 < 112 * 112) {
+                    const force = (1 - Math.sqrt(d2) / 112) * 360;
+                    const inv = 1 / Math.sqrt(d2);
+                    dodgeX += dx * inv * force;
+                    dodgeY += dy * inv * force;
+                }
+            }
+
+            desiredX += dodgeX * 0.12;
+            desiredY += dodgeY * 0.12;
+            desiredX = benchmarkClamp(desiredX, minX, maxX);
+            desiredY = benchmarkClamp(desiredY, minY, maxY);
+
+            pilot.vx += (desiredX - pilot.x) * 8.4 * dt + dodgeX * dt;
+            pilot.vy += (desiredY - pilot.y) * 8.4 * dt + dodgeY * dt;
+            const damping = Math.pow(0.035, dt);
+            pilot.vx *= damping;
+            pilot.vy *= damping;
+            pilot.x = benchmarkClamp(pilot.x + pilot.vx * dt, minX - 12, maxX + 12);
+            pilot.y = benchmarkClamp(pilot.y + pilot.vy * dt, minY - 10, maxY + 10);
+
+            let target = null;
+            let best = Infinity;
+            for (let i = 0; i < state.enemies.length; i++) {
+                const e = state.enemies[i];
+                if (scene.id === 'bitshift' && e.x < pilot.x) continue;
+                if (scene.id === 'binary' && e.y > pilot.y) continue;
+                const dx = e.x - pilot.x;
+                const dy = e.y - pilot.y;
+                const forward = scene.id === 'binary' ? -dy : dx;
+                const score = Math.max(0, forward) + Math.abs(scene.id === 'binary' ? dx : dy) * 0.8;
+                if (score < best) {
+                    best = score;
+                    target = e;
+                }
+            }
+            const aimX = target ? target.x - pilot.x : fallbackAimX;
+            const aimY = target ? target.y - pilot.y : fallbackAimY;
+            const aimLen = Math.max(1, Math.hypot(aimX, aimY));
+            pilot.aimX += (aimX / aimLen - pilot.aimX) * Math.min(1, dt * 8);
+            pilot.aimY += (aimY / aimLen - pilot.aimY) * Math.min(1, dt * 8);
+            const len = Math.max(1, Math.hypot(pilot.aimX, pilot.aimY));
+            pilot.aimX /= len;
+            pilot.aimY /= len;
+        }
+
+        function updateGraphicsBenchmarkDemo(state, dt) {
+            const rect = getGraphicsBenchmarkPlayRect();
+            updateGraphicsBenchmarkSceneTiming(state, dt, rect);
+            const scene = getGraphicsBenchmarkScene(state);
+            updateGraphicsBenchmarkPilot(state, dt, rect);
+
+            for (let i = 0; i < state.stars.length; i++) {
+                const s = state.stars[i];
+                if (scene.id === 'binary') {
+                    s.y += s.speed * 0.75 * dt;
+                    if (s.y > rect.y + rect.h + 18) {
+                        s.y = rect.y - benchmarkRandom(state) * 34;
+                        s.x = rect.x + benchmarkRandom(state) * rect.w;
+                    }
+                } else {
+                    const speedScale = scene.id === 'bitshift' ? 1.55 : (scene.id === 'matrix' ? 0.34 : 0.58);
+                    s.x -= s.speed * speedScale * dt;
+                    if (s.x < rect.x - 18) {
+                        s.x = rect.x + rect.w + benchmarkRandom(state) * 38;
+                        s.y = rect.y + benchmarkRandom(state) * rect.h;
+                    }
+                }
+            }
+
+            if (!state.completed) {
+                const interval = scene.id === 'prism'
+                    ? 0.26
+                    : scene.id === 'binary'
+                        ? 0.34
+                        : scene.id === 'matrix'
+                            ? 0.52
+                            : 0.38;
+                state.spawnClock += dt;
+                let guard = 0;
+                while (state.spawnClock >= interval && guard < 3) {
+                    state.spawnClock -= interval;
+                    spawnGraphicsBenchmarkEnemy(state, rect);
+                    if ((scene.id === 'prism' || scene.id === 'binary') && benchmarkRandom(state) > 0.72) spawnGraphicsBenchmarkEnemy(state, rect);
+                    guard++;
+                }
+            }
+
+            state.shotClock -= dt;
+            if (!state.completed && state.shotClock <= 0) {
+                const p = state.pilot;
+                if (scene.id === 'binary') {
+                    state.playerShots.push({
+                        x: p.x,
+                        y: p.y - 26,
+                        vx: p.aimX * 120,
+                        vy: -480 + Math.min(0, p.aimY) * 80,
+                        life: 1.25,
+                        color: '#d7ffff',
+                        char: '|'
+                    });
+                    state.shotClock = 0.105;
+                } else if (scene.id === 'prism') {
+                    for (let i = -1; i <= 1; i += 2) {
+                        const angle = Math.atan2(p.aimY, p.aimX) + i * 0.18;
+                        state.playerShots.push({
+                            x: p.x + Math.cos(angle) * 18,
+                            y: p.y + Math.sin(angle) * 18,
+                            vx: Math.cos(angle) * 360,
+                            vy: Math.sin(angle) * 360,
+                            life: 1.08,
+                            color: i < 0 ? '#8ff7ff' : '#ff8fd8',
+                            char: '*'
+                        });
+                    }
+                    state.shotClock = 0.145;
+                } else if (scene.id === 'matrix') {
+                    state.playerShots.push({
+                        x: p.x + p.aimX * 18,
+                        y: p.y + p.aimY * 18,
+                        vx: p.aimX * 345,
+                        vy: p.aimY * 345,
+                        life: 1.15,
+                        color: '#9bffcf',
+                        char: '+'
+                    });
+                    state.shotClock = 0.16;
+                } else {
+                    state.playerShots.push({
+                        x: p.x + 22,
+                        y: p.y,
+                        vx: 470 + Math.max(0, p.aimX) * 70,
+                        vy: p.aimY * 155,
+                        life: 1.25,
+                        color: '#fff1e8',
+                        char: '=>'
+                    });
+                    if (state.sceneElapsed > 0.36) {
+                        state.playerShots.push({
+                            x: p.x + 18,
+                            y: p.y + 8,
+                            vx: 420,
+                            vy: p.aimY * 120 + 34,
+                            life: 1.1,
+                            color: '#8ff7ff',
+                            char: '-'
+                        });
+                    }
+                    state.shotClock = 0.12;
+                }
+            }
+
+            for (let i = state.enemies.length - 1; i >= 0; i--) {
+                const e = state.enemies[i];
+                e.phase += dt * (e.type === 'shiftSkimmer' || e.type === 'binarySkimmer' ? 4.6 : 2.2);
+                if (e.sceneId === 'binary') {
+                    e.x += (e.vx + Math.sin(e.phase) * 22) * dt;
+                    e.y += e.vy * dt;
+                } else if (e.sceneId === 'prism') {
+                    const dx = state.pilot.x - e.x;
+                    const dy = state.pilot.y - e.y;
+                    const len = Math.max(1, Math.hypot(dx, dy));
+                    const chase = e.type === 'prismDiver' ? 116 : 84;
+                    const orbit = e.orbitSign || 1;
+                    e.vx += (dx / len * chase - dy / len * orbit * 42 - e.vx) * Math.min(1, dt * 3.2);
+                    e.vy += (dy / len * chase + dx / len * orbit * 42 - e.vy) * Math.min(1, dt * 3.2);
+                    e.x += e.vx * dt;
+                    e.y += e.vy * dt;
+                } else if (e.sceneId === 'matrix') {
+                    e.x += e.vx * dt;
+                    e.y += e.vy * dt;
+                    const minX = rect.x + rect.w * 0.17;
+                    const maxX = rect.x + rect.w * 0.83;
+                    const minY = rect.y + rect.h * 0.16;
+                    const maxY = rect.y + rect.h * 0.84;
+                    if (e.x < minX || e.x > maxX) e.vx *= -1;
+                    if (e.y < minY || e.y > maxY) e.vy *= -1;
+                    e.x = benchmarkClamp(e.x, minX, maxX);
+                    e.y = benchmarkClamp(e.y, minY, maxY);
+                } else {
+                    e.x += e.vx * dt;
+                    e.y += (e.vy + Math.sin(e.phase) * (e.type === 'bitDrone' ? 30 : 14)) * dt;
+                    e.y = benchmarkClamp(e.y, rect.y + 28, rect.y + rect.h - 28);
+                }
+                e.fireClock -= dt;
+                if (!state.completed && e.fireClock <= 0) {
+                    const dx = state.pilot.x - e.x;
+                    const dy = state.pilot.y - e.y;
+                    const len = Math.max(1, Math.hypot(dx, dy));
+                    const speed = e.sceneId === 'matrix' ? 132 : (e.sceneId === 'binary' ? 150 : 142);
+                    const straightLeft = e.sceneId === 'bitshift' && (e.type === 'registerTurret' || e.type === 'parityMine');
+                    const straightDown = e.sceneId === 'binary';
+                    state.enemyBullets.push({
+                        x: e.x + (e.sceneId === 'binary' ? 0 : -12),
+                        y: e.y + (e.sceneId === 'binary' ? 16 : 0),
+                        vx: straightLeft ? -speed : (straightDown ? Math.sin(e.phase) * 28 : dx / len * speed),
+                        vy: straightLeft ? dy / len * speed * 0.25 : (straightDown ? speed : dy / len * speed),
+                        life: 2.6,
+                        color: e.sceneId === 'matrix' ? '#65ffb8' : (e.sceneId === 'prism' ? '#ff8fd8' : '#ffba70'),
+                        char: e.sceneId === 'matrix' ? '0' : (e.sceneId === 'binary' ? '!' : '*')
+                    });
+                    e.fireClock = e.sceneId === 'matrix'
+                        ? 0.75 + benchmarkRandom(state) * 0.9
+                        : e.sceneId === 'prism'
+                            ? 0.95 + benchmarkRandom(state) * 0.9
+                            : 0.82 + benchmarkRandom(state) * 0.95;
+                }
+                if (e.x < rect.x - 58 || e.x > rect.x + rect.w + 80 || e.y < rect.y - 80 || e.y > rect.y + rect.h + 80) state.enemies.splice(i, 1);
+            }
+
+            for (let i = state.playerShots.length - 1; i >= 0; i--) {
+                const p = state.playerShots[i];
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.life -= dt;
+                let consumed = p.life <= 0 || p.x > rect.x + rect.w + 34 || p.y < rect.y - 30 || p.y > rect.y + rect.h + 30;
+                if (!consumed) {
+                    for (let j = state.enemies.length - 1; j >= 0; j--) {
+                        const e = state.enemies[j];
+                        const dx = p.x - e.x;
+                        const dy = p.y - e.y;
+                        if (dx * dx + dy * dy < (e.radius + 5) * (e.radius + 5)) {
+                            e.hp -= 1;
+                            consumed = true;
+                            spawnGraphicsBenchmarkParticle(state, p.x, p.y, e.color, 3);
+                            if (e.hp <= 0) {
+                                spawnGraphicsBenchmarkParticle(state, e.x, e.y, e.color, 10);
+                                state.enemies.splice(j, 1);
+                            }
+                            break;
+                        }
+                    }
+                }
+                if (consumed) state.playerShots.splice(i, 1);
+            }
+
+            for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
+                const b = state.enemyBullets[i];
+                b.x += b.vx * dt;
+                b.y += b.vy * dt;
+                b.life -= dt;
+                if (b.life <= 0 || b.x < rect.x - 28 || b.x > rect.x + rect.w + 32 || b.y < rect.y - 28 || b.y > rect.y + rect.h + 28) {
+                    state.enemyBullets.splice(i, 1);
+                }
+            }
+
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                const p = state.particles[i];
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.vx *= Math.pow(0.13, dt);
+                p.vy *= Math.pow(0.13, dt);
+                p.life -= dt;
+                if (p.life <= 0) state.particles.splice(i, 1);
+            }
+        }
+
+        function updateGraphicsBenchmarkMode(dt, renderNow) {
+            const state = graphicsBenchmarkState;
+            if (!state || (!state.active && !state.completed)) return;
+            const step = benchmarkClamp(Number.isFinite(dt) ? dt : 1 / 60, 0, 0.05);
+            const fps = step > 0 ? 1 / step : 0;
+            state.currentFps = fps;
+            updateGraphicsBenchmarkDemo(state, state.completed ? step * 0.32 : step);
+            if (state.completed) return;
+            if (typeof document !== 'undefined' && document.hidden) {
+                state.confidenceStatus = 'TAB HIDDEN';
+                return;
+            }
+
+            state.elapsed = Math.min(state.duration, state.elapsed + step);
+            state.profileElapsed += step;
+            updateGraphicsBenchmarkRefreshEstimate(state, fps);
+
+            if (state.profileElapsed > state.profileWarmup && fps > 0) {
+                addGraphicsBenchmarkSample(state.profileMetrics, fps, state.targetFps);
+                const summary = summarizeGraphicsBenchmarkSamples(state.profileMetrics, state.targetFps, state.refreshUncertain);
+                state.sampleCount = summary.sampleCount;
+                state.averageFps = summary.avgFps;
+                state.lowFps = summary.lowFps;
+                state.minFps = summary.minFps;
+                state.maxFps = summary.maxFps;
+                state.frameStability = summary.stability;
+                state.confidence = summary.confidence;
+                state.confidenceLabel = summary.confidenceLabel;
+                state.confidenceStatus = summary.confidenceLabel;
+            }
+
+            if (state.profileElapsed >= state.profileDuration) {
+                const profile = state.currentProfile;
+                const summary = summarizeGraphicsBenchmarkSamples(state.profileMetrics, state.targetFps, state.refreshUncertain);
+                if (profile) {
+                    state.profileResults.push(Object.assign({}, summary, {
+                        profile,
+                        targetFps: state.targetFps,
+                        refreshUncertain: state.refreshUncertain,
+                        settings: getGraphicsBenchmarkProfileSettings(profile, state.targetFps)
+                    }));
+                }
+                state.currentProfileIndex++;
+                if (state.currentProfileIndex < state.profiles.length) {
+                    state.currentProfile = state.profiles[state.currentProfileIndex];
+                    state.profileElapsed = 0;
+                    state.profileMetrics = createGraphicsBenchmarkMetricBucket();
+                    const settings = getGraphicsBenchmarkProfileSettings(state.currentProfile, state.targetFps);
+                    settings.fpsCap = false;
+                    applyGraphicsBenchmarkSettings(settings, false);
+                    resetGraphicsBenchmarkDemo(state);
+                    return;
+                }
+                state.completed = true;
+                state.active = false;
+                state.completedAt = renderNow || performance.now();
+                chooseGraphicsBenchmarkRecommendation(state);
+                if (!state.recommendedResult) restoreGraphicsBenchmarkPreviousSettings(state);
+            }
+        }
+
+        function drawGraphicsBenchmarkBar(x, y, w, h, ratio, color, label, valueText) {
+            const clamped = benchmarkClamp(ratio, 0, 1);
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 7, 16, 0.76)';
+            ctx.fillRect(x | 0, y | 0, w | 0, h | 0);
+            ctx.strokeStyle = colorWithAlpha(color, 0.44);
+            ctx.lineWidth = 1;
+            ctx.strokeRect((x + 0.5) | 0, (y + 0.5) | 0, w | 0, h | 0);
+            const fillW = Math.max(0, Math.round((w - 6) * clamped));
+            const grad = ctx.createLinearGradient(x + 3, y, x + w - 3, y);
+            grad.addColorStop(0, colorWithAlpha(color, 0.28));
+            grad.addColorStop(0.7, colorWithAlpha(mixColor(color, '#ffffff', 0.25), 0.72));
+            grad.addColorStop(1, colorWithAlpha('#ffffff', 0.82));
+            ctx.fillStyle = grad;
+            ctx.fillRect((x + 3) | 0, (y + 3) | 0, fillW | 0, Math.max(1, h - 6) | 0);
+            ctx.font = `bold 11px 'Electrolize', sans-serif`;
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = colorWithAlpha('#e8f6ff', 0.86);
+            ctx.fillText(label, x + 8, y + h / 2);
+            ctx.textAlign = 'right';
+            ctx.fillText(valueText, x + w - 8, y + h / 2);
+            ctx.restore();
+        }
+
+        function drawGraphicsBenchmarkSpriteLines(sprite, x, y, color, fontSize = 12, alpha = 1) {
+            if (!sprite || !sprite.length) return;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${fontSize}px Courier New`;
+            ctx.globalAlpha *= alpha;
+            ctx.fillStyle = color;
+            const lineH = fontSize * 1.05;
+            const startY = y - (sprite.length - 1) * lineH * 0.5;
+            for (let r = 0; r < sprite.length; r++) {
+                ctx.fillText(sprite[r], x, startY + r * lineH);
+            }
+            ctx.restore();
+        }
+
+        function drawGraphicsBenchmarkModeBackdrop(state, rect, renderNow, scene) {
+            const field = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+            if (scene.id === 'prism') {
+                field.addColorStop(0, 'rgba(5, 8, 24, 0.98)');
+                field.addColorStop(0.55, 'rgba(12, 22, 36, 0.96)');
+                field.addColorStop(1, 'rgba(5, 6, 18, 0.98)');
+            } else if (scene.id === 'matrix') {
+                field.addColorStop(0, 'rgba(1, 10, 14, 0.98)');
+                field.addColorStop(0.55, 'rgba(2, 18, 24, 0.96)');
+                field.addColorStop(1, 'rgba(1, 6, 12, 0.98)');
+            } else if (scene.id === 'bitshift') {
+                field.addColorStop(0, 'rgba(10, 7, 14, 0.98)');
+                field.addColorStop(0.55, 'rgba(22, 12, 18, 0.96)');
+                field.addColorStop(1, 'rgba(5, 8, 18, 0.98)');
+            } else {
+                field.addColorStop(0, 'rgba(3, 11, 24, 0.98)');
+                field.addColorStop(0.55, 'rgba(4, 16, 30, 0.96)');
+                field.addColorStop(1, 'rgba(2, 6, 14, 0.98)');
+            }
+            ctx.fillStyle = field;
+            ctx.fillRect(rect.x | 0, rect.y | 0, rect.w | 0, rect.h | 0);
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i < state.stars.length; i++) {
+                const s = state.stars[i];
+                ctx.globalAlpha = s.alpha * (0.70 + Math.sin(renderNow * 0.003 + i) * 0.18);
+                ctx.fillStyle = s.depth > 0.9 ? '#d7f8ff' : (i % 5 === 0 ? scene.accent : scene.color);
+                ctx.font = `bold ${Math.round(7 + s.depth * 7)}px Courier New`;
+                ctx.fillText(s.char, s.x | 0, s.y | 0);
+            }
+            ctx.globalAlpha = 1;
+
+            ctx.strokeStyle = colorWithAlpha(scene.accent || currentThemeColor, 0.10);
+            ctx.lineWidth = 1;
+            if (scene.id === 'binary') {
+                const laneOffset = (renderNow * 0.05) % 42;
+                for (let x = rect.x + 28; x < rect.x + rect.w; x += 86) {
+                    ctx.beginPath();
+                    ctx.moveTo(x | 0, rect.y);
+                    ctx.lineTo(x | 0, rect.y + rect.h);
+                    ctx.stroke();
+                }
+                for (let y = rect.y - laneOffset; y < rect.y + rect.h; y += 42) {
+                    ctx.globalAlpha = 0.16;
+                    ctx.fillStyle = scene.color;
+                    ctx.font = 'bold 10px Courier New';
+                    ctx.fillText('|', rect.x + rect.w * 0.16, y);
+                    ctx.fillText('|', rect.x + rect.w * 0.84, y + 18);
+                }
+            } else if (scene.id === 'prism') {
+                const cx = rect.x + rect.w * 0.5;
+                const cy = rect.y + rect.h * 0.5;
+                ctx.globalAlpha = 0.22;
+                for (let r = 0; r < 4; r++) {
+                    ctx.strokeStyle = colorWithAlpha(r % 2 ? '#ff8fd8' : '#8ff7ff', 0.20 - r * 0.025);
+                    ctx.beginPath();
+                    ctx.ellipse(cx, cy, 90 + r * 52, 36 + r * 19, renderNow * 0.0007 + r * 0.42, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                ctx.globalAlpha = 0.22;
+                ctx.fillStyle = '#bfffff';
+                ctx.font = 'bold 18px Courier New';
+                for (let i = 0; i < 12; i++) {
+                    const a = renderNow * 0.0008 + i * Math.PI * 2 / 12;
+                    ctx.fillText(i % 2 ? '<' : '>', cx + Math.cos(a) * (128 + i % 3 * 24), cy + Math.sin(a) * (54 + i % 4 * 14));
+                }
+            } else if (scene.id === 'matrix') {
+                const roomX = rect.x + rect.w * 0.16;
+                const roomY = rect.y + rect.h * 0.14;
+                const roomW = rect.w * 0.68;
+                const roomH = rect.h * 0.72;
+                ctx.strokeStyle = colorWithAlpha('#65ffb8', 0.28);
+                ctx.strokeRect(roomX | 0, roomY | 0, roomW | 0, roomH | 0);
+                ctx.globalAlpha = 0.18;
+                for (let x = roomX + 36; x < roomX + roomW; x += 36) {
+                    ctx.beginPath();
+                    ctx.moveTo(x | 0, roomY);
+                    ctx.lineTo(x | 0, roomY + roomH);
+                    ctx.stroke();
+                }
+                for (let y = roomY + 36; y < roomY + roomH; y += 36) {
+                    ctx.beginPath();
+                    ctx.moveTo(roomX, y | 0);
+                    ctx.lineTo(roomX + roomW, y | 0);
+                    ctx.stroke();
+                }
+                ctx.globalAlpha = 0.30;
+                ctx.fillStyle = '#65ffb8';
+                ctx.font = 'bold 11px Courier New';
+                ctx.fillText('[ CACHE ]', roomX + roomW * 0.5, roomY - 14);
+                ctx.fillText('DOOR', roomX + roomW + 20, roomY + roomH * 0.5);
+            } else {
+                const streamOffset = (renderNow * 0.08) % 72;
+                ctx.font = 'bold 10px Courier New';
+                for (let y = rect.y + 28; y < rect.y + rect.h; y += 34) {
+                    ctx.globalAlpha = 0.10 + ((y / 34) % 3) * 0.035;
+                    ctx.strokeStyle = colorWithAlpha(y % 2 ? '#ff9a73' : '#8ff7ff', 0.28);
+                    ctx.beginPath();
+                    ctx.moveTo(rect.x + ((y + streamOffset) % 96), y | 0);
+                    ctx.lineTo(rect.x + rect.w, y | 0);
+                    ctx.stroke();
+                    ctx.fillStyle = y % 2 ? '#ff9a73' : '#8ff7ff';
+                    ctx.fillText(y % 3 ? '0101' : '>>', rect.x + rect.w - ((streamOffset + y) % rect.w), y - 8);
+                }
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function drawGraphicsBenchmarkPilot(state, scene, renderNow) {
+            const p = state.pilot;
+            const fakeShip = {
+                x: p.x,
+                y: p.y,
+                vx: p.vx,
+                vy: p.vy,
+                flashTimer: 0,
+                shipId: scene.id === 'prism' ? 'glasswing' : (scene.id === 'matrix' ? 'ionManta' : 'arrowhead'),
+                color: '#e8fbff',
+                _renderLayoutCache: null
+            };
+            ctx.save();
+            if (typeof drawCheapGlowDot === 'function') {
+                drawCheapGlowDot(ctx, p.x, p.y, scene.id === 'bitshift' ? 24 : 28, scene.accent || '#8ff7ff', {
+                    alpha: 0.06,
+                    core: false,
+                    maxRadius: 32
+                });
+            }
+            ctx.fillStyle = '#e8fbff';
+            ctx.shadowColor = scene.accent || '#8ff7ff';
+            ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                ? getLiveGlowBlur(10, 'high', 1, 0.30)
+                : (glowEnabled ? 10 : 0);
+            if (typeof drawPlayerShip === 'function') {
+                if (scene.id === 'bitshift') {
+                    const rotation = typeof BITSHIFT_SHIP_RENDER_ROTATION === 'number' ? BITSHIFT_SHIP_RENDER_ROTATION : Math.PI / 2;
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(rotation);
+                    ctx.translate(-p.x, -p.y);
+                }
+                drawPlayerShip(fakeShip, 'center');
+            } else {
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = 'bold 28px Courier New';
+                ctx.fillText(scene.id === 'binary' ? '^' : '>', p.x, p.y);
+            }
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalAlpha = 0.50 + Math.sin(renderNow * 0.024) * 0.16;
+            ctx.fillStyle = scene.id === 'bitshift' ? '#ff9a73' : '#ffb36a';
+            ctx.font = 'bold 14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (scene.id === 'binary') ctx.fillText('.', p.x, p.y + 28);
+            else ctx.fillText('.', p.x - 26, p.y);
+            ctx.restore();
+        }
+
+        function drawGraphicsBenchmarkEnemy(enemy, renderNow) {
+            ctx.save();
+            if (enemy.enemyShipSprite && typeof drawEnemyShipSprite === 'function') {
+                drawEnemyShipSprite(enemy);
+                ctx.restore();
+                return;
+            }
+            if (enemy.sceneId === 'bitshift' && enemy.sprite && typeof drawBitshiftSprite === 'function') {
+                drawBitshiftSprite(enemy.sprite, enemy.x, enemy.y, enemy.color, enemy.type === 'parityMine' ? 1 + Math.sin(renderNow * 0.008 + enemy.phase) * 0.08 : 1, 0);
+                ctx.restore();
+                return;
+            }
+            if (enemy.sprite) {
+                drawGraphicsBenchmarkSpriteLines(enemy.sprite, enemy.x, enemy.y, enemy.color, enemy.spriteFontSize || 10, enemy.type === 'matrixPhantom' ? 0.72 : 0.88);
+                ctx.restore();
+                return;
+            }
+            const pulse = 0.72 + Math.sin(renderNow * 0.006 + enemy.phase) * 0.12;
+            ctx.translate(enemy.x | 0, enemy.y | 0);
+            ctx.rotate(enemy.type === 'shiftSkimmer' || enemy.type === 'binarySkimmer' ? Math.sin(enemy.phase) * 0.28 : 0);
+            ctx.fillStyle = enemy.hp <= 1 ? '#ffffff' : enemy.color;
+            ctx.font = `bold ${Math.round(enemy.size * pulse)}px Courier New`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (typeof drawCheapGlowGlyph === 'function' && enemy.hp <= 1) {
+                drawCheapGlowGlyph(ctx, enemy.char, 0, 0, ctx.font, enemy.color, {
+                    alpha: 0.08,
+                    echoAlpha: 0.035,
+                    sizeBoost: 1.14,
+                    maxFontSize: 30
+                });
+            }
+            ctx.fillText(enemy.char, 0, 0);
+            ctx.restore();
+        }
+
+        function drawGraphicsBenchmarkSceneTransition(state, rect, renderNow) {
+            const t = benchmarkClamp((state.sceneTransition || 0) / GRAPHICS_BENCHMARK_SCENE_TRANSITION_SECONDS, 0, 1);
+            if (t <= 0) return;
+            const scene = getGraphicsBenchmarkScene(state);
+            const previous = state.previousSceneIndex >= 0 ? getGraphicsBenchmarkScene(state, state.previousSceneIndex) : null;
+            ctx.save();
+            ctx.globalAlpha = 0.22 * t;
+            ctx.fillStyle = '#020814';
+            ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+            const sweepX = rect.x + rect.w * (1 - t);
+            ctx.globalAlpha = 0.48 * t;
+            ctx.fillStyle = colorWithAlpha(scene.accent || currentThemeColor, 0.62);
+            ctx.fillRect((sweepX - 2) | 0, rect.y, 4, rect.h);
+            ctx.globalAlpha = 0.78 * t;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold ${Math.max(14, Math.round(width * 0.014))}px 'Electrolize', sans-serif`;
+            ctx.fillStyle = '#ffffff';
+            const text = previous ? `${previous.label}  >  ${scene.label}` : scene.label;
+            ctx.fillText(text, rect.x + rect.w / 2, rect.y + rect.h / 2);
+            ctx.font = 'bold 12px Courier New';
+            ctx.fillStyle = colorWithAlpha(scene.accent || currentThemeColor, 0.82);
+            ctx.fillText(scene.subtitle, rect.x + rect.w / 2, rect.y + rect.h / 2 + 24);
+            ctx.restore();
+        }
+
+        function drawGraphicsBenchmarkDemo(state, rect, renderNow) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(rect.x | 0, rect.y | 0, rect.w | 0, rect.h | 0);
+            ctx.clip();
+            const scene = getGraphicsBenchmarkScene(state);
+            drawGraphicsBenchmarkModeBackdrop(state, rect, renderNow, scene);
+
+            for (let i = 0; i < state.playerShots.length; i++) {
+                const p = state.playerShots[i];
+                ctx.fillStyle = p.color;
+                ctx.font = `bold ${p.char === '=>' ? 18 : (p.char === '|' ? 18 : 16)}px Courier New`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                if (typeof drawCheapGlowGlyph === 'function') {
+                    drawCheapGlowGlyph(ctx, p.char, p.x, p.y, ctx.font, p.color, {
+                        alpha: 0.08,
+                        echoAlpha: 0.035,
+                        sizeBoost: 1.14,
+                        maxFontSize: 25
+                    });
+                }
+                ctx.fillText(p.char, p.x | 0, p.y | 0);
+            }
+
+            for (let i = 0; i < state.enemyBullets.length; i++) {
+                const b = state.enemyBullets[i];
+                ctx.fillStyle = b.color;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = `bold ${b.char === '*' ? 17 : 16}px Courier New`;
+                ctx.fillText(b.char, b.x | 0, b.y | 0);
+            }
+
+            for (let i = 0; i < state.enemies.length; i++) {
+                drawGraphicsBenchmarkEnemy(state.enemies[i], renderNow);
+            }
+
+            drawGraphicsBenchmarkPilot(state, scene, renderNow);
+            ctx.globalAlpha = 1;
+
+            for (let i = 0; i < state.particles.length; i++) {
+                const pfx = state.particles[i];
+                ctx.globalAlpha = Math.max(0, Math.min(1, pfx.life / Math.max(0.1, pfx.maxLife || 0.75)));
+                ctx.fillStyle = pfx.color;
+                ctx.font = `bold 13px Courier New`;
+                ctx.fillText(pfx.char, pfx.x | 0, pfx.y | 0);
+            }
+            ctx.globalAlpha = 1;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.font = `bold 12px 'Electrolize', sans-serif`;
+            ctx.fillStyle = colorWithAlpha('#ffffff', 0.64);
+            ctx.fillText(`${scene.label} // ${scene.subtitle}`, rect.x + 18, rect.y + 16);
+            drawGraphicsBenchmarkSceneTransition(state, rect, renderNow);
+            ctx.restore();
+        }
+
+        function drawGraphicsBenchmarkSpinner(cx, cy, renderNow, color) {
+            const chars = ['|', '/', '-', '\\', '+', 'x', '*', '0'];
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i < chars.length; i++) {
+                const a = renderNow * 0.0034 + i * Math.PI * 2 / chars.length;
+                const r = 20 + Math.sin(renderNow * 0.004 + i) * 3;
+                const alpha = 0.22 + ((i + Math.floor(renderNow * 0.012)) % chars.length) / chars.length * 0.64;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = i % 3 === 0 ? '#ffffff' : color;
+                ctx.font = `bold ${i % 2 ? 13 : 15}px Courier New`;
+                ctx.fillText(chars[i], (cx + Math.cos(a) * r) | 0, (cy + Math.sin(a) * r) | 0);
+            }
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `bold 11px Courier New`;
+            ctx.fillText('AI', cx | 0, cy | 0);
+            ctx.restore();
+        }
+
+        function drawGraphicsBenchmarkScreen(renderNow, dt) {
+            const state = graphicsBenchmarkState || createGraphicsBenchmarkState();
+            const rect = getGraphicsBenchmarkPlayRect();
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+
+            const bg = ctx.createLinearGradient(0, 0, 0, height);
+            bg.addColorStop(0, '#020814');
+            bg.addColorStop(0.52, '#061020');
+            bg.addColorStop(1, '#020610');
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, width | 0, height | 0);
+
+            ctx.fillStyle = colorWithAlpha(currentThemeColor, 0.035);
+            ctx.fillRect(0, 0, width | 0, height | 0);
+            drawGraphicsBenchmarkDemo(state, rect, renderNow);
+
+            drawPauseHudPanel(rect.x - 8, rect.y - 8, rect.w + 16, rect.h + 16, currentThemeColor, false, {
+                fillAlpha: 0.10,
+                borderAlpha: 0.44,
+                rail: true,
+                innerSheenAlpha: 0.003,
+                edgeWashAlpha: 0.010
+            });
+
+            const progress = state.duration > 0 ? benchmarkClamp(state.elapsed / state.duration, 0, 1) : 0;
+            const title = state.completed
+                ? (state.cancelled ? 'BENCHMARK CANCELLED' : 'BENCHMARK COMPLETE')
+                : 'BENCHMARKING';
+            const titlePulse = state.completed ? 0.18 : (0.26 + Math.sin(renderNow * 0.006) * 0.10);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold 30px 'Electrolize', sans-serif`;
+            ctx.fillStyle = mixColor(currentThemeColor, '#ffffff', state.completed ? 0.62 : 0.46);
+            if (glowEnabled) {
+                ctx.shadowColor = currentThemeColor;
+                ctx.shadowBlur = state.completed ? 16 : 10;
+            }
+            ctx.fillText(`[ ${title} ]`, width / 2, 44);
+            ctx.shadowBlur = 0;
+            ctx.font = `bold 12px Courier New`;
+            ctx.fillStyle = colorWithAlpha('#ffffff', 0.32 + titlePulse);
+            const phaseText = state.completed
+                ? state.recommendation
+                : `${getGraphicsBenchmarkPhase(state.elapsed, state)} // ${state.currentProfile ? state.currentProfile.label : 'PROFILE'}`;
+            ctx.fillText(phaseText, width / 2, 72);
+
+            drawGraphicsBenchmarkSpinner(rect.x + 38, 47, renderNow, currentThemeColor);
+
+            const scanY = rect.y + ((renderNow * 0.052) % rect.h);
+            ctx.globalAlpha = state.completed ? 0.10 : 0.24;
+            ctx.strokeStyle = colorWithAlpha('#ffffff', 0.48);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(rect.x, scanY | 0);
+            ctx.lineTo(rect.x + rect.w, scanY | 0);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+
+            const panelW = Math.min(width - 72, 680);
+            const panelX = Math.round((width - panelW) / 2);
+            const panelY = Math.round(rect.y + rect.h + 30);
+            const panelH = Math.min(206, height - panelY - 22);
+            drawPauseHudPanel(panelX, panelY, panelW, panelH, currentThemeColor, true, {
+                fillAlpha: 0.70,
+                borderAlpha: 0.58,
+                rail: false,
+                edgeWashAlpha: 0.006,
+                innerSheenAlpha: 0.003
+            });
+
+            const barX = panelX + 24;
+            const barW = panelW - 48;
+            const confidenceColor = state.confidenceLabel === 'LOCKED'
+                ? '#8ff7ff'
+                : state.confidenceLabel === 'HIGH'
+                    ? '#a8ffb8'
+                    : state.confidenceLabel === 'STABLE'
+                        ? '#ffcf6a'
+                        : '#ff7a72';
+            drawGraphicsBenchmarkBar(barX, panelY + 22, barW, 20, progress, currentThemeColor, 'PROGRESS', `${Math.round(progress * 100)}%`);
+            drawGraphicsBenchmarkBar(
+                barX,
+                panelY + 52,
+                barW,
+                28,
+                state.confidence / 100,
+                confidenceColor,
+                `CONFIDENCE ${state.confidenceLabel || 'LOW'}`,
+                `${Math.round(state.confidence)}%`
+            );
+
+            const avg = state.averageFps || 0;
+            const fpsText = state.currentFps ? Math.round(state.currentFps).toString() : '--';
+            const avgText = avg ? Math.round(avg).toString() : '--';
+            const lowText = state.lowFps ? Math.round(state.lowFps).toString() : '--';
+            const targetText = state.targetFps ? Math.round(state.targetFps).toString() : GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS.toString();
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.font = `bold 12px 'Electrolize', sans-serif`;
+            ctx.fillStyle = colorWithAlpha('#e8f6ff', 0.88);
+            ctx.fillText(`CURRENT ${fpsText}`, panelX + 28, panelY + 104);
+            ctx.fillText(`AVG ${avgText}`, panelX + 142, panelY + 104);
+            ctx.fillText(`1% LOW ${lowText}`, panelX + 232, panelY + 104);
+            ctx.fillText(`TARGET ${targetText}`, panelX + 350, panelY + 104);
+            ctx.fillText(`SAMPLES ${state.sampleCount || 0}`, panelX + 462, panelY + 104);
+
+            ctx.font = `bold 11px Courier New`;
+            ctx.fillStyle = colorWithAlpha('#ffffff', 0.62);
+            const profileText = state.completed && state.recommendedProfile
+                ? `RECOMMENDED PROFILE: ${state.recommendedProfile.label}`
+                : `TESTING PROFILE: ${state.currentProfile ? state.currentProfile.label : '--'} // ${getGraphicsBenchmarkScene(state).label}`;
+            ctx.fillText(profileText, panelX + 28, panelY + 130);
+            const settingsSource = state.completed && state.recommendedProfile ? state.recommendedProfile : state.currentProfile;
+            ctx.fillStyle = colorWithAlpha(mixColor(currentThemeColor, '#ffffff', 0.38), 0.78);
+            ctx.fillText(getGraphicsBenchmarkProfileSettingsLabel(settingsSource, state.targetFps), panelX + 28, panelY + 150);
+            if (state.completed && state.recommendedResult) {
+                ctx.fillStyle = colorWithAlpha('#ffffff', 0.56);
+                const measured = `MEASURED AVG ${Math.round(state.recommendedResult.avgFps || 0)} / LOW ${Math.round(state.recommendedResult.lowFps || 0)} / TARGET ${targetText}`;
+                ctx.fillText(measured, panelX + 28, panelY + 170);
+            } else {
+                ctx.fillStyle = colorWithAlpha('#ffffff', 0.42);
+                const refresh = state.refreshUncertain
+                    ? `REFRESH ESTIMATE ${targetText} FPS // CONSERVATIVE`
+                    : `REFRESH ESTIMATE ${targetText} FPS // ${state.refreshConfidence}%`;
+                ctx.fillText(refresh, panelX + 28, panelY + 170);
+            }
+
+            ctx.textAlign = 'center';
+            ctx.font = `bold 12px Courier New`;
+            ctx.fillStyle = colorWithAlpha('#ffffff', state.completed ? 0.86 : 0.52);
+            const help = state.completed
+                ? 'ENTER / SPACE TO APPLY    ESC TO CANCEL AND RESTORE'
+                : 'AI PILOT RUNNING  |  ESC TO CANCEL';
+            ctx.fillText(help, panelX + panelW / 2, panelY + panelH - 20);
+            ctx.restore();
+        }
+
+        window.debugGraphicsBenchmarkState = function debugGraphicsBenchmarkState() {
+            const state = graphicsBenchmarkState || {};
+            return {
+                active: !!state.active,
+                completed: !!state.completed,
+                cancelled: !!state.cancelled,
+                elapsed: state.elapsed,
+                targetFps: state.targetFps,
+                refreshEstimate: state.refreshEstimate,
+                refreshUncertain: state.refreshUncertain,
+                currentProfile: state.currentProfile ? state.currentProfile.label : null,
+                currentScene: getGraphicsBenchmarkScene(state).label,
+                sceneIndex: state.sceneIndex,
+                sceneElapsed: state.sceneElapsed,
+                recommendedProfile: state.recommendedProfile ? state.recommendedProfile.label : null,
+                currentFps: state.currentFps,
+                averageFps: state.averageFps,
+                lowFps: state.lowFps,
+                confidence: state.confidence,
+                confidenceLabel: state.confidenceLabel,
+                enemies: state.enemies ? state.enemies.length : 0,
+                enemyBullets: state.enemyBullets ? state.enemyBullets.length : 0,
+                playerShots: state.playerShots ? state.playerShots.length : 0,
+                particles: state.particles ? state.particles.length : 0
+            };
+        };
 
         function drawCard(x, y, w, h, opt, isSelected, alpha) {
             ctx.save();
@@ -3677,6 +5285,11 @@
             ) {
                 return;
             }
+            if (gameState === BENCHMARK_GAME_STATE) {
+                updateGraphicsBenchmarkMode(dt, renderNow);
+                drawGraphicsBenchmarkScreen(renderNow, dt);
+                return;
+            }
             const galaxySelectSceneCoversField = gameState === 'GALAXY_SELECT'
                 || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT');
             const survivorModeVisual = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
@@ -3840,6 +5453,12 @@
                     ctx.fillStyle = player.color;
                     ctx.shadowColor = currentThemeColor;
                     ctx.shadowBlur = pulseVisuals.glow;
+                    if (typeof drawCheapGlowDot === 'function') {
+                        drawCheapGlowDot(ctx, player.x, player.y, 24, currentThemeColor, {
+                            alpha: 0.08,
+                            core: false
+                        });
+                    }
                     drawPlayerShip(player, 'center');
                     ctx.shadowBlur = 0;
                     ctx.globalCompositeOperation = 'source-over';
@@ -3915,6 +5534,12 @@
                             if (focusDropGlow > 0) {
                                 ctx.shadowColor = d.coreColor || '#ffd35a';
                                 ctx.shadowBlur = focusDropGlow;
+                            } else if (typeof drawCheapGlowDot === 'function') {
+                                drawCheapGlowDot(ctx, d.x, d.y, boxSize * 0.72, d.coreColor || '#ffd35a', {
+                                    alpha: 0.12,
+                                    maxRadius: 24,
+                                    coreAlpha: 0.35
+                                });
                             }
                             ctx.fillRect((d.x - boxSize / 2) | 0, (d.y - boxSize / 2) | 0, boxSize, boxSize);
                             ctx.strokeStyle = d.strokeColor || '#ffd35a';
@@ -4771,6 +6396,13 @@
                     if (bombGlow > 0) {
                         ctx.shadowColor = shellColor;
                         ctx.shadowBlur = bombGlow;
+                    } else if (typeof drawCheapGlowGlyph === 'function') {
+                        drawCheapGlowGlyph(ctx, 'O', 0, 0, `bold 22px Courier New`, shellColor, {
+                            alpha: 0.13,
+                            echoAlpha: 0.055,
+                            sizeBoost: 1.20,
+                            maxFontSize: 28
+                        });
                     }
                     ctx.font = `bold 22px Courier New`;
                     ctx.fillText('O', 0, 0);
@@ -4851,6 +6483,14 @@
                         if (useCachedBurstGlow) {
                             drawCachedGlowGlyph(ctx, '|', 0, 0, burstFont, p.color, '#aa00ff', 10);
                         } else {
+                            if (typeof drawCheapGlowGlyph === 'function') {
+                                drawCheapGlowGlyph(ctx, '|', 0, 0, burstFont, p.color, {
+                                    alpha: 0.12,
+                                    echoAlpha: 0.055,
+                                    sizeBoost: 1.18,
+                                    maxFontSize: 28
+                                });
+                            }
                             ctx.fillText('|', 0, 0);
                         }
                         ctx.fillStyle = '#ffffff';
@@ -4867,6 +6507,14 @@
                     if (p.isBombShrapnel && glowEnabled && typeof drawCachedGlowGlyph === 'function' && (typeof shouldUseCachedGlowSprite !== 'function' || shouldUseCachedGlowSprite('normal'))) {
                         drawCachedGlowGlyph(ctx, p.sprite, 0, 0, `bold 22px Courier New`, p.color, p.color, 12);
                     } else {
+                        if (typeof drawCheapGlowGlyph === 'function') {
+                            drawCheapGlowGlyph(ctx, p.sprite, 0, 0, ctx.font, p.color, {
+                                alpha: p.isBombShrapnel ? 0.11 : 0.09,
+                                echoAlpha: 0.04,
+                                sizeBoost: 1.14,
+                                maxFontSize: p.isBombShrapnel ? 28 : 30
+                            });
+                        }
                         ctx.fillText(p.sprite, 0, 0);
                     }
                     ctx.restore();
@@ -4915,6 +6563,12 @@
                     ctx.save();
                     const playerGlowScale = typeof getGlowQualityScale === 'function' ? getGlowQualityScale(0.38, 1) : (glowEnabled ? 1 : 0);
                     ctx.shadowBlur = (player.flashTimer > 0 ? 26 : pulseVisuals.glow) * playerGlowScale;
+                    if (typeof drawCheapGlowDot === 'function') {
+                        drawCheapGlowDot(ctx, player.x, player.y, player.flashTimer > 0 ? 31 : 25, player.flashTimer > 0 ? '#ff2200' : currentThemeColor, {
+                            alpha: player.flashTimer > 0 ? 0.18 : 0.085,
+                            core: false
+                        });
+                    }
                     drawPlayerShip(player);
                     ctx.restore();
                     ctx.globalAlpha = 1.0;

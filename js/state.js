@@ -9,7 +9,7 @@
         let showFpsCounter = true;
         let showStatsPanel = true;
         let renderStyleMode = 2;
-        let glowEnabled = true;
+        let glowEnabled = false;
         let survivorEightWayAimEnabled = true;
         const CANVAS_SHARPNESS_OPTIONS = [
             { label: 'PERFORMANCE', scale: 1 },
@@ -26,9 +26,9 @@
             { label: 'NORMAL', particles: 1, background: 1, effects: 1, detail: 1 },
             { label: 'HIGH', particles: 1.28, background: 1.18, effects: 1.18, detail: 1.14 }
         ];
-        let canvasSharpnessIndex = 0;
-        let canvasFilterIndex = 0;
-        let visualQualityIndex = 1;
+        let canvasSharpnessIndex = 3;
+        let canvasFilterIndex = 1;
+        let visualQualityIndex = 2;
 
         function getCanvasSharpnessOption() {
             return CANVAS_SHARPNESS_OPTIONS[canvasSharpnessIndex] || CANVAS_SHARPNESS_OPTIONS[0];
@@ -404,7 +404,83 @@
         const POST_RESUME_BOMB_LOCK_SECONDS = 0.5;
         let pauseVolumePreviewTimeout = null;
         const SETTINGS_MENU_OPTION_COUNT = 5;
-        const GRAPHICS_MENU_OPTION_COUNT = 6;
+        const GRAPHICS_MENU_OPTION_COUNT = 7;
+        const GRAPHICS_BENCHMARK_MENU_INDEX = 5;
+        const BENCHMARK_GAME_STATE = 'BENCHMARK';
+        const GRAPHICS_BENCHMARK_MAX_TARGET_FPS = 144;
+        const GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS = 60;
+        const GRAPHICS_BENCHMARK_PROFILE_SECONDS = 3.0;
+        const GRAPHICS_BENCHMARK_PROFILE_WARMUP_SECONDS = 0.45;
+        const GRAPHICS_BENCHMARK_REFRESH_SAMPLE_SECONDS = 1.35;
+
+        function createGraphicsBenchmarkState() {
+            return {
+                active: false,
+                completed: false,
+                cancelled: false,
+                elapsed: 0,
+                duration: 0,
+                warmup: GRAPHICS_BENCHMARK_PROFILE_WARMUP_SECONDS,
+                profileElapsed: 0,
+                profileDuration: GRAPHICS_BENCHMARK_PROFILE_SECONDS,
+                profileWarmup: GRAPHICS_BENCHMARK_PROFILE_WARMUP_SECONDS,
+                currentProfileIndex: 0,
+                currentProfile: null,
+                modeScenes: [],
+                sceneIndex: 0,
+                lastSceneIndex: -1,
+                sceneElapsed: 0,
+                sceneDuration: 0.75,
+                sceneTransition: 0,
+                previousSceneIndex: -1,
+                profiles: [],
+                profileMetrics: null,
+                profileResults: [],
+                previousSettings: null,
+                previousStorage: null,
+                recommendedProfile: null,
+                recommendedResult: null,
+                targetFps: GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS,
+                refreshEstimate: GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS,
+                refreshConfidence: 0,
+                refreshUncertain: true,
+                refreshSamples: [],
+                currentFps: 0,
+                averageFps: 0,
+                lowFps: 0,
+                frameStability: 0,
+                minFps: Infinity,
+                maxFps: 0,
+                sampleCount: 0,
+                sampleSum: 0,
+                confidence: 0,
+                confidenceLabel: 'LOW',
+                confidenceStatus: 'COLLECTING',
+                recommendation: 'SCANNING',
+                applyingRecommendation: false,
+                startedAt: 0,
+                completedAt: 0,
+                seed: 0xA51C,
+                rngState: 0xA51C,
+                spawnClock: 0,
+                shotClock: 0,
+                pilot: {
+                    x: 0,
+                    y: 0,
+                    vx: 0,
+                    vy: 0,
+                    aimX: 1,
+                    aimY: 0
+                },
+                stars: [],
+                enemies: [],
+                enemyBullets: [],
+                playerShots: [],
+                particles: []
+            };
+        }
+
+        let graphicsBenchmarkState = createGraphicsBenchmarkState();
 
         function getCurrentSettingsMenuOptionCount() {
             return pauseState === 'GRAPHICS' ? GRAPHICS_MENU_OPTION_COUNT : SETTINGS_MENU_OPTION_COUNT;

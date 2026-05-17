@@ -14,16 +14,23 @@
             sessionStorage.getItem(GLOW_QUALITY_STORAGE_KEY) ||
             (typeof glowEnabled !== 'undefined' && glowEnabled ? GLOW_QUALITY_SOFT : GLOW_QUALITY_OFF)
         );
-        if (typeof glowEnabled !== 'undefined') {
-            glowEnabled = glowQualityMode !== GLOW_QUALITY_OFF;
-        }
+        syncLegacyGlowEnabledFlag();
         let glowBudgetFrameKey = null;
         let glowLiveBlurUsed = 0;
         let glowLiveBlurRejected = 0;
         let glowCachedGlyphDraws = 0;
         let glowCachedRadialDraws = 0;
+        let glowCheapSoftDraws = 0;
+        let glowSoftShadowBlurBlocked = 0;
+        let glowShadowBlurPolicyInstalled = false;
         const cachedGlowGlyphSprites = new Map();
         const cachedRadialGlowSprites = new Map();
+
+        function syncLegacyGlowEnabledFlag() {
+            if (typeof glowEnabled !== 'undefined') {
+                glowEnabled = glowQualityMode === GLOW_QUALITY_FULL;
+            }
+        }
 
         function normalizeGlowQualityMode(mode) {
             const value = String(mode || GLOW_QUALITY_AUTO).toUpperCase();
@@ -37,8 +44,8 @@
         function setGlowQualityMode(mode) {
             glowQualityMode = normalizeGlowQualityMode(mode);
             sessionStorage.setItem(GLOW_QUALITY_STORAGE_KEY, glowQualityMode);
+            syncLegacyGlowEnabledFlag();
             if (typeof glowEnabled !== 'undefined') {
-                glowEnabled = glowQualityMode !== GLOW_QUALITY_OFF;
                 sessionStorage.setItem('ascii_glow_enabled', glowEnabled.toString());
             }
             clearGlowRenderCaches();
@@ -65,11 +72,15 @@
 
         function getGlowQuality() {
             const quality = getGlowQualityMode();
-            if (quality === GLOW_QUALITY_OFF || (typeof glowEnabled !== 'undefined' && !glowEnabled)) return GLOW_QUALITY_OFF;
+            if (quality === GLOW_QUALITY_OFF) return GLOW_QUALITY_OFF;
             return quality;
         }
 
         function isSoftGlowQuality() {
+            return getGlowQuality() === GLOW_QUALITY_SOFT;
+        }
+
+        function isCheapSoftGlowQuality() {
             return getGlowQuality() === GLOW_QUALITY_SOFT;
         }
 
@@ -101,12 +112,14 @@
             glowLiveBlurRejected = 0;
             glowCachedGlyphDraws = 0;
             glowCachedRadialDraws = 0;
+            glowCheapSoftDraws = 0;
+            glowSoftShadowBlurBlocked = 0;
         }
 
         function shouldUseLiveShadowBlur(priority = 'normal', cost = 1) {
             const quality = getGlowQuality();
             if (quality === GLOW_QUALITY_OFF) return false;
-            if (quality === GLOW_QUALITY_SOFT && (priority === 'low' || priority === 'normal')) {
+            if (quality === GLOW_QUALITY_SOFT) {
                 glowLiveBlurRejected += Math.max(1, Number.isFinite(cost) ? cost : 1);
                 return false;
             }
@@ -130,17 +143,14 @@
             if (rawBlur <= 0 || typeof glowEnabled !== 'undefined' && !glowEnabled) return 0;
             const quality = getGlowQuality();
             if (quality === GLOW_QUALITY_OFF) return 0;
-            if (quality === GLOW_QUALITY_SOFT) {
-                if (!shouldUseLiveShadowBlur(priority, cost)) return 0;
-                return rawBlur * softScale;
-            }
+            if (quality === GLOW_QUALITY_SOFT) return 0;
             return rawBlur;
         }
 
         function shouldUseCachedGlowSprite(priority = 'normal') {
             const quality = getGlowQuality();
             if (quality === GLOW_QUALITY_OFF) return false;
-            if (quality === GLOW_QUALITY_SOFT) return priority === 'critical' || priority === 'high';
+            if (quality === GLOW_QUALITY_SOFT) return false;
             return true;
         }
 
@@ -153,6 +163,8 @@
                 liveBlurRejected: glowLiveBlurRejected,
                 cachedGlyphDraws: glowCachedGlyphDraws,
                 cachedRadialDraws: glowCachedRadialDraws,
+                cheapSoftDraws: glowCheapSoftDraws,
+                softShadowBlurBlocked: glowSoftShadowBlurBlocked,
                 glyphCacheSize: cachedGlowGlyphSprites.size,
                 radialCacheSize: cachedRadialGlowSprites.size
             };
@@ -182,10 +194,98 @@
             return Math.round(clamped / step) * step;
         }
 
+        function clampGlowAlpha(value, fallback = 1) {
+            const safe = Number.isFinite(value) ? value : fallback;
+            return Math.max(0, Math.min(1, safe));
+        }
+
+        function drawCheapGlowGlyph(targetCtx, glyph, x, y, font, color, options = {}) {
+            if (!targetCtx || !isCheapSoftGlowQuality()) return false;
+            const text = String(glyph == null ? '' : glyph);
+            if (!text) return false;
+            const safeFont = font || targetCtx.font || 'bold 20px Courier New';
+            const fontSize = getGlowFontSize(safeFont, 20);
+            const boost = Number.isFinite(options.sizeBoost) ? options.sizeBoost : 1.18;
+            const maxFontSize = Number.isFinite(options.maxFontSize) ? options.maxFontSize : 42;
+            const haloFontSize = Math.round(Math.min(maxFontSize, Math.max(fontSize, fontSize * boost)));
+            const haloFont = safeFont.replace(/\d+(?:\.\d+)?px/, `${haloFontSize}px`);
+            const alpha = clampGlowAlpha(options.alpha, 0.14);
+            const echoAlpha = clampGlowAlpha(options.echoAlpha, alpha * 0.58);
+            const echo = options.echo !== false;
+            targetCtx.save();
+            targetCtx.shadowBlur = 0;
+            targetCtx.font = haloFont;
+            targetCtx.fillStyle = color || '#ffffff';
+            if (options.textAlign) targetCtx.textAlign = options.textAlign;
+            if (options.textBaseline) targetCtx.textBaseline = options.textBaseline;
+            targetCtx.globalAlpha *= alpha;
+            targetCtx.fillText(text, x, y);
+            if (echo) {
+                targetCtx.globalAlpha *= echoAlpha / Math.max(0.001, alpha);
+                const offset = Number.isFinite(options.echoOffset) ? options.echoOffset : 1;
+                targetCtx.fillText(text, x - offset, y);
+                targetCtx.fillText(text, x + offset, y);
+            }
+            targetCtx.restore();
+            glowCheapSoftDraws++;
+            return true;
+        }
+
+        function drawCheapGlowDot(targetCtx, x, y, radius, color, options = {}) {
+            if (!targetCtx || !isCheapSoftGlowQuality()) return false;
+            const r = Math.max(1, Math.min(Number.isFinite(options.maxRadius) ? options.maxRadius : 34, Number(radius) || 8));
+            targetCtx.save();
+            targetCtx.shadowBlur = 0;
+            targetCtx.globalCompositeOperation = options.composite || 'source-over';
+            targetCtx.globalAlpha *= clampGlowAlpha(options.alpha, 0.10);
+            targetCtx.fillStyle = color || '#ffffff';
+            targetCtx.beginPath();
+            targetCtx.arc(x, y, r, 0, Math.PI * 2);
+            targetCtx.fill();
+            if (options.core !== false) {
+                targetCtx.globalAlpha *= clampGlowAlpha(options.coreAlpha, 0.55);
+                targetCtx.beginPath();
+                targetCtx.arc(x, y, Math.max(1, r * 0.28), 0, Math.PI * 2);
+                targetCtx.fill();
+            }
+            targetCtx.restore();
+            glowCheapSoftDraws++;
+            return true;
+        }
+
+        function installGlowShadowBlurPolicy() {
+            if (glowShadowBlurPolicyInstalled) return true;
+            if (typeof CanvasRenderingContext2D === 'undefined') return false;
+            const proto = CanvasRenderingContext2D.prototype;
+            const descriptor = Object.getOwnPropertyDescriptor(proto, 'shadowBlur');
+            if (!descriptor || !descriptor.set) return false;
+            Object.defineProperty(proto, 'shadowBlur', {
+                configurable: true,
+                enumerable: descriptor.enumerable,
+                get: descriptor.get
+                    ? function getShadowBlur() {
+                        return descriptor.get.call(this);
+                    }
+                    : undefined,
+                set: function setShadowBlur(value) {
+                    const numeric = Number(value);
+                    if (isCheapSoftGlowQuality() && Number.isFinite(numeric) && numeric > 0) {
+                        glowSoftShadowBlurBlocked++;
+                        descriptor.set.call(this, 0);
+                        return;
+                    }
+                    descriptor.set.call(this, value);
+                }
+            });
+            glowShadowBlurPolicyInstalled = true;
+            return true;
+        }
+
         function getCachedGlowGlyphSprite(glyph, font, color, glowColor, blur = 8, options = {}) {
             const text = String(glyph == null ? '' : glyph);
             if (!text) return null;
             const quality = getGlowQuality();
+            if (quality === GLOW_QUALITY_SOFT) return null;
             const useGlow = quality !== GLOW_QUALITY_OFF && blur > 0;
             const safeFont = font || 'bold 20px Courier New';
             const safeColor = color || '#ffffff';
@@ -277,6 +377,7 @@
         function getCachedRadialGlowSprite(color, radius, options = {}) {
             const quality = getGlowQuality();
             if (quality === GLOW_QUALITY_OFF) return null;
+            if (quality === GLOW_QUALITY_SOFT) return null;
             const r = quantizeGlowNumber(radius * getGlowBlurScale(), quality === GLOW_QUALITY_FULL ? 2 : 4, 2, quality === GLOW_QUALITY_FULL ? 260 : 180);
             const safeColor = color || '#ffffff';
             const rawInnerAlpha = Number.isFinite(options.innerAlpha) ? options.innerAlpha : 0.22;
@@ -331,13 +432,18 @@
         }
 
         if (typeof window !== 'undefined') {
+            installGlowShadowBlurPolicy();
             window.debugGlowRendererState = getGlowBudgetState;
             window.setGlowQualityMode = setGlowQualityMode;
             window.cycleGlowQualityMode = cycleGlowQualityMode;
             window.clearGlowRenderCaches = clearGlowRenderCaches;
             window.isSoftGlowQuality = isSoftGlowQuality;
+            window.isCheapSoftGlowQuality = isCheapSoftGlowQuality;
             window.isFullGlowQuality = isFullGlowQuality;
             window.getGlowQualityScale = getGlowQualityScale;
             window.getLiveGlowBlur = getLiveGlowBlur;
+            window.shouldUseLiveShadowBlur = shouldUseLiveShadowBlur;
             window.shouldUseCachedGlowSprite = shouldUseCachedGlowSprite;
+            window.drawCheapGlowGlyph = drawCheapGlowGlyph;
+            window.drawCheapGlowDot = drawCheapGlowDot;
         }

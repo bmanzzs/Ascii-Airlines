@@ -1047,7 +1047,7 @@
             const profile = ENEMY_SHIP_VISUAL_PROFILES[kind] || ENEMY_SHIP_VISUAL_PROFILES.base;
             const visualScale = Math.max(0.85, Math.min(1.24, enemy.enemyShipVisualScale || 1));
             const scaleBucket = Math.round(visualScale * 100);
-            const glowScale = typeof getGlowQualityScale === 'function' ? getGlowQualityScale(0.30, 1) : (glowEnabled ? 1 : 0);
+            const glowScale = typeof getGlowQualityScale === 'function' ? getGlowQualityScale(0, 1) : (glowEnabled ? 1 : 0);
             const softGlow = typeof isSoftGlowQuality === 'function' && isSoftGlowQuality();
             const pulseFrame = options.staticFrame || softGlow
                 ? 0
@@ -1135,7 +1135,7 @@
             const thrusterColor = flashColor || enemy.enemyShipThrusterColor || bodyColor;
             const highlightColor = flashColor || enemy.enemyShipHighlightColor || bodyColor;
             const glowColor = flashColor || enemy.enemyShipGlowColor || bodyColor;
-            const glowScale = typeof getGlowQualityScale === 'function' ? getGlowQualityScale(0.30, 1) : (glowEnabled ? 1 : 0);
+            const glowScale = typeof getGlowQualityScale === 'function' ? getGlowQualityScale(0, 1) : (glowEnabled ? 1 : 0);
             const glowBlur = glowEnabled ? profile.glowBlur * visualScale * glowScale : 0;
             const pulse = 1 + Math.sin((currentFrameNow || 0) * 0.005 + (enemy.indexOffset || 0)) * 0.035;
 
