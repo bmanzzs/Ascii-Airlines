@@ -1009,8 +1009,10 @@
         }
 
         const PLAYER_BOMB_INDICATOR_FRONT_TUCK = 1;
-        const PLAYER_BOMB_INDICATOR_READY_COLOR = '#e8ecec';
-        const PLAYER_BOMB_INDICATOR_READY_GLOW = '#f1f7f5';
+        const PLAYER_BOMB_INDICATOR_DARK_COLOR = '#020000';
+        const PLAYER_BOMB_INDICATOR_RED_COLOR = '#240005';
+        const PLAYER_BOMB_INDICATOR_HOT_RED_COLOR = '#4a0009';
+        const PLAYER_BOMB_INDICATOR_BLACK_GLOW = 'rgba(0, 0, 0, 0.95)';
 
         function getPlayerBombIndicatorPoint(layout) {
             const tuck = PLAYER_BOMB_INDICATOR_FRONT_TUCK;
@@ -1033,24 +1035,19 @@
         function getPlayerBombIndicatorVisual() {
             const total = Math.max(0.001, getPlayerBombCooldownTotal());
             const charge = clampValue(1 - Math.max(0, player.bombTimer) / total, 0, 1);
-            const readyBlend = smoothPlayerCueStep(0.86, 1, charge);
-            const grayValue = Math.round(smoothPlayerCueStep(0, 0.8, charge) * 78);
-            const cooldownColor = `#${grayValue.toString(16).padStart(2, '0').repeat(3)}`;
-            const color = readyBlend > 0
-                ? blendPlayerCueHex(cooldownColor, PLAYER_BOMB_INDICATOR_READY_COLOR, readyBlend)
-                : cooldownColor;
-            const alpha = charge >= 1 ? 1 : 0.64 + smoothPlayerCueStep(0, 0.82, charge) * 0.22 + readyBlend * 0.14;
-            const glowColor = charge >= 1
-                ? PLAYER_BOMB_INDICATOR_READY_GLOW
-                : blendPlayerCueHex('#050505', '#4f5354', smoothPlayerCueStep(0, 0.8, charge));
-            const glow = charge >= 1 ? 10 : 2 + smoothPlayerCueStep(0, 0.8, charge) * 5 + readyBlend * 3;
+            const chargeEase = smoothPlayerCueStep(0.03, 1, charge);
+            const readyPulse = charge >= 1
+                ? (Math.sin((typeof currentFrameNow === 'number' ? currentFrameNow : performance.now()) * 0.006) + 1) * 0.5
+                : 0;
+            const alpha = chargeEase * (0.18 + chargeEase * 0.72 + readyPulse * 0.10);
+            const glow = 3 + chargeEase * 12 + readyPulse * 5;
             return {
                 charge,
                 ready: charge >= 1,
-                color,
-                glowColor,
+                chargeEase,
                 alpha,
-                glow
+                glow,
+                readyPulse
             };
         }
 
@@ -1069,12 +1066,31 @@
             ctx.textBaseline = 'middle';
             ctx.globalAlpha = visual.alpha;
             ctx.font = `bold ${cueSize}px Courier New`;
-            ctx.fillStyle = visual.color;
+            const gradientPhase = (typeof currentFrameNow === 'number' ? currentFrameNow : performance.now()) * 0.0028;
+            const gradientRadius = cueSize * 0.48;
+            const gradient = ctx.createLinearGradient(
+                renderCueX - Math.cos(gradientPhase) * gradientRadius,
+                renderCueY - Math.sin(gradientPhase) * gradientRadius,
+                renderCueX + Math.cos(gradientPhase) * gradientRadius,
+                renderCueY + Math.sin(gradientPhase) * gradientRadius
+            );
+            const redMix = 0.28 + visual.chargeEase * 0.46 + visual.readyPulse * 0.16;
+            const darkRed = blendPlayerCueHex(PLAYER_BOMB_INDICATOR_RED_COLOR, PLAYER_BOMB_INDICATOR_HOT_RED_COLOR, redMix);
+            gradient.addColorStop(0, PLAYER_BOMB_INDICATOR_DARK_COLOR);
+            gradient.addColorStop(0.36 + Math.sin(gradientPhase * 1.7) * 0.08, PLAYER_BOMB_INDICATOR_RED_COLOR);
+            gradient.addColorStop(0.68, darkRed);
+            gradient.addColorStop(1, PLAYER_BOMB_INDICATOR_DARK_COLOR);
+            ctx.fillStyle = gradient;
             if (glowEnabled) {
-                ctx.shadowColor = visual.glowColor;
+                ctx.shadowColor = PLAYER_BOMB_INDICATOR_BLACK_GLOW;
                 ctx.shadowBlur = visual.glow;
             }
             ctx.fillText('\u25c9', snapSpriteCoord(renderCueX), snapSpriteCoord(renderCueY));
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = visual.alpha * (0.10 + visual.chargeEase * 0.16);
+            ctx.strokeStyle = blendPlayerCueHex(PLAYER_BOMB_INDICATOR_DARK_COLOR, PLAYER_BOMB_INDICATOR_RED_COLOR, 0.55);
+            ctx.lineWidth = Math.max(1, cueSize * 0.025);
+            ctx.strokeText('\u25c9', snapSpriteCoord(renderCueX), snapSpriteCoord(renderCueY));
             ctx.restore();
         }
 
@@ -1295,31 +1311,174 @@
         WEAPON_POOL.forEach(w => weaponWeights[w.name] = 1.0);
 
         const WEAPON_ICON_PATTERNS = {
-            "Sphere Lightning": [{ char: 'O', x: 0, y: 0, size: 23 }, { char: '.', x: 0, y: 0, size: 10, color: '#ffffff' }],
-            "Laser Cannon": [{ char: '[', x: -5, y: 0, size: 20 }, { char: ']', x: 5, y: 0, size: 20 }, { char: '|', x: 0, y: 0, size: 24, color: '#ffffff' }],
-            "Ray Beam": [{ char: '|', x: -3, y: 0, size: 24 }, { char: '|', x: 3, y: 0, size: 24 }, { char: '.', x: 0, y: -8, size: 9, color: '#ffffff' }],
-            "Scatter Burst": [{ char: '.', x: -7, y: -7, size: 13 }, { char: '.', x: 7, y: -7, size: 13 }, { char: '.', x: 0, y: 6, size: 13, color: '#ffffff' }],
-            "Mortar Shells": [{ char: 'o', x: 0, y: -4, size: 20 }, { char: '_', x: 0, y: 7, size: 17, color: '#ffffff' }],
-            "Piercing Lance": [{ char: '^', x: 0, y: -8, size: 18 }, { char: '|', x: 0, y: 4, size: 23, color: '#ffffff' }],
-            "Burst Fire": [{ char: '|', x: -7, y: 0, size: 20 }, { char: '|', x: 0, y: 0, size: 22, color: '#ffffff' }, { char: '|', x: 7, y: 0, size: 20 }],
-            "Wave Cannon": [{ char: '~', x: -5, y: -2, size: 18 }, { char: '~', x: 6, y: 4, size: 18, color: '#ffffff' }],
-            "Chain Lightning": [{ char: '/', x: -8, y: -5, size: 20 }, { char: '\\', x: 0, y: 0, size: 20, color: '#ffffff' }, { char: '/', x: 8, y: 5, size: 20 }],
-            "Orbital Drones": [{ char: 'o', x: -8, y: 0, size: 14 }, { char: '.', x: 0, y: 0, size: 10, color: '#ffffff' }, { char: 'o', x: 8, y: 0, size: 14 }],
-            "Homing Swarm": [{ char: '<', x: -6, y: 0, size: 18 }, { char: 'o', x: 2, y: 0, size: 16, color: '#ffffff' }, { char: '>', x: 8, y: 0, size: 18 }],
-            "Gatling Array": [{ char: ':', x: -6, y: -1, size: 20 }, { char: ':', x: 5, y: 1, size: 20, color: '#ffffff' }],
-            "Boomerang Cross": [{ char: '<', x: -6, y: -2, size: 18 }, { char: '+', x: 4, y: 2, size: 18, color: '#ffffff' }],
-            "Aegis Halo": [{ char: 'O', x: 0, y: 0, size: 22 }, { char: '+', x: 0, y: 0, size: 14, color: '#ffffff' }],
-            "Plasma Cloud": [{ char: '~', x: -7, y: -3, size: 18 }, { char: '~', x: 5, y: 4, size: 18 }, { char: '.', x: 0, y: 0, size: 9, color: '#ffffff' }],
-            "Explosive Torpedo": [{ char: 'o', x: 0, y: 0, size: 20 }, { char: '*', x: 0, y: 0, size: 13, color: '#ffffff' }],
-            "Ricochet Rounds": [{ char: '<', x: -6, y: 0, size: 18 }, { char: '/', x: 1, y: 0, size: 18, color: '#ffffff' }, { char: '>', x: 8, y: 0, size: 18 }],
-            "Critical Circuit": [{ char: '*', x: 0, y: 0, size: 22 }, { char: '.', x: 0, y: 0, size: 9, color: '#ffffff' }],
-            "Prism Splitter": [{ char: '<', x: -6, y: 0, size: 19 }, { char: '>', x: 6, y: 0, size: 19 }, { char: '.', x: 0, y: 0, size: 9, color: '#ffffff' }],
-            "Phase Needle": [{ char: '>', x: -4, y: 0, size: 18 }, { char: '|', x: 5, y: 0, size: 22, color: '#ffffff' }]
+            "Sphere Lightning": [{ char: 'O', x: 0, y: 0, size: 23 }, { char: '/', x: -7, y: -7, size: 13, rot: -0.25, color: '#ffffff' }, { char: '\\', x: 7, y: 6, size: 13, rot: 0.18 }, { char: '.', x: 0, y: 0, size: 9, color: '#ffffff' }],
+            "Laser Cannon": [{ char: '[', x: -9, y: 0, size: 19 }, { char: ']', x: 9, y: 0, size: 19 }, { char: '=', x: 0, y: -2, size: 20, color: '#ffffff' }, { char: '|', x: 0, y: 6, size: 15 }],
+            "Ray Beam": [{ char: '|', x: -4, y: -1, size: 24 }, { char: '|', x: 4, y: -1, size: 24, color: '#ffffff' }, { char: '.', x: 0, y: -11, size: 9 }, { char: '.', x: 0, y: 11, size: 9, color: '#ffffff' }],
+            "Scatter Burst": [{ char: '*', x: 0, y: 0, size: 15, color: '#ffffff' }, { char: '.', x: -10, y: -8, size: 12 }, { char: '.', x: 10, y: -8, size: 12 }, { char: '.', x: -7, y: 8, size: 11 }, { char: '.', x: 7, y: 8, size: 11 }, { char: '/', x: -4, y: -2, size: 12, rot: -0.5 }, { char: '\\', x: 4, y: -2, size: 12, rot: 0.5, color: '#ffffff' }],
+            "Mortar Shells": [{ char: 'o', x: -3, y: -7, size: 18 }, { char: "'", x: 7, y: -11, size: 14, color: '#ffffff' }, { char: '_', x: 0, y: 7, size: 20 }, { char: '*', x: 7, y: 6, size: 10, color: '#ffffff' }],
+            "Piercing Lance": [{ char: '^', x: 0, y: -9, size: 19, color: '#ffffff' }, { char: '|', x: 0, y: 2, size: 23 }, { char: '!', x: 0, y: 10, size: 12, color: '#ffffff' }],
+            "Burst Fire": [{ char: '|', x: -8, y: -5, size: 18 }, { char: '|', x: 0, y: 0, size: 23, color: '#ffffff' }, { char: '|', x: 8, y: 5, size: 18 }, { char: '.', x: -8, y: -12, size: 8 }, { char: '.', x: 8, y: 12, size: 8, color: '#ffffff' }],
+            "Wave Cannon": [{ char: '[', x: -12, y: 0, size: 15 }, { char: '~', x: -3, y: -7, size: 16, color: '#ffffff' }, { char: '~', x: 3, y: 0, size: 17 }, { char: '~', x: 9, y: 7, size: 16, color: '#ffffff' }],
+            "Chain Lightning": [{ char: '/', x: -8, y: -5, size: 20 }, { char: '\\', x: 0, y: 0, size: 20, color: '#ffffff' }, { char: '/', x: 8, y: 5, size: 20 }, { char: '.', x: -12, y: -12, size: 8, color: '#ffffff' }],
+            "Orbital Drones": [{ char: 'o', x: -10, y: -2, size: 13 }, { char: 'o', x: 10, y: 2, size: 13 }, { char: '.', x: 0, y: 0, size: 9, color: '#ffffff' }, { char: '-', x: 0, y: 0, size: 24 }],
+            "Homing Swarm": [{ char: '<', x: -10, y: -5, size: 15 }, { char: '<', x: -3, y: 1, size: 15, color: '#ffffff' }, { char: 'o', x: 6, y: 0, size: 14 }, { char: '>', x: 12, y: 0, size: 13, color: '#ffffff' }],
+            "Gatling Array": [{ char: '#', x: -4, y: 0, size: 18 }, { char: ':', x: 8, y: -2, size: 19, color: '#ffffff' }, { char: '.', x: 12, y: -10, size: 7 }, { char: '.', x: 12, y: 8, size: 7, color: '#ffffff' }],
+            "Boomerang Cross": [{ char: '<', x: -7, y: -5, size: 18, rot: -0.45 }, { char: '>', x: 7, y: 5, size: 18, rot: -0.45 }, { char: '+', x: 1, y: 1, size: 17, color: '#ffffff' }],
+            "Aegis Halo": [{ char: 'O', x: 0, y: 0, size: 23 }, { char: '[', x: -10, y: 0, size: 14, color: '#ffffff' }, { char: ']', x: 10, y: 0, size: 14, color: '#ffffff' }, { char: '+', x: 0, y: 0, size: 12 }],
+            "Plasma Cloud": [{ char: 'o', x: -7, y: -4, size: 15 }, { char: 'O', x: 4, y: 1, size: 18, color: '#ffffff' }, { char: '.', x: -1, y: 8, size: 12 }, { char: '~', x: 9, y: -9, size: 10, color: '#ffffff' }, { char: '.', x: -12, y: 7, size: 8 }],
+            "Explosive Torpedo": [{ char: '<', x: -7, y: 0, size: 13 }, { char: 'o', x: 1, y: 0, size: 19 }, { char: '*', x: 9, y: 0, size: 12, color: '#ffffff' }, { char: '.', x: 13, y: -8, size: 7 }],
+            "Ricochet Rounds": [{ char: '/', x: -9, y: 0, size: 22, color: '#ffffff' }, { char: '>', x: 1, y: -6, size: 15 }, { char: '<', x: 9, y: 6, size: 15 }, { char: '.', x: 12, y: -10, size: 8, color: '#ffffff' }],
+            "Critical Circuit": [{ char: 'x', x: 0, y: 0, size: 22 }, { char: '+', x: 0, y: 0, size: 17, color: '#ffffff' }, { char: '.', x: -10, y: -8, size: 8 }, { char: '.', x: 10, y: 8, size: 8, color: '#ffffff' }],
+            "Prism Splitter": [{ char: '<', x: -8, y: 0, size: 18 }, { char: '>', x: 8, y: 0, size: 18, color: '#ffffff' }, { char: '/', x: 0, y: -8, size: 12 }, { char: '\\', x: 0, y: 8, size: 12, color: '#ffffff' }],
+            "Phase Needle": [{ char: '>', x: -6, y: 0, size: 17 }, { char: '-', x: 3, y: 0, size: 20, color: '#ffffff' }, { char: '|', x: 10, y: 0, size: 19 }, { char: '.', x: -12, y: 0, size: 7, color: '#ffffff' }]
         };
 
         function getWeaponIconPattern(powerup) {
             if (!powerup) return null;
             return WEAPON_ICON_PATTERNS[powerup.name] || null;
+        }
+
+        const weaponPowerupPanel = {
+            open: false,
+            selection: 0,
+            openedAt: 0,
+            notice: '',
+            noticeKind: 'info',
+            noticeUntil: 0
+        };
+
+        function getWeaponPowerupPanelColumns() {
+            return 5;
+        }
+
+        function isWeaponPowerupPanelOpen() {
+            return !!weaponPowerupPanel.open;
+        }
+
+        function getWeaponPowerupPanelState() {
+            return weaponPowerupPanel;
+        }
+
+        function getSelectedWeaponPowerupPanelWeapon() {
+            if (typeof WEAPON_POOL === 'undefined' || !WEAPON_POOL.length) return null;
+            weaponPowerupPanel.selection = Math.max(0, Math.min(WEAPON_POOL.length - 1, weaponPowerupPanel.selection || 0));
+            return WEAPON_POOL[weaponPowerupPanel.selection] || null;
+        }
+
+        function showWeaponPowerupPanelNotice(text, kind = 'info') {
+            weaponPowerupPanel.notice = text || '';
+            weaponPowerupPanel.noticeKind = kind || 'info';
+            weaponPowerupPanel.noticeUntil = (typeof currentFrameNow === 'number' ? currentFrameNow : performance.now()) + 1600;
+        }
+
+        function openWeaponPowerupPanel() {
+            if (gameState !== 'PAUSED') {
+                if (typeof enterPauseMode === 'function' && (gameState === 'PLAYING' || gameState === 'MATRIX_CRAWLER' || gameState === 'GALAXY_SELECT')) {
+                    enterPauseMode();
+                } else {
+                    pauseReturnState = gameState || 'PLAYING';
+                    gameState = 'PAUSED';
+                    pauseState = 'MAIN';
+                }
+            }
+            weaponPowerupPanel.open = true;
+            weaponPowerupPanel.selection = Math.max(0, Math.min((WEAPON_POOL && WEAPON_POOL.length ? WEAPON_POOL.length - 1 : 0), weaponPowerupPanel.selection || 0));
+            weaponPowerupPanel.openedAt = typeof currentFrameNow === 'number' ? currentFrameNow : performance.now();
+            weaponPowerupPanel.notice = '';
+            weaponPowerupPanel.noticeUntil = 0;
+            consoleOpen = false;
+            consoleInput = '';
+            clearGameplayKeys();
+        }
+
+        function closeWeaponPowerupPanel() {
+            weaponPowerupPanel.open = false;
+            weaponPowerupPanel.notice = '';
+            weaponPowerupPanel.noticeUntil = 0;
+            clearGameplayKeys();
+        }
+
+        function applyWeaponPowerupPanelSelection() {
+            const weapon = getSelectedWeaponPowerupPanelWeapon();
+            if (!weapon) {
+                showWeaponPowerupPanelNotice('NO WEAPON SELECTED', 'error');
+                return false;
+            }
+            const added = addPlayerWeapon(weapon, 10);
+            if (added) {
+                showWeaponPowerupPanelNotice(`APPLIED ${weapon.name.toUpperCase()}`, 'success');
+                pushConsoleNotification(`Applied weapon: ${weapon.name}`, 'success');
+            } else {
+                showWeaponPowerupPanelNotice('WEAPON SLOTS FULL', 'warn');
+                pushConsoleNotification('Weapon slots are full.', 'warn');
+            }
+            return added;
+        }
+
+        function handleWeaponPowerupPanelKey(k) {
+            if (!weaponPowerupPanel.open) return false;
+            const count = WEAPON_POOL ? WEAPON_POOL.length : 0;
+            const cols = getWeaponPowerupPanelColumns();
+            if (!count) return true;
+            if (k === 'escape' || k === '`' || k === '~') {
+                closeWeaponPowerupPanel();
+                return true;
+            }
+            if (k === 'arrowleft' || k === 'a') {
+                weaponPowerupPanel.selection = (weaponPowerupPanel.selection + count - 1) % count;
+                return true;
+            }
+            if (k === 'arrowright' || k === 'd') {
+                weaponPowerupPanel.selection = (weaponPowerupPanel.selection + 1) % count;
+                return true;
+            }
+            if (k === 'arrowup' || k === 'w') {
+                weaponPowerupPanel.selection = (weaponPowerupPanel.selection + count - cols) % count;
+                return true;
+            }
+            if (k === 'arrowdown' || k === 's') {
+                weaponPowerupPanel.selection = (weaponPowerupPanel.selection + cols) % count;
+                return true;
+            }
+            if (k === 'enter' || k === ' ') {
+                applyWeaponPowerupPanelSelection();
+                return true;
+            }
+            return true;
+        }
+
+        function formatWeaponPowerupMult(value) {
+            if (!Number.isFinite(value)) return '';
+            return `x${value.toFixed(value >= 10 ? 0 : 2).replace(/\.00$/, '')}`;
+        }
+
+        function getWeaponPowerupStatLines(weapon) {
+            if (!weapon || !weapon.mults) return [];
+            const m = weapon.mults;
+            const lines = [];
+            if (m.mode) lines.push(`MODE ${String(m.mode).toUpperCase()}`);
+            if (Number.isFinite(m.damage)) lines.push(`DAMAGE ${formatWeaponPowerupMult(m.damage)}`);
+            if (Number.isFinite(m.fireRate)) lines.push(`FIRE RATE ${formatWeaponPowerupMult(m.fireRate)}`);
+            if (Number.isFinite(m.speed)) lines.push(`SPEED ${formatWeaponPowerupMult(m.speed)}`);
+            if (Number.isFinite(m.size)) lines.push(`SIZE ${formatWeaponPowerupMult(m.size)}`);
+            if (Number.isFinite(m.pellets)) lines.push(`PELLETS +${m.pellets}`);
+            if (Number.isFinite(m.pierceCount) && m.pierceCount > 0) lines.push(m.pierceCount >= 999 ? 'PIERCE FULL' : `PIERCE +${m.pierceCount}`);
+            if (Number.isFinite(m.splashRadius) && m.splashRadius > 0) lines.push(`SPLASH ${formatWeaponPowerupMult(m.splashRadius)}`);
+            if (Number.isFinite(m.chainCount) && m.chainCount > 0) lines.push(`CHAINS +${m.chainCount}`);
+            if (Number.isFinite(m.chainChance) && m.chainChance > 0) lines.push(`ARC CHANCE ${Math.round(m.chainChance * 100)}%`);
+            if (m.drones) lines.push('DRONE +1');
+            if (m.homing) lines.push('HOMING TRACK');
+            if (m.path) lines.push(`PATH ${String(m.path).toUpperCase()}`);
+            if (m.returning) lines.push('RETURN PASS');
+            if (m.lightningBall) lines.push('SHOCK SPHERE');
+            if (m.plasmaCloud) lines.push('GROWING CLOUD');
+            if (m.miniTorpedo) lines.push('COMPACT BLAST');
+            if (m.ricochetCount) lines.push(`RICOCHET +${m.ricochetCount}`);
+            if (m.critChance) lines.push(`CRIT ${Math.round(m.critChance * 100)}%`);
+            if (m.prismSplit) lines.push('PRISM FORK');
+            if (m.phaseNeedle) lines.push('PHASE RAMP');
+            if (m.orbitDelay) lines.push('ORBIT LAUNCH');
+            return lines.slice(0, 9);
         }
 
         function addPlayerDrone() {
@@ -1695,6 +1854,7 @@
 
         function buildConsoleWeaponHelpLines() {
             const lines = [
+                'wep : open weapon powerup control panel',
                 'wep <number|weapon name> : apply a weapon instantly',
                 'remwep/rwep <active slot|weapon name> : remove one active weapon',
                 'Examples: wep 3 | wep ray beam'
@@ -2256,6 +2416,11 @@
 
             if (command === 'wep') {
                 if (!argString) {
+                    openWeaponPowerupPanel();
+                    pushConsoleNotification('Weapon powerup panel opened.', 'info');
+                    return true;
+                }
+                if (argString === '?' || argString.toLowerCase() === 'help' || argString.toLowerCase() === 'list') {
                     setConsoleReference(buildConsoleWeaponHelpLines());
                     pushConsoleNotification('Showing weapon reference.', 'info');
                     return false;

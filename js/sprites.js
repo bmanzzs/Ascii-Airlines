@@ -994,9 +994,12 @@
             ctx.font = `bold ${fontSize}px Courier New`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            if (glowEnabled && glowBlur > 0) {
+            const liveGlowBlur = typeof getLiveGlowBlur === 'function'
+                ? getLiveGlowBlur(glowBlur, 'normal', 1, 0.30)
+                : (glowEnabled ? glowBlur : 0);
+            if (liveGlowBlur > 0) {
                 ctx.shadowColor = glowColor;
-                ctx.shadowBlur = glowBlur;
+                ctx.shadowBlur = liveGlowBlur;
                 ctx.globalAlpha *= 0.82;
                 ctx.fillText(char, 0, 0);
                 ctx.shadowBlur = 0;
@@ -1044,7 +1047,9 @@
             const profile = ENEMY_SHIP_VISUAL_PROFILES[kind] || ENEMY_SHIP_VISUAL_PROFILES.base;
             const visualScale = Math.max(0.85, Math.min(1.24, enemy.enemyShipVisualScale || 1));
             const scaleBucket = Math.round(visualScale * 100);
-            const pulseFrame = options.staticFrame
+            const glowScale = typeof getGlowQualityScale === 'function' ? getGlowQualityScale(0.30, 1) : (glowEnabled ? 1 : 0);
+            const softGlow = typeof isSoftGlowQuality === 'function' && isSoftGlowQuality();
+            const pulseFrame = options.staticFrame || softGlow
                 ? 0
                 : Math.floor(((currentFrameNow || 0) / 120) % ENEMY_SHIP_CACHE_PULSE_FRAMES);
             const bodyColor = flashColor || enemy.enemyShipBodyColor || getSoftEnemyBaseColor(enemy.color || '#ff00ff', kind);
@@ -1057,6 +1062,7 @@
                 scaleBucket,
                 pulseFrame,
                 glowEnabled ? 1 : 0,
+                glowScale,
                 bodyColor,
                 thrusterColor,
                 highlightColor,
@@ -1074,7 +1080,7 @@
             const wingSize = Math.round(profile.wingSize * visualScale);
             const coreSize = Math.round(profile.coreSize * visualScale);
             const spread = (profile.tier >= 3 ? 15 : 12) * visualScale;
-            const glowBlur = glowEnabled ? profile.glowBlur * visualScale : 0;
+            const glowBlur = glowEnabled ? profile.glowBlur * visualScale * glowScale : 0;
             const pulsePhase = (pulseFrame / ENEMY_SHIP_CACHE_PULSE_FRAMES) * Math.PI * 2;
             const pulse = 1 + Math.sin(pulsePhase) * 0.035;
             const pad = Math.ceil(18 + glowBlur * 2.6);
@@ -1129,7 +1135,8 @@
             const thrusterColor = flashColor || enemy.enemyShipThrusterColor || bodyColor;
             const highlightColor = flashColor || enemy.enemyShipHighlightColor || bodyColor;
             const glowColor = flashColor || enemy.enemyShipGlowColor || bodyColor;
-            const glowBlur = glowEnabled ? profile.glowBlur * visualScale : 0;
+            const glowScale = typeof getGlowQualityScale === 'function' ? getGlowQualityScale(0.30, 1) : (glowEnabled ? 1 : 0);
+            const glowBlur = glowEnabled ? profile.glowBlur * visualScale * glowScale : 0;
             const pulse = 1 + Math.sin((currentFrameNow || 0) * 0.005 + (enemy.indexOffset || 0)) * 0.035;
 
             if (profile.wingGlyph) {
@@ -1154,9 +1161,12 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.font = `bold ${Math.round(10 * visualScale)}px Courier New`;
-            if (glowEnabled) {
+            const riseThrusterGlow = typeof getLiveGlowBlur === 'function'
+                ? getLiveGlowBlur(6 * visualScale, 'normal', 1, 0.30)
+                : (glowEnabled ? 6 * visualScale : 0);
+            if (riseThrusterGlow > 0) {
                 ctx.shadowColor = '#ffd27a';
-                ctx.shadowBlur = 6 * visualScale;
+                ctx.shadowBlur = riseThrusterGlow;
             }
             const y = enemy.y + 21 * visualScale;
             ctx.fillStyle = '#ffd27a';

@@ -144,6 +144,12 @@
                 clearGameplayKeys();
                 return;
             }
+            if (typeof isWeaponPowerupPanelOpen === 'function' && isWeaponPowerupPanelOpen()) {
+                e.preventDefault();
+                if (typeof handleWeaponPowerupPanelKey === 'function') handleWeaponPowerupPanelKey(k);
+                clearGameplayKeys();
+                return;
+            }
 
             if (bossCinematic && bossCinematic.paused) {
                 e.preventDefault();

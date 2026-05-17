@@ -7,7 +7,7 @@
         const GLOW_QUALITY_STORAGE_KEY = 'ascii_glow_quality';
         const GLOW_GLYPH_CACHE_LIMIT = 220;
         const GLOW_RADIAL_CACHE_LIMIT = 96;
-        const GLOW_SOFT_LIVE_BLUR_BUDGET = 12;
+        const GLOW_SOFT_LIVE_BLUR_BUDGET = 3;
         const GLOW_FULL_LIVE_BLUR_BUDGET = 180;
 
         let glowQualityMode = normalizeGlowQualityMode(
@@ -69,10 +69,24 @@
             return quality;
         }
 
+        function isSoftGlowQuality() {
+            return getGlowQuality() === GLOW_QUALITY_SOFT;
+        }
+
+        function isFullGlowQuality() {
+            return getGlowQuality() === GLOW_QUALITY_FULL;
+        }
+
         function getGlowBlurScale() {
             const quality = getGlowQuality();
             if (quality === GLOW_QUALITY_OFF) return 0;
-            return quality === GLOW_QUALITY_SOFT ? 0.72 : 1;
+            return quality === GLOW_QUALITY_SOFT ? 0.42 : 1;
+        }
+
+        function getGlowQualityScale(softScale = 0.42, fullScale = 1) {
+            const quality = getGlowQuality();
+            if (quality === GLOW_QUALITY_OFF) return 0;
+            return quality === GLOW_QUALITY_SOFT ? softScale : fullScale;
         }
 
         function isGlowRenderingEnabled() {
@@ -92,6 +106,10 @@
         function shouldUseLiveShadowBlur(priority = 'normal', cost = 1) {
             const quality = getGlowQuality();
             if (quality === GLOW_QUALITY_OFF) return false;
+            if (quality === GLOW_QUALITY_SOFT && (priority === 'low' || priority === 'normal')) {
+                glowLiveBlurRejected += Math.max(1, Number.isFinite(cost) ? cost : 1);
+                return false;
+            }
             const safeCost = Math.max(1, Number.isFinite(cost) ? cost : 1);
             const baseBudget = quality === GLOW_QUALITY_FULL
                 ? GLOW_FULL_LIVE_BLUR_BUDGET
@@ -105,6 +123,25 @@
             }
             glowLiveBlurRejected += safeCost;
             return false;
+        }
+
+        function getLiveGlowBlur(blur, priority = 'normal', cost = 1, softScale = 0.42) {
+            const rawBlur = Number.isFinite(blur) ? Math.max(0, blur) : 0;
+            if (rawBlur <= 0 || typeof glowEnabled !== 'undefined' && !glowEnabled) return 0;
+            const quality = getGlowQuality();
+            if (quality === GLOW_QUALITY_OFF) return 0;
+            if (quality === GLOW_QUALITY_SOFT) {
+                if (!shouldUseLiveShadowBlur(priority, cost)) return 0;
+                return rawBlur * softScale;
+            }
+            return rawBlur;
+        }
+
+        function shouldUseCachedGlowSprite(priority = 'normal') {
+            const quality = getGlowQuality();
+            if (quality === GLOW_QUALITY_OFF) return false;
+            if (quality === GLOW_QUALITY_SOFT) return priority === 'critical' || priority === 'high';
+            return true;
         }
 
         function getGlowBudgetState() {
@@ -298,4 +335,9 @@
             window.setGlowQualityMode = setGlowQualityMode;
             window.cycleGlowQualityMode = cycleGlowQualityMode;
             window.clearGlowRenderCaches = clearGlowRenderCaches;
+            window.isSoftGlowQuality = isSoftGlowQuality;
+            window.isFullGlowQuality = isFullGlowQuality;
+            window.getGlowQualityScale = getGlowQualityScale;
+            window.getLiveGlowBlur = getLiveGlowBlur;
+            window.shouldUseCachedGlowSprite = shouldUseCachedGlowSprite;
         }

@@ -1495,7 +1495,9 @@
             ctx.font = `bold ${Math.round(15 * scale)}px Courier New`;
             ctx.fillStyle = flashTimer > 0 ? '#ffffff' : color;
             ctx.shadowColor = color;
-            ctx.shadowBlur = glowEnabled ? 8 : 0;
+            ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                ? getLiveGlowBlur(8, 'normal', 1, 0.30)
+                : (glowEnabled ? 8 : 0);
             const lineH = 16 * scale;
             for (let r = 0; r < sprite.length; r++) {
                 ctx.fillText(sprite[r], x, y + (r - (sprite.length - 1) / 2) * lineH);
@@ -1558,9 +1560,12 @@
                 ctx.rotate(ringAngle);
                 ctx.strokeStyle = ring % 2 ? `rgba(143, 247, 255, ${ringAlpha})` : `rgba(255, 138, 61, ${ringAlpha + rage * 0.08})`;
                 ctx.lineWidth = ring === 1 ? 4 : 2;
-                if (glowEnabled) {
+                const ringGlow = typeof getLiveGlowBlur === 'function'
+                    ? getLiveGlowBlur(12 + attackPulse * 10, 'high', 1, 0.38)
+                    : (glowEnabled ? 12 + attackPulse * 10 : 0);
+                if (ringGlow > 0) {
                     ctx.shadowColor = ring % 2 ? '#8ff7ff' : '#ff8a3d';
-                    ctx.shadowBlur = 12 + attackPulse * 10;
+                    ctx.shadowBlur = ringGlow;
                 }
                 ctx.beginPath();
                 ctx.ellipse(0, 0, radius * (1.35 + ring * 0.13), radius * (0.38 + ring * 0.035), 0, 0, Math.PI * 2);
@@ -1613,7 +1618,9 @@
                 ctx.globalAlpha = 0.58 + Math.sin(t * 2 + i) * 0.18;
                 ctx.fillStyle = i % 2 ? '#8ff7ff' : '#ffcf6d';
                 ctx.shadowColor = ctx.fillStyle;
-                ctx.shadowBlur = glowEnabled ? 9 : 0;
+                ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                    ? getLiveGlowBlur(9, 'normal', 1, 0.30)
+                    : (glowEnabled ? 9 : 0);
                 ctx.font = `bold ${i % 2 ? 16 : 13}px Courier New`;
                 ctx.fillText(i % 2 ? '◌' : '●', moonX, moonY);
             }
@@ -1636,7 +1643,9 @@
             ctx.font = `bold 12px 'Electrolize', sans-serif`;
             ctx.fillStyle = '#ffffff';
             ctx.shadowColor = '#b48cff';
-            ctx.shadowBlur = glowEnabled ? 8 : 0;
+            ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                ? getLiveGlowBlur(8, 'high', 1, 0.38)
+                : (glowEnabled ? 8 : 0);
             ctx.fillText(bossObj.name, x, barY + 26);
         }
 
@@ -1648,7 +1657,9 @@
                 ctx.fillStyle = 'rgba(255, 79, 74, 0.28)';
                 ctx.strokeStyle = '#ff8a3d';
                 ctx.shadowColor = '#ff4f4a';
-                ctx.shadowBlur = glowEnabled ? 9 : 0;
+                ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                    ? getLiveGlowBlur(9, 'normal', 1, 0.30)
+                    : (glowEnabled ? 9 : 0);
                 if (h.type === 'planetBeam') {
                     const active = (h.age || 0) >= (h.windup || 0);
                     const pulse = active ? 0.62 + Math.sin(bitshiftScrollerState.elapsed * 24) * 0.18 : 0.18 + Math.sin(bitshiftScrollerState.elapsed * 18) * 0.08;
@@ -1657,7 +1668,9 @@
                         : `rgba(255, 138, 61, ${0.05 + pulse * 0.04})`;
                     ctx.strokeStyle = h.color || '#ff8a3d';
                     ctx.shadowColor = h.color || '#ff8a3d';
-                    ctx.shadowBlur = glowEnabled ? (active ? 18 : 8) : 0;
+                    ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                        ? getLiveGlowBlur(active ? 18 : 8, active ? 'high' : 'normal', 1, 0.38)
+                        : (glowEnabled ? (active ? 18 : 8) : 0);
                     ctx.fillRect(h.x, h.y, h.w, h.h);
                     ctx.strokeRect(h.x, h.y, h.w, h.h);
                     ctx.font = 'bold 12px Courier New';
@@ -1696,7 +1709,9 @@
                 ctx.globalAlpha = Math.max(0.25, Math.min(1, (p.life || 1) / Math.max(0.1, p.maxLife || 1)));
                 ctx.fillStyle = p.color || '#ffffff';
                 ctx.shadowColor = p.color || '#ffffff';
-                ctx.shadowBlur = glowEnabled ? 8 : 0;
+                ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                    ? getLiveGlowBlur(8, 'normal', 1, 0.30)
+                    : (glowEnabled ? 8 : 0);
                 ctx.font = `bold ${Math.round(16 * ((p.stats && p.stats.sizeMult) || 1))}px Courier New`;
                 ctx.fillText(getBitshiftProjectileSprite(p), p.x | 0, p.y | 0);
             }
@@ -1753,7 +1768,9 @@
                 }
                 ctx.fillStyle = b.color || '#ff8a3d';
                 ctx.shadowColor = b.color || '#ff8a3d';
-                ctx.shadowBlur = glowEnabled ? (b.isGravityWell ? 15 : 7) : 0;
+                ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                    ? getLiveGlowBlur(b.isGravityWell ? 15 : 7, b.isGravityWell ? 'high' : 'normal', 1, 0.36)
+                    : (glowEnabled ? (b.isGravityWell ? 15 : 7) : 0);
                 ctx.font = `bold ${b.isGravityWell ? 24 : 17}px Courier New`;
                 ctx.fillText(b.char || 'o', b.x | 0, b.y | 0);
             }
@@ -1811,7 +1828,9 @@
             ctx.save();
             ctx.fillStyle = player.color;
             ctx.shadowColor = '#8ff7ff';
-            ctx.shadowBlur = glowEnabled ? pulseVisuals.glow : 0;
+            ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                ? getLiveGlowBlur(pulseVisuals.glow, 'high', 1, 0.38)
+                : (glowEnabled ? pulseVisuals.glow : 0);
             ctx.translate(player.x, player.y);
             ctx.rotate(BITSHIFT_SHIP_RENDER_ROTATION);
             ctx.translate(-player.x, -player.y);
@@ -1833,7 +1852,9 @@
             ctx.strokeRect(width / 2 - 180, 78, 360, 46);
             ctx.fillStyle = '#ffffff';
             ctx.shadowColor = bitshiftScrollerState.stageCleared ? '#8ff7ff' : '#ff8a3d';
-            ctx.shadowBlur = glowEnabled ? 10 : 0;
+            ctx.shadowBlur = typeof getLiveGlowBlur === 'function'
+                ? getLiveGlowBlur(10, 'high', 1, 0.38)
+                : (glowEnabled ? 10 : 0);
             ctx.font = `bold 16px 'Electrolize', sans-serif`;
             ctx.fillText(text, width / 2, 101);
             ctx.restore();

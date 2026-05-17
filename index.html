@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -10,18 +10,24 @@
     - js/sprites.js: ASCII art assets, sprite color helpers, and asset-adjacent factories.
     - js/void-content.js: Black Void / late-game void mechanics, attacks, and rendering.
     - js/galaxies.js: Galaxy/destination definitions and metadata.
-    - js/waves.js: WaveManager, wave definitions, campaign wave routing, path builders, fly-by spawning, and boss sequencing.
+    - js/wave-data.js: Pure wave/boss definitions, procedural wave themes, signal drift data, and static campaign waves.
+    - js/waves.js: WaveManager, campaign wave routing, path builders, fly-by spawning, and boss sequencing.
     - js/bootstrap.js: Canvas, HUD, and FPS DOM references.
     - js/audio.js: Music, SFX buffers, volume, and boss track helpers.
     - js/render-config.js: Logical canvas sizing and shared render constants.
     - js/boss-defeat.js: Boss defeat freeze, explosion SFX, and reward handoff.
     - js/state.js: Theme, runtime state, pause helpers, and global physics constants.
+    - js/glow-renderer.js: Cached glow rendering helpers and glow quality/budget state.
+    - js/music-visualizer.js: Music player compact/fullscreen visualizer rendering and visualizer caches.
     - js/player.js: Player model, weapons, upgrades, beams, and console command helpers.
+    - js/galaxy-select-render.js: Galaxy select map, destination sprites, cursor, intro, and warp rendering.
+    - js/ship-terminal.js: Terminal/fleet hub dock state, ship-select rendering, and hangar visuals.
     - js/entities-input.js: Entity arrays, input listeners, particles, and spatial hash state.
     - js/combat-systems.js: Explosions, projectiles, resize, reset, and utility systems.
+    - js/binary-vertical.js: Binary Quasar / Bullet Route vertical shmup owner shell.
     - js/bitshift-scroller.js: Bitshift Dwarf / Vector Scroll side-scroller runtime.
     - js/matrix-crawler.js: Matrix Nebula node crawler mode.
-    - js/survivor-mode.js: Prism Array survival run mode.
+    - js/prism-survivor.js: Prism Array survival run mode.
     - js/physics.js: Main simulation update loop.
     - js/ui-render.js: Menus, overlays, title sequence, and canvas rendering.
     - js/hud.js: HUD DOM construction and incremental HUD updates.
@@ -932,25 +938,30 @@
     <!-- OVERHEATING FIREWALL SOURCE REMOVED 
      <pre id=p><svg onload=a=[setInterval('h="";for(a[I++*I%17+578]=i=89;i++<630;h+=i%30?"*"[a[i]=~~((a[i]+a[i+1]+a[i+29]+a[i+30])/4)]||8:"\\n")p.innerHTML=h',I=30)]></svg></pre>-->
      <!-- OVERHEATING FIREWALL SOURCE REMOVED -->
-    <!-- Game content modules. Load order matters: assets, galaxy metadata, wave manager, mode owners, engine. -->
-    <script src="js/sprites.js"></script>
+    <!-- Game content modules. Load order matters: assets, galaxy metadata, wave data, wave manager, mode owners, engine. -->
+    <script src="js/sprites.js?v=glow-soft-1"></script>
     <script src="js/void-content.js"></script>
     <script src="js/galaxies.js"></script>
+    <script src="js/wave-data.js"></script>
     <script src="js/waves.js"></script>
     <script src="js/bootstrap.js"></script>
     <script src="js/audio.js?v=music-loudness-gate-1"></script>
     <script src="js/render-config.js"></script>
     <script src="js/boss-defeat.js"></script>
     <script src="js/state.js"></script>
-    <script src="js/glow-renderer.js?v=glow-quality-1"></script>
-    <script src="js/player.js?v=terminal-hangar-1"></script>
-    <script src="js/entities-input.js"></script>
+    <script src="js/glow-renderer.js?v=glow-soft-1"></script>
+    <script src="js/music-visualizer.js?v=music-orbit-2"></script>
+    <script src="js/player.js?v=weapon-panel-1"></script>
+    <script src="js/galaxy-select-render.js?v=bitshift-up-fractal-1"></script>
+    <script src="js/ship-terminal.js?v=ship-terminal-1"></script>
+    <script src="js/entities-input.js?v=weapon-panel-1"></script>
     <script src="js/combat-systems.js"></script>
-    <script src="js/bitshift-scroller.js?v=bitshift-waves-planet-1"></script>
+    <script src="js/binary-vertical.js"></script>
+    <script src="js/bitshift-scroller.js?v=bitshift-glow-soft-1"></script>
     <script src="js/matrix-crawler.js"></script>
-    <script src="js/survivor-mode.js"></script>
+    <script src="js/prism-survivor.js"></script>
     <script src="js/physics.js"></script>
-    <script src="js/ui-render.js?v=glow-quality-1"></script>
+    <script src="js/ui-render.js?v=weapon-panel-1"></script>
     <script src="js/hud.js"></script>
     <script src="js/main-loop.js?v=galaxy-intro-fade-1"></script>
 </body>

@@ -378,26 +378,6 @@
             color: '#6aa8ff',
             outroStartedAt: 0
         };
-        const TERMINAL_DOCK_ENTER_DURATION = 1.42;
-        const TERMINAL_DOCK_EXIT_DURATION = 1.28;
-        let terminalDockTransition = {
-            active: false,
-            phase: 'enter',
-            startedAt: 0,
-            galaxyIndex: 0,
-            shipIndex: 0,
-            fromX: 0,
-            fromY: 0,
-            fromRot: 0,
-            fromScale: 0.24,
-            color: '#8ff7ff'
-        };
-        let terminalDockExitHold = {
-            active: false,
-            galaxyIndex: -1,
-            shipIndex: 0,
-            startedAt: 0
-        };
         let victoryTimer = 0;
         let scoreScreenTimer = 0;
         let runScoreBuildSelection = 0;
@@ -797,56 +777,12 @@
             enterGalaxySelectScreen();
         }
 
-        function clearTerminalDockExitHold() {
-            terminalDockExitHold.active = false;
-            terminalDockExitHold.galaxyIndex = -1;
-            terminalDockExitHold.shipIndex = 0;
-            terminalDockExitHold.startedAt = 0;
-        }
-
-        function markTerminalDockExitHold(galaxyIndex = selectedGalaxyIndex, shipIndex = selectedShipIndex) {
-            terminalDockExitHold.active = true;
-            terminalDockExitHold.galaxyIndex = galaxyIndex;
-            terminalDockExitHold.shipIndex = shipIndex;
-            terminalDockExitHold.startedAt = currentFrameNow || performance.now();
-        }
-
-        function isTerminalDockExitHoldActive(galaxyIndex = selectedGalaxyIndex) {
-            if (terminalDockExitHold.active && selectedGalaxyIndex !== terminalDockExitHold.galaxyIndex) {
-                clearTerminalDockExitHold();
-                return false;
-            }
-            return terminalDockExitHold.active
-                && gameState === 'GALAXY_SELECT'
-                && terminalDockExitHold.galaxyIndex === galaxyIndex;
-        }
-
-        function handleGalaxySelectIndexChanged(previousIndex, nextIndex) {
-            if (!terminalDockExitHold.active) return;
-            if (nextIndex !== terminalDockExitHold.galaxyIndex) clearTerminalDockExitHold();
-        }
-
-        function getTerminalDockExitCursorPose(galaxyIndex = selectedGalaxyIndex) {
-            if (typeof getGalaxySelectSlot !== 'function' || typeof getGalaxySelectRenderRadius !== 'function') return null;
-            const slot = getGalaxySelectSlot(galaxyIndex);
-            const radius = getGalaxySelectRenderRadius(galaxyIndex, true);
-            const x = Math.min(width - 54, slot.x + radius * 1.98);
-            const y = Math.max(100, slot.y - radius * 0.44);
-            return {
-                x,
-                y,
-                faceX: Math.min(width + radius * 0.8, x + radius * 0.86),
-                faceY: Math.max(80, y - radius * 0.12),
-                scale: 0.25,
-                radius
-            };
-        }
-
         function enterGalaxySelectScreen() {
             clearGameplayKeys();
             if (typeof endSurvivorRun === 'function') endSurvivorRun({ silent: true });
             if (typeof endMatrixCrawlerRun === 'function') endMatrixCrawlerRun();
             if (typeof resetBitshiftScrollerRuntimeStateForCampaign === 'function') resetBitshiftScrollerRuntimeStateForCampaign();
+            if (typeof resetBinaryVerticalRuntimeState === 'function') resetBinaryVerticalRuntimeState();
             setActiveGameMode('campaign');
             resetRunCompleteTransition();
             selectedGalaxyIndex = Math.max(0, Math.min((typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1) - 1, selectedGalaxyIndex));
@@ -932,86 +868,6 @@
             applyCurrentVolume();
         }
 
-        function beginTerminalDockTransition(phase = 'enter', shipIndex = selectedShipIndex) {
-            const now = currentFrameNow || performance.now();
-            const galaxyIndex = selectedGalaxyIndex;
-            const galaxy = getGalaxyDefinition(galaxyIndex);
-            const slot = typeof getGalaxySelectSlot === 'function'
-                ? getGalaxySelectSlot(galaxyIndex)
-                : { x: width * 0.14, y: height * 0.57 };
-            const fromX = pauseMenuShipCursor && pauseMenuShipCursor.initialized
-                ? (Number.isFinite(pauseMenuShipCursor.renderX) ? pauseMenuShipCursor.renderX : pauseMenuShipCursor.x)
-                : slot.x - 92;
-            const fromY = pauseMenuShipCursor && pauseMenuShipCursor.initialized
-                ? (Number.isFinite(pauseMenuShipCursor.renderY) ? pauseMenuShipCursor.renderY : pauseMenuShipCursor.y)
-                : slot.y;
-            const fromRot = pauseMenuShipCursor && pauseMenuShipCursor.initialized && Number.isFinite(pauseMenuShipCursor.renderRot)
-                ? pauseMenuShipCursor.renderRot
-                : Math.PI / 2;
-            const fromScale = pauseMenuShipCursor && pauseMenuShipCursor.initialized && Number.isFinite(pauseMenuShipCursor.renderScale)
-                ? pauseMenuShipCursor.renderScale
-                : (pauseMenuShipCursor.scale || 0.24);
-            if (phase === 'enter') clearTerminalDockExitHold();
-            terminalDockTransition = {
-                active: true,
-                phase,
-                startedAt: now,
-                galaxyIndex,
-                shipIndex,
-                fromX,
-                fromY,
-                fromRot,
-                fromScale,
-                color: (galaxy && galaxy.colors && galaxy.colors[0]) || '#8ff7ff'
-            };
-            clearGameplayKeys();
-            gameState = 'TERMINAL_DOCK';
-            titleAlpha = 1;
-        }
-
-        function completeTerminalDockTransition() {
-            if (!terminalDockTransition.active) return;
-            const phase = terminalDockTransition.phase;
-            terminalDockTransition.active = false;
-            clearGameplayKeys();
-            if (phase === 'exit') {
-                markTerminalDockExitHold(selectedGalaxyIndex, terminalDockTransition.shipIndex);
-                const exitPose = getTerminalDockExitCursorPose(selectedGalaxyIndex);
-                if (exitPose) {
-                    pauseMenuShipCursor.x = exitPose.x;
-                    pauseMenuShipCursor.y = exitPose.y;
-                    pauseMenuShipCursor.vx = 0;
-                    pauseMenuShipCursor.vy = 0;
-                    pauseMenuShipCursor.rot = Math.atan2(exitPose.faceY - exitPose.y, exitPose.faceX - exitPose.x) + Math.PI / 2;
-                    pauseMenuShipCursor.scale = 0.25;
-                    pauseMenuShipCursor.speed = Math.hypot(pauseMenuShipCursor.vx, pauseMenuShipCursor.vy);
-                    pauseMenuShipCursor.trail = [];
-                    pauseMenuShipCursor.trailEmitAcc = 0;
-                    pauseMenuShipCursor.settleBlend = 0;
-                    pauseMenuShipCursor.initialized = true;
-                    pauseMenuShipCursor.lastNow = currentFrameNow || performance.now();
-                    pauseMenuShipCursor.targetKey = `terminal-outbound-${selectedGalaxyIndex}`;
-                    pauseMenuShipCursor.routeKey = `terminal-outbound-${selectedGalaxyIndex}`;
-                    pauseMenuShipCursor.approachComplete = true;
-                    pauseMenuShipCursor.renderX = pauseMenuShipCursor.x;
-                    pauseMenuShipCursor.renderY = pauseMenuShipCursor.y;
-                    pauseMenuShipCursor.renderRot = pauseMenuShipCursor.rot;
-                    pauseMenuShipCursor.renderScale = pauseMenuShipCursor.scale;
-                } else {
-                    clearTerminalDockExitHold();
-                    resetPauseMenuShipCursor();
-                }
-                gameState = 'GALAXY_SELECT';
-                titleAlpha = 1;
-                return;
-            }
-            shipSelectReturnState = 'GALAXY_SELECT';
-            shipSelectIndex = selectedShipIndex;
-            resetPauseMenuShipCursor();
-            gameState = 'SHIP_SELECT';
-            titleAlpha = 1;
-        }
-
         function completeGalaxyWarpTransition() {
             if (!galaxyWarpTransition.active) return;
             galaxyWarpTransition.active = false;
@@ -1048,6 +904,16 @@
                     gameState = 'GALAXY_SELECT';
                     galaxySelectNotice = 'VECTOR SCROLL UNAVAILABLE';
                     galaxySelectNoticeTimer = 1.4;
+                }
+                return;
+            }
+            if (galaxy && typeof isBinaryVerticalGalaxy === 'function' && isBinaryVerticalGalaxy(currentGalaxyIndex)) {
+                if (typeof beginBinaryVerticalRun === 'function') {
+                    beginBinaryVerticalRun();
+                } else if (typeof beginLaunchSequence === 'function') {
+                    beginLaunchSequence();
+                } else {
+                    gameState = 'SHIP_SELECT';
                 }
                 return;
             }
