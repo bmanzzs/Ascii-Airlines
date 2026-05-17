@@ -3002,6 +3002,57 @@
                 .forEach(stop => gradient.addColorStop(stop.offset, stop.color));
         }
 
+        function getGalaxySelectColorChannels(color, fallback = '#8edbff') {
+            const source = String(color || fallback || '#8edbff').trim();
+            const rgbMatch = source.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+            if (rgbMatch) {
+                return {
+                    r: Math.max(0, Math.min(255, parseFloat(rgbMatch[1]) || 0)),
+                    g: Math.max(0, Math.min(255, parseFloat(rgbMatch[2]) || 0)),
+                    b: Math.max(0, Math.min(255, parseFloat(rgbMatch[3]) || 0))
+                };
+            }
+            const hex = source.startsWith('#') ? source.slice(1) : source;
+            if (/^[0-9a-f]{3}$/i.test(hex)) {
+                return {
+                    r: parseInt(hex[0] + hex[0], 16),
+                    g: parseInt(hex[1] + hex[1], 16),
+                    b: parseInt(hex[2] + hex[2], 16)
+                };
+            }
+            if (/^[0-9a-f]{6}$/i.test(hex)) {
+                return {
+                    r: parseInt(hex.slice(0, 2), 16),
+                    g: parseInt(hex.slice(2, 4), 16),
+                    b: parseInt(hex.slice(4, 6), 16)
+                };
+            }
+            if (source !== fallback) return getGalaxySelectColorChannels(fallback, '#8edbff');
+            return { r: 142, g: 219, b: 255 };
+        }
+
+        function mixGalaxySelectLabelColor(colorA, colorB, t) {
+            const clamped = Math.max(0, Math.min(1, t));
+            const a = getGalaxySelectColorChannels(colorA);
+            const b = getGalaxySelectColorChannels(colorB);
+            const r = Math.round(a.r + (b.r - a.r) * clamped);
+            const g = Math.round(a.g + (b.g - a.g) * clamped);
+            const blue = Math.round(a.b + (b.b - a.b) * clamped);
+            return `rgb(${r}, ${g}, ${blue})`;
+        }
+
+        function sampleGalaxySelectAnimatedColor(colors, phase) {
+            const palette = (colors && colors.length ? colors : [currentThemeColor, '#ffffff']).filter(Boolean);
+            if (palette.length <= 1) return palette[0] || currentThemeColor || '#8edbff';
+            const wrapped = ((phase % 1) + 1) % 1;
+            const scaled = wrapped * palette.length;
+            const index = Math.floor(scaled) % palette.length;
+            const nextIndex = (index + 1) % palette.length;
+            const t = scaled - Math.floor(scaled);
+            const eased = t * t * (3 - 2 * t);
+            return mixGalaxySelectLabelColor(palette[index], palette[nextIndex], eased);
+        }
+
         function drawGalaxySelectUiLayer(now, galaxies, selectedIndex) {
             galaxyCtx.save();
             galaxyCtx.textAlign = 'center';
@@ -3034,24 +3085,31 @@
                 const titleGradient = galaxyCtx.createLinearGradient(slot.x - labelWidth / 2, labelY, slot.x + labelWidth / 2, labelY);
                 const titleColors = galaxy.colors && galaxy.colors.length ? galaxy.colors : [currentThemeColor, '#ffffff'];
                 const titleNeutral = galaxy.available ? '#dcecff' : '#9da7b8';
-                const titleMix = galaxy.available ? (0.72 - highlight * 0.14) : 0.82;
+                const titleMix = galaxy.available ? (0.72 - highlight * 0.22) : 0.82;
+                const colorShift = galaxy.available ? highlight : highlight * 0.32;
+                const colorPhase = now * 0.000085 + i * 0.173;
                 for (let colorIndex = 0; colorIndex < titleColors.length; colorIndex++) {
                     const stop = titleColors.length === 1 ? 0 : colorIndex / (titleColors.length - 1);
-                    const softenedColor = mixColor(titleColors[colorIndex], titleNeutral, titleMix);
+                    const animatedColor = sampleGalaxySelectAnimatedColor(titleColors, colorPhase + stop * 0.62);
+                    const baseColor = colorShift > 0 ? mixGalaxySelectLabelColor(titleColors[colorIndex], animatedColor, colorShift) : titleColors[colorIndex];
+                    const softenedColor = mixGalaxySelectLabelColor(baseColor, titleNeutral, titleMix);
                     titleGradient.addColorStop(stop, colorWithAlpha(softenedColor, titleAlpha));
                 }
                 galaxyCtx.fillStyle = titleGradient;
-                galaxyCtx.shadowColor = galaxy.colors ? (galaxy.colors[1] || galaxy.colors[0]) : currentThemeColor;
+                const animatedAccent = colorShift > 0
+                    ? sampleGalaxySelectAnimatedColor(titleColors, colorPhase + 0.35)
+                    : (galaxy.colors ? (galaxy.colors[1] || galaxy.colors[0]) : currentThemeColor);
+                galaxyCtx.shadowColor = animatedAccent;
                 galaxyCtx.shadowBlur = glowEnabled ? 9 * highlight : 0;
                 galaxyCtx.fillText(labelText, slot.x, labelY);
                 if (highlight > 0.02) {
                     const scanPhase = (now * 0.00022 + i * 0.19) % 1;
                     const scanGradient = galaxyCtx.createLinearGradient(slot.x - labelWidth / 2, labelY, slot.x + labelWidth / 2, labelY);
-                    const scanColor = galaxy.available ? (galaxy.colors ? (galaxy.colors[1] || galaxy.colors[0]) : currentThemeColor) : '#dce2ee';
+                    const scanColor = galaxy.available ? animatedAccent : '#dce2ee';
                     addSortedGradientStops(scanGradient, [
                         { offset: 0, color: 'rgba(255,255,255,0)' },
                         { offset: scanPhase - 0.18, color: 'rgba(255,255,255,0)' },
-                        { offset: scanPhase - 0.04, color: colorWithAlpha(mixColor(scanColor, '#ffffff', 0.48), (galaxy.available ? 0.18 : 0.08) * highlight) },
+                        { offset: scanPhase - 0.04, color: colorWithAlpha(mixGalaxySelectLabelColor(scanColor, '#ffffff', 0.48), (galaxy.available ? 0.18 : 0.08) * highlight) },
                         { offset: scanPhase, color: colorWithAlpha('#ffffff', (galaxy.available ? 0.34 : 0.16) * highlight) },
                         { offset: scanPhase + 0.13, color: 'rgba(255,255,255,0)' },
                         { offset: 1, color: 'rgba(255,255,255,0)' }
@@ -3065,10 +3123,13 @@
                 const statusText = galaxy.available
                     ? (galaxy.subtitle || (hubRoute ? 'SHIP HUB' : (survivorRoute ? 'SURVIVAL RUN' : (crawlerRoute ? 'NODE CRAWLER' : 'BULLET FLIGHT'))))
                     : 'LOCKED';
+                const statusColor = colorShift > 0.01 && galaxy.available
+                    ? mixGalaxySelectLabelColor('#8edbff', sampleGalaxySelectAnimatedColor(titleColors, colorPhase + 0.68), highlight * 0.34)
+                    : '#8edbff';
                 galaxyCtx.fillStyle = galaxy.available
-                    ? colorWithAlpha('#8edbff', 0.62 + highlight * 0.24)
+                    ? colorWithAlpha(statusColor, 0.62 + highlight * 0.24)
                     : colorWithAlpha('#a9b0bf', 0.48 + highlight * 0.20);
-                galaxyCtx.shadowColor = galaxy.available ? '#42cfff' : '#707989';
+                galaxyCtx.shadowColor = galaxy.available ? mixGalaxySelectLabelColor('#42cfff', animatedAccent, colorShift * 0.42) : '#707989';
                 galaxyCtx.shadowBlur = glowEnabled ? (galaxy.available ? 5 : 2) * highlight : 0;
                 galaxyCtx.fillText(statusText, slot.x, labelY + 20);
                 galaxyCtx.shadowBlur = 0;

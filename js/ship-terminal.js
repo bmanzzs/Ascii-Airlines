@@ -141,6 +141,7 @@
             }
             shipSelectReturnState = 'GALAXY_SELECT';
             shipSelectIndex = selectedShipIndex;
+            resetShipSelectCarouselMotion(shipSelectIndex);
             resetPauseMenuShipCursor();
             gameState = 'SHIP_SELECT';
             titleAlpha = 1;
@@ -151,21 +152,143 @@
             return value - Math.floor(value);
         }
 
-        const SHIP_SELECT_HANGAR_MOTES = Array.from({ length: 112 }, (_, i) => ({
-            x: shipSelectNoise(13.79, i),
-            y: shipSelectNoise(41.23, i),
-            size: 1 + Math.floor(shipSelectNoise(89.17, i) * 3),
-            alpha: 0.12 + shipSelectNoise(53.61, i) * 0.28,
-            speed: 0.000018 + shipSelectNoise(71.42, i) * 0.000045,
-            phase: shipSelectNoise(29.31, i) * Math.PI * 2,
-            glyph: i % 5 === 0 ? '01' : (i % 5 === 1 ? 'AI' : (i % 5 === 2 ? 'SYS' : (i % 5 === 3 ? 'RX' : '.')))
-        }));
+        const SHIP_SELECT_HANGAR_WORDS = [
+            'AI', 'AGENT', 'MODEL', 'PROMPT', 'TOKEN', 'LATENT', 'EMBED', 'RAG', 'SAMPLER', 'DENOISE',
+            'DIFFUSION', 'TRANSFORM', 'ATTN', 'SOFTMAX', 'MATMUL', 'GRAD', 'LOSS', 'EPOCH', 'INFER', 'BACKPROP',
+            'CUDA', 'RTX', 'TENSOR', 'RT CORE', 'SHADER', 'RASTER', 'VRAM', 'GDDR', 'HBM', 'SM',
+            'KERNEL', 'THREAD', 'WARP', 'BLOCK', 'REGISTER', 'CACHE', 'L1', 'L2', 'L3', 'BUS',
+            'PCIE', 'DMA', 'IRQ', 'BIOS', 'UEFI', 'BOOT', 'CLOCK', 'VRM', 'THERMAL', 'VOLTAGE',
+            'SILICON', 'WAFER', 'NODE', '3NM', '7NM', 'ASIC', 'FPGA', 'NPU', 'TOPS', 'FLOPS',
+            'ALU', 'FPU', 'SIMD', 'VEC4', 'PIPELINE', 'QUEUE', 'STACK', 'HEAP', 'HASH', 'CRC',
+            'XOR', 'NAND', 'NOR', 'BITSHIFT', 'VECTOR', 'MATRIX', 'SCALAR', 'EIGEN', 'SIGMA', 'DELTA',
+            'LAMBDA', 'OMEGA', 'PHI', 'FFT', 'COSINE', 'DOT', 'CROSS', 'ENTROPY', 'CHAOS', 'QUANT',
+            'QUBIT', 'ORBIT', 'APERTURE', 'SPACETIME', 'NAV MESH', 'TELEMETRY', 'SENSOR', 'RADAR', 'LIDAR', 'GYRO',
+            'AUTOPILOT', 'VECTOR BAY', 'DOCKING', 'DRYDOCK', 'FLEET AI', 'ION BUS', 'PLASMA', 'THRUST', 'REACTOR', 'CORE TEMP',
+            'SYNC', 'RX', 'TX', 'SYS', 'CLK', 'ADDR', 'OPCODE', 'BUFFER', 'SWAP', 'MALLOC',
+            'GC', 'JIT', 'WASM', 'CANVAS', 'SCANLINE', 'BLOOM', 'GLOW', 'ATLAS', 'SPRITE', 'FRAME'
+        ];
+        const SHIP_SELECT_HANGAR_WORD_COLORS = ['#6aa8ff', '#8ff7ff', '#ffe8b8', '#c9b7ff', '#ffbd8a', '#9bffcf'];
+        const SHIP_SELECT_HANGAR_MOTES = Array.from({ length: 156 }, (_, i) => {
+            const isPixel = shipSelectNoise(97.47, i) < 0.22;
+            const wordIndex = Math.floor(shipSelectNoise(101.91, i) * SHIP_SELECT_HANGAR_WORDS.length) % SHIP_SELECT_HANGAR_WORDS.length;
+            const fontRoll = shipSelectNoise(89.17, i);
+            const rotationRoll = shipSelectNoise(107.31, i);
+            const pop = !isPixel && shipSelectNoise(113.83, i) > 0.84;
+            let rotation = (shipSelectNoise(109.57, i) - 0.5) * 0.20;
+            if (rotationRoll < 0.10) rotation = -Math.PI / 2;
+            else if (rotationRoll < 0.18) rotation = Math.PI / 2;
+            else if (rotationRoll > 0.90) rotation = (shipSelectNoise(127.61, i) - 0.5) * 0.62;
+            return {
+                x: shipSelectNoise(13.79, i),
+                y: shipSelectNoise(41.23, i),
+                size: 1 + Math.floor(shipSelectNoise(131.19, i) * 3),
+                alpha: isPixel
+                    ? 0.12 + shipSelectNoise(53.61, i) * 0.26
+                    : 0.10 + shipSelectNoise(53.61, i) * (pop ? 0.38 : 0.24),
+                speed: 0.000014 + shipSelectNoise(71.42, i) * 0.000060,
+                floatSpeed: 0.55 + shipSelectNoise(137.67, i) * 1.35,
+                floatAmp: shipSelectNoise(139.23, i) * (pop ? 12 : 6),
+                wobbleAmp: shipSelectNoise(149.49, i) * (pop ? 18 : 9),
+                phase: shipSelectNoise(29.31, i) * Math.PI * 2,
+                fontSize: isPixel ? 0 : Math.round(6 + fontRoll * 5 + (pop ? 4 : 0)),
+                rotation,
+                colorIndex: Math.floor(shipSelectNoise(151.11, i) * SHIP_SELECT_HANGAR_WORD_COLORS.length) % SHIP_SELECT_HANGAR_WORD_COLORS.length,
+                pop,
+                glyph: isPixel ? (shipSelectNoise(157.77, i) > 0.5 ? '.' : '|') : SHIP_SELECT_HANGAR_WORDS[wordIndex]
+            };
+        });
 
         function getWrappedShipSelectOffset(index, selectedIndex, count) {
             let offset = index - selectedIndex;
             if (offset > count / 2) offset -= count;
             if (offset < -count / 2) offset += count;
             return offset;
+        }
+
+        const SHIP_SELECT_CAROUSEL_DURATION = 430;
+        const SHIP_SELECT_CAROUSEL_VISIBLE_RADIUS = 4;
+        const shipSelectCarouselMotion = {
+            initialized: false,
+            fromIndex: 0,
+            targetIndex: 0,
+            targetRenderIndex: 0,
+            renderIndex: 0,
+            startedAt: 0,
+            direction: 0,
+            progress: 1
+        };
+
+        function normalizeShipSelectRenderIndexNear(index, reference, count) {
+            let normalized = index;
+            if (!count) return normalized;
+            while (normalized - reference > count / 2) normalized -= count;
+            while (normalized - reference < -count / 2) normalized += count;
+            return normalized;
+        }
+
+        function easeShipSelectCarousel(t) {
+            const clamped = Math.max(0, Math.min(1, t));
+            return 1 - Math.pow(1 - clamped, 3);
+        }
+
+        function resetShipSelectCarouselMotion(index = shipSelectIndex) {
+            const shipCount = typeof PLAYER_SHIP_TYPES !== 'undefined' ? PLAYER_SHIP_TYPES.length : 1;
+            const safeIndex = shipCount > 0 ? wrapShipIndex(index) : 0;
+            shipSelectCarouselMotion.initialized = true;
+            shipSelectCarouselMotion.fromIndex = safeIndex;
+            shipSelectCarouselMotion.targetIndex = safeIndex;
+            shipSelectCarouselMotion.targetRenderIndex = safeIndex;
+            shipSelectCarouselMotion.renderIndex = safeIndex;
+            shipSelectCarouselMotion.startedAt = currentFrameNow || performance.now();
+            shipSelectCarouselMotion.direction = 0;
+            shipSelectCarouselMotion.progress = 1;
+        }
+
+        function getShipSelectCarouselCurrentRenderIndex(now, count) {
+            if (!shipSelectCarouselMotion.initialized || count <= 1) return shipSelectCarouselMotion.renderIndex;
+            const elapsed = Math.max(0, now - shipSelectCarouselMotion.startedAt);
+            const rawProgress = Math.min(1, elapsed / SHIP_SELECT_CAROUSEL_DURATION);
+            const eased = easeShipSelectCarousel(rawProgress);
+            const travel = shipSelectCarouselMotion.targetRenderIndex - shipSelectCarouselMotion.fromIndex;
+            return shipSelectCarouselMotion.fromIndex + travel * eased;
+        }
+
+        function updateShipSelectCarouselMotion(now, targetIndex, count) {
+            if (!count || count <= 1) {
+                shipSelectCarouselMotion.renderIndex = targetIndex || 0;
+                shipSelectCarouselMotion.targetIndex = targetIndex || 0;
+                shipSelectCarouselMotion.progress = 1;
+                return shipSelectCarouselMotion.renderIndex;
+            }
+
+            const wrappedTarget = wrapShipIndex(targetIndex);
+            if (!shipSelectCarouselMotion.initialized) {
+                resetShipSelectCarouselMotion(wrappedTarget);
+                return shipSelectCarouselMotion.renderIndex;
+            }
+
+            if (shipSelectCarouselMotion.targetIndex !== wrappedTarget) {
+                const currentRenderIndex = getShipSelectCarouselCurrentRenderIndex(now, count);
+                const normalizedTarget = normalizeShipSelectRenderIndexNear(wrappedTarget, currentRenderIndex, count);
+                const travel = normalizedTarget - currentRenderIndex;
+                shipSelectCarouselMotion.fromIndex = currentRenderIndex;
+                shipSelectCarouselMotion.targetIndex = wrappedTarget;
+                shipSelectCarouselMotion.targetRenderIndex = normalizedTarget;
+                shipSelectCarouselMotion.startedAt = now;
+                shipSelectCarouselMotion.direction = travel === 0 ? 0 : Math.sign(travel);
+                shipSelectCarouselMotion.progress = 0;
+            }
+
+            const elapsed = Math.max(0, now - shipSelectCarouselMotion.startedAt);
+            shipSelectCarouselMotion.progress = Math.min(1, elapsed / SHIP_SELECT_CAROUSEL_DURATION);
+            shipSelectCarouselMotion.renderIndex = getShipSelectCarouselCurrentRenderIndex(now, count);
+            if (shipSelectCarouselMotion.progress >= 1) {
+                shipSelectCarouselMotion.fromIndex = wrappedTarget;
+                shipSelectCarouselMotion.targetRenderIndex = wrappedTarget;
+                shipSelectCarouselMotion.renderIndex = wrappedTarget;
+                shipSelectCarouselMotion.direction = 0;
+            }
+            return shipSelectCarouselMotion.renderIndex;
         }
 
         function drawShipSelectHangarBackground(now, selectedShip, alpha) {
@@ -205,20 +328,39 @@
             ctx.restore();
 
             ctx.save();
-            ctx.font = `bold 9px Courier New`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             for (let i = 0; i < SHIP_SELECT_HANGAR_MOTES.length; i++) {
                 const mote = SHIP_SELECT_HANGAR_MOTES[i];
-                const driftX = (mote.x * width + now * mote.speed * width) % width;
-                const y = mote.y * height;
+                const driftX = (mote.x * (width + 180) - 90 + now * mote.speed * width + Math.sin(t * mote.floatSpeed + mote.phase) * mote.wobbleAmp) % (width + 180) - 90;
+                const y = mote.y * height + Math.sin(t * (mote.floatSpeed * 0.72) + mote.phase) * mote.floatAmp;
                 const flicker = 0.55 + Math.sin(t * 1.4 + mote.phase) * 0.45;
-                ctx.globalAlpha = alpha * mote.alpha * (0.58 + flicker * 0.42);
-                ctx.fillStyle = i % 7 === 0 ? '#ffe8b8' : (i % 3 === 0 ? accent : '#6aa8ff');
-                if (mote.size > 2) {
-                    ctx.fillText(mote.glyph, driftX, y);
+                const moteAlpha = alpha * mote.alpha * (0.54 + flicker * 0.46);
+                if (mote.fontSize > 0) {
+                    const baseColor = SHIP_SELECT_HANGAR_WORD_COLORS[mote.colorIndex] || '#6aa8ff';
+                    const color = i % 5 === 0 ? mixColor(baseColor, accent, 0.42) : baseColor;
+                    ctx.save();
+                    ctx.translate(driftX, y);
+                    ctx.rotate(mote.rotation);
+                    ctx.globalAlpha = moteAlpha;
+                    ctx.font = `bold ${mote.fontSize}px Courier New`;
+                    ctx.fillStyle = color;
+                    if (glowEnabled && mote.pop) {
+                        ctx.shadowColor = color;
+                        ctx.shadowBlur = 4 + flicker * 6;
+                    } else {
+                        ctx.shadowBlur = 0;
+                    }
+                    ctx.fillText(mote.glyph, 0, 0);
+                    ctx.restore();
                 } else {
-                    ctx.fillRect(driftX | 0, y | 0, mote.size, mote.size);
+                    ctx.globalAlpha = moteAlpha;
+                    ctx.fillStyle = i % 7 === 0 ? '#ffe8b8' : (i % 3 === 0 ? accent : '#6aa8ff');
+                    if (mote.glyph === '|') {
+                        ctx.fillRect(driftX | 0, y | 0, 1, mote.size + 2);
+                    } else {
+                        ctx.fillRect(driftX | 0, y | 0, mote.size, mote.size);
+                    }
                 }
             }
             ctx.restore();
@@ -341,6 +483,74 @@
             ctx.shadowBlur = 0;
         }
 
+        function getShipSelectThrusterParticleColor(life, accent) {
+            const baseColor = typeof getExhaustColor === 'function'
+                ? getExhaustColor(life)
+                : (life > 0.62 ? '#fff4b8' : (life > 0.34 ? '#ff8a38' : '#3d7dff'));
+            return mixColor(baseColor, accent, 0.24);
+        }
+
+        function drawSelectedShipPreviewThrusters(shipConfig, previewShip, now) {
+            const accent = shipConfig.previewColor || '#9ff7ff';
+            const t = now * 0.001;
+            const layout = typeof getPlayerRenderLayout === 'function'
+                ? getPlayerRenderLayout(previewShip, 'center')
+                : null;
+            const anchors = layout && typeof getPlayerThrusterAnchors === 'function'
+                ? getPlayerThrusterAnchors(layout)
+                : [{ x: 0, y: 47 }];
+            const particles = typeof EXHAUST_PARTICLE_CHARS !== 'undefined'
+                ? EXHAUST_PARTICLE_CHARS
+                : ['^', '*', '.', 'v'];
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            for (let i = 0; i < anchors.length; i++) {
+                const anchor = anchors[i];
+                const thruster = layout && layout.thrusters ? layout.thrusters[i] : null;
+                const thrusterSize = thruster && thruster.fontSize ? thruster.fontSize : 34;
+                const streamLength = 23 + thrusterSize * 0.54;
+                const streamWidth = 3.6 + thrusterSize * 0.12;
+                const baseFont = Math.max(7, Math.min(12, thrusterSize * 0.31));
+                const nozzleX = anchor.x;
+                const nozzleY = anchor.y - 1;
+
+                for (let p = 0; p < 8; p++) {
+                    const seed = shipSelectNoise(83.17 + i * 11.9, p + shipConfig.id.length * 3);
+                    const phase = (t * (1.55 + seed * 0.36) + p / 8 + i * 0.19) % 1;
+                    const life = 1 - phase;
+                    const sideDrift = Math.sin(t * 10 + p * 1.73 + i) * 1.9;
+                    const spread = (seed - 0.5) * streamWidth * (0.6 + phase * 1.4);
+                    const x = nozzleX + spread + sideDrift * phase;
+                    const y = nozzleY + phase * streamLength;
+                    const alpha = Math.max(0, Math.min(0.74, life * life * 0.92));
+                    if (alpha <= 0.035) continue;
+
+                    const glyph = particles[(p + i * 2 + Math.floor(t * 12)) % particles.length];
+                    const fontSize = baseFont + life * 5 + seed * 2;
+                    const particleColor = getShipSelectThrusterParticleColor(life, accent);
+                    ctx.globalAlpha = alpha;
+                    ctx.font = `bold ${fontSize}px Courier New`;
+                    ctx.fillStyle = particleColor;
+                    if (glowEnabled) {
+                        ctx.shadowColor = p % 5 === 0 ? '#fff4b8' : accent;
+                        ctx.shadowBlur = 4 + life * 7;
+                    } else {
+                        ctx.shadowBlur = 0;
+                    }
+                    ctx.fillText(glyph, x, y);
+                }
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.shadowBlur = 0;
+        }
+
         function drawShipSelectPreview(shipConfig, slotX, slotY, selected, now, slotIndex, offset = 0) {
             const previewShip = {
                 x: 0,
@@ -351,13 +561,14 @@
                 _renderLayoutCache: null
             };
             const distance = Math.abs(offset);
-            const bob = Math.sin(now * 0.002 + slotIndex * 1.7) * (selected ? 8 : Math.max(2, 5 - distance));
-            const rotation = selected
-                ? Math.sin(now * 0.0017) * 0.18
-                : offset * 0.065 + Math.sin(now * 0.001 + slotIndex) * 0.018;
-            const scale = selected ? 1.03 : Math.max(0.48, 0.78 - distance * 0.09);
-            const glow = selected ? 28 : 9;
-            const sideAlpha = Math.max(0.18, 0.58 - distance * 0.10);
+            const centerWeight = Math.max(0, 1 - Math.min(1, distance));
+            const bob = Math.sin(now * 0.002 + slotIndex * 1.7) * (selected ? 6 : Math.max(1.5, 3.5 - distance));
+            const rotation = (selected
+                ? Math.sin(now * 0.0017) * 0.08
+                : offset * 0.045 + Math.sin(now * 0.001 + slotIndex) * 0.010);
+            const scale = selected ? 1.03 : Math.max(0.43, 0.80 - distance * 0.095 + centerWeight * 0.12);
+            const glow = selected ? 28 : Math.max(4, 10 - distance);
+            const sideAlpha = Math.max(0.15, 0.62 - distance * 0.105);
 
             ctx.save();
             ctx.translate(slotX, slotY + bob);
@@ -367,6 +578,7 @@
             ctx.fillStyle = selected ? shipConfig.previewColor : mixColor(shipConfig.previewColor, '#6e8290', 0.70);
             ctx.shadowColor = selected ? shipConfig.previewColor : colorWithAlpha(shipConfig.previewColor, 0.62);
             ctx.shadowBlur = glowEnabled ? glow : 0;
+            if (selected) drawSelectedShipPreviewThrusters(shipConfig, previewShip, now);
             drawPlayerShip(previewShip, 'center');
             ctx.restore();
 
@@ -423,11 +635,19 @@
 
             const shipCount = PLAYER_SHIP_TYPES.length;
             const slotSpacing = Math.min(168, Math.max(118, width * 0.126));
-            const renderShips = PLAYER_SHIP_TYPES.map((ship, i) => ({
-                ship,
-                index: i,
-                offset: getWrappedShipSelectOffset(i, shipSelectIndex, shipCount)
-            })).sort((a, b) => Math.abs(b.offset) - Math.abs(a.offset));
+            const renderIndex = updateShipSelectCarouselMotion(now, shipSelectIndex, shipCount);
+            const centerSlot = Math.round(renderIndex);
+            const renderShips = [];
+            for (let slotOffset = -SHIP_SELECT_CAROUSEL_VISIBLE_RADIUS; slotOffset <= SHIP_SELECT_CAROUSEL_VISIBLE_RADIUS; slotOffset++) {
+                const logicalIndex = centerSlot + slotOffset;
+                const index = wrapShipIndex(logicalIndex);
+                renderShips.push({
+                    ship: PLAYER_SHIP_TYPES[index],
+                    index,
+                    offset: logicalIndex - renderIndex
+                });
+            }
+            renderShips.sort((a, b) => Math.abs(b.offset) - Math.abs(a.offset));
 
             for (let i = 0; i < renderShips.length; i++) {
                 const item = renderShips[i];
@@ -435,7 +655,7 @@
                 const slotX = width / 2 + item.offset * slotSpacing;
                 const slotY = centerY + distance * 17 + Math.max(0, distance - 1) * 8;
                 if (slotX < -80 || slotX > width + 80) continue;
-                drawShipSelectPreview(item.ship, slotX, slotY, item.index === shipSelectIndex, now, item.index, item.offset);
+                drawShipSelectPreview(item.ship, slotX, slotY, distance < 0.52, now, item.index, item.offset);
             }
 
             const panelW = Math.min(440, width - 112);

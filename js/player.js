@@ -1012,7 +1012,10 @@
         const PLAYER_BOMB_INDICATOR_DARK_COLOR = '#020000';
         const PLAYER_BOMB_INDICATOR_RED_COLOR = '#240005';
         const PLAYER_BOMB_INDICATOR_HOT_RED_COLOR = '#4a0009';
+        const PLAYER_BOMB_INDICATOR_BLUE_COLOR = '#00091f';
+        const PLAYER_BOMB_INDICATOR_HOT_BLUE_COLOR = '#001a46';
         const PLAYER_BOMB_INDICATOR_BLACK_GLOW = 'rgba(0, 0, 0, 0.95)';
+        const PLAYER_BOMB_INDICATOR_READY_GLOW = 'rgba(0, 10, 34, 0.92)';
 
         function getPlayerBombIndicatorPoint(layout) {
             const tuck = PLAYER_BOMB_INDICATOR_FRONT_TUCK;
@@ -1076,19 +1079,22 @@
             );
             const redMix = 0.28 + visual.chargeEase * 0.46 + visual.readyPulse * 0.16;
             const darkRed = blendPlayerCueHex(PLAYER_BOMB_INDICATOR_RED_COLOR, PLAYER_BOMB_INDICATOR_HOT_RED_COLOR, redMix);
-            gradient.addColorStop(0, PLAYER_BOMB_INDICATOR_DARK_COLOR);
-            gradient.addColorStop(0.36 + Math.sin(gradientPhase * 1.7) * 0.08, PLAYER_BOMB_INDICATOR_RED_COLOR);
+            const blueMix = 0.18 + visual.chargeEase * 0.70 + visual.readyPulse * 0.12;
+            const darkBlue = blendPlayerCueHex(PLAYER_BOMB_INDICATOR_DARK_COLOR, PLAYER_BOMB_INDICATOR_BLUE_COLOR, blueMix);
+            const hotBlue = blendPlayerCueHex(PLAYER_BOMB_INDICATOR_BLUE_COLOR, PLAYER_BOMB_INDICATOR_HOT_BLUE_COLOR, blueMix);
+            gradient.addColorStop(0, darkBlue);
+            gradient.addColorStop(0.32 + Math.sin(gradientPhase * 1.7) * 0.07, darkRed);
             gradient.addColorStop(0.68, darkRed);
-            gradient.addColorStop(1, PLAYER_BOMB_INDICATOR_DARK_COLOR);
+            gradient.addColorStop(1, hotBlue);
             ctx.fillStyle = gradient;
             if (glowEnabled) {
-                ctx.shadowColor = PLAYER_BOMB_INDICATOR_BLACK_GLOW;
+                ctx.shadowColor = visual.ready ? PLAYER_BOMB_INDICATOR_READY_GLOW : PLAYER_BOMB_INDICATOR_BLACK_GLOW;
                 ctx.shadowBlur = visual.glow;
             }
             ctx.fillText('\u25c9', snapSpriteCoord(renderCueX), snapSpriteCoord(renderCueY));
             ctx.shadowBlur = 0;
             ctx.globalAlpha = visual.alpha * (0.10 + visual.chargeEase * 0.16);
-            ctx.strokeStyle = blendPlayerCueHex(PLAYER_BOMB_INDICATOR_DARK_COLOR, PLAYER_BOMB_INDICATOR_RED_COLOR, 0.55);
+            ctx.strokeStyle = blendPlayerCueHex(PLAYER_BOMB_INDICATOR_RED_COLOR, PLAYER_BOMB_INDICATOR_BLUE_COLOR, 0.48 + visual.readyPulse * 0.16);
             ctx.lineWidth = Math.max(1, cueSize * 0.025);
             ctx.strokeText('\u25c9', snapSpriteCoord(renderCueX), snapSpriteCoord(renderCueY));
             ctx.restore();
