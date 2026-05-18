@@ -84,7 +84,36 @@
         }));
 
         const GALAXY_SELECT_LOCK_MESSAGES = ['ACCESS DENIED', 'CHECKSUM FAIL', 'PERMISSION 000', 'ROUTE SEALED'];
-
+        const GALAXY_SELECT_MAP_VERTICAL_LIFT = 0.042;
+        const GALAXY_SELECT_TITLE_Y = 0.072;
+        const GALAXY_SELECT_SUBTITLE_Y = 0.108;
+        const GALAXY_DOSSIER_STAT_LABELS = Object.freeze([
+            { key: 'flux', label: 'VELOCITY' },
+            { key: 'entropy', label: 'COMPLEXITY' },
+            { key: 'density', label: 'HOSTILE DENSITY' },
+            { key: 'shear', label: 'BULLET DENSITY' }
+        ]);
+        const GALAXY_DOSSIER_STATS = Object.freeze({
+            'neon-rift': { flux: 62, entropy: 28, density: 54, shear: 56, profile: 'ROUTE BALLISTICS' },
+            'void-circuit': { flux: 38, entropy: 70, density: 52, shear: 40, profile: 'ROOM GRAPH SIGNAL' },
+            'rose-quasar': { flux: 46, entropy: 78, density: 34, shear: 42, profile: 'RECURSIVE LOCK' },
+            'amber-halo': { flux: 42, entropy: 56, density: 54, shear: 48, profile: 'THERMAL KERNEL' },
+            'glass-nebula': { flux: 52, entropy: 74, density: 34, shear: 40, profile: 'DIMENSIONAL MIRAGE' },
+            'red-dwarf': { flux: 66, entropy: 36, density: 50, shear: 48, profile: 'VECTOR SCROLL' },
+            'prism-array': { flux: 42, entropy: 28, density: 68, shear: 62, profile: 'SURVIVAL PRESSURE' },
+            'vector-terminal': { flux: 0, entropy: 0, density: 0, shear: 0, profile: 'FLEET DOCK' }
+        });
+        const galaxyDossierStatState = {
+            galaxyId: '',
+            lastNow: 0,
+            scrambleUntil: 0,
+            scrambleSeed: 0,
+            values: { flux: 0, entropy: 0, density: 0, shear: 0 },
+            targets: { flux: 0, entropy: 0, density: 0, shear: 0 }
+        };
+        const galaxyDossierLayerState = {
+            promptY: 0
+        };
         const GALAXY_SELECT_DEFAULT_LAYOUT = [
             { x: 0.448, y: 0.467, scale: 1.04, axis: -0.535, tilt: 0.46, spinDir: 1, spinSpeed: 0.96, cursorAngle: -0.72 },
             { x: 0.528, y: 0.259, scale: 1.02, axis: 0.895, tilt: 0.36, spinDir: -1, spinSpeed: 1.14, cursorAngle: 0.58 },
@@ -598,11 +627,12 @@
         function getGalaxySelectSlot(index) {
             const profile = getGalaxyVisualProfile(index);
             const marginX = Math.max(86, width * 0.08);
-            const minY = Math.max(116, height * 0.16);
-            const maxY = Math.min(height * 0.80, height - 118);
+            const mapLift = Math.max(20, Math.min(46, height * GALAXY_SELECT_MAP_VERTICAL_LIFT));
+            const minY = Math.max(104, height * 0.135);
+            const maxY = Math.min(height * 0.77, height - 144);
             return {
                 x: Math.max(marginX, Math.min(width - marginX, width * profile.x)),
-                y: Math.max(minY, Math.min(maxY, height * profile.y))
+                y: Math.max(minY, Math.min(maxY, height * profile.y - mapLift))
             };
         }
 
@@ -2757,20 +2787,43 @@
             galaxyCtx.globalAlpha = 1;
         }
 
+        function getGalaxySelectTerminalExitIntroStart() {
+            const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [];
+            const terminalIndex = Array.isArray(galaxies)
+                ? galaxies.findIndex(galaxy => galaxy && galaxy.mode === 'shipHub')
+                : -1;
+            if (terminalIndex >= 0 && typeof getTerminalDockExitCursorPose === 'function') {
+                const exitPose = getTerminalDockExitCursorPose(terminalIndex);
+                if (exitPose && Number.isFinite(exitPose.x) && Number.isFinite(exitPose.y)) {
+                    return exitPose;
+                }
+            }
+            if (terminalIndex >= 0) {
+                const slot = getGalaxySelectSlot(terminalIndex);
+                const radius = getGalaxySelectRenderRadius(terminalIndex, true);
+                return {
+                    x: Math.min(width - 54, slot.x + radius * 1.98),
+                    y: Math.max(100, slot.y - radius * 0.44)
+                };
+            }
+            return { x: Math.max(80, width * 0.16), y: Math.max(100, height * 0.58) };
+        }
+
         function primeGalaxySelectIntroCursorFlyIn(target, now) {
             if (galaxySelectIntroCursorPrimed || !target || !pauseMenuShipCursor || pauseMenuShipCursor.initialized) return;
 
             const cursor = pauseMenuShipCursor;
-            const startX = -GALAXY_SELECT_INTRO_CURSOR_START_MARGIN;
-            const startY = Math.max(96, Math.min(height - 120, target.y + 10));
+            const terminalExit = getGalaxySelectTerminalExitIntroStart();
+            const startX = Math.max(32, Math.min(width - 32, terminalExit.x));
+            const startY = -GALAXY_SELECT_INTRO_CURSOR_START_MARGIN;
             const dx = target.x - startX;
             const dy = target.y - startY;
             const targetKey = target.key || '';
 
             cursor.x = startX;
             cursor.y = startY;
-            cursor.vx = Math.max(280, Math.min(520, Math.abs(dx) * 2.8));
-            cursor.vy = dy * 1.8;
+            cursor.vx = Math.max(-260, Math.min(260, dx * 1.7));
+            cursor.vy = Math.max(360, Math.min(620, dy * 2.05));
             cursor.rot = Math.atan2(dy, dx) + Math.PI / 2;
             cursor.scale = target.scale || 0.24;
             cursor.speed = Math.hypot(cursor.vx, cursor.vy);
@@ -2987,8 +3040,16 @@
             }
         }
 
+        function drawGalaxyDossierBackgroundLayer(now, galaxies, selectedIndex) {
+            const selectedGalaxy = galaxies[selectedIndex] || galaxies[0];
+            if (!selectedGalaxy) return;
+            drawGalaxyDossierPanel(now, selectedGalaxy, galaxies, selectedIndex);
+        }
+
         function drawGalaxySelectWorldLayerDirect(now, selectedIndex) {
             drawGalaxySelectBackground(now);
+            const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [getGalaxyDefinition(0)];
+            drawGalaxyDossierBackgroundLayer(now, galaxies, selectedIndex);
             drawGalaxySelectGalaxyLayerDirect(now, selectedIndex);
         }
 
@@ -3053,6 +3114,394 @@
             return mixGalaxySelectLabelColor(palette[index], palette[nextIndex], eased);
         }
 
+        function getGalaxyDossierStats(galaxy) {
+            const key = galaxy && galaxy.id;
+            const stats = key && GALAXY_DOSSIER_STATS[key] ? GALAXY_DOSSIER_STATS[key] : null;
+            if (stats) return stats;
+            if (galaxy && galaxy.mode === 'matrixCrawler') {
+                return { flux: 38, entropy: 70, density: 52, shear: 40, profile: 'ROOM GRAPH SIGNAL' };
+            }
+            if (galaxy && galaxy.mode === 'survivor') {
+                return { flux: 42, entropy: 28, density: 68, shear: 62, profile: 'SURVIVAL PRESSURE' };
+            }
+            if (galaxy && galaxy.mode === 'bitshiftScroller') {
+                return { flux: 66, entropy: 36, density: 50, shear: 48, profile: 'VECTOR SCROLL' };
+            }
+            if (galaxy && galaxy.mode === 'shipHub') {
+                return { flux: 0, entropy: 0, density: 0, shear: 0, profile: 'FLEET DOCK' };
+            }
+            return { flux: 62, entropy: 28, density: 54, shear: 56, profile: 'ROUTE BALLISTICS' };
+        }
+
+        function truncateGalaxyDossierText(text, maxWidth, font) {
+            const source = String(text || '').toUpperCase();
+            if (!source) return '';
+            galaxyCtx.save();
+            galaxyCtx.font = font;
+            if (galaxyCtx.measureText(source).width <= maxWidth) {
+                galaxyCtx.restore();
+                return source;
+            }
+            let trimmed = source;
+            while (trimmed.length > 4 && galaxyCtx.measureText(`${trimmed}...`).width > maxWidth) {
+                trimmed = trimmed.slice(0, -1).trim();
+            }
+            galaxyCtx.restore();
+            return `${trimmed}...`;
+        }
+
+        function getGalaxyDossierSubtitle(galaxy) {
+            if (!galaxy) return 'SIGNAL';
+            if (galaxy.subtitle) return galaxy.subtitle;
+            if (!galaxy.available) return 'LOCKED SECTOR';
+            if (galaxy.mode === 'matrixCrawler') return 'NODE CRAWLER';
+            if (galaxy.mode === 'survivor') return 'SURVIVAL RUN';
+            if (galaxy.mode === 'bitshiftScroller') return 'VECTOR SCROLL';
+            if (galaxy.mode === 'shipHub') return 'SHIP HUB';
+            return 'BULLET FLIGHT';
+        }
+
+        function getGalaxyDossierReport(galaxy) {
+            const desc = galaxy && galaxy.desc ? String(galaxy.desc) : '';
+            if (galaxy && galaxy.mode === 'shipHub') {
+                return desc || 'Hull telemetry, ship comparison, launch-frame selection.';
+            }
+            return desc;
+        }
+
+        function drawGalaxyTerminalDossierPanel(panelX, panelY, panelW, accent, dimmed, now) {
+            const selectedShip = typeof getSelectedShipConfig === 'function' ? getSelectedShipConfig() : null;
+            const shipName = selectedShip && selectedShip.name ? String(selectedShip.name).toUpperCase() : 'ACTIVE FRAME';
+            const shipColor = selectedShip && selectedShip.previewColor ? selectedShip.previewColor : accent;
+            const chipAlpha = dimmed ? 0.32 : 0.58;
+            const baseY = panelY + 66;
+            const gap = 10;
+            const chipW = (panelW - 36 - gap) / 2;
+            const chips = [
+                { label: 'FRAME', value: shipName, color: shipColor },
+                { label: 'DOCK', value: 'SHIP SELECT', color: accent },
+                { label: 'SCAN', value: 'HULL TRAITS', color: '#dcecff' },
+                { label: 'STATUS', value: 'READY BAY', color: '#9bffcf' }
+            ];
+
+            for (let i = 0; i < chips.length; i++) {
+                const col = i % 2;
+                const row = Math.floor(i / 2);
+                const x = panelX + 18 + col * (chipW + gap);
+                const y = baseY + row * 20;
+                const chip = chips[i];
+                const pulse = 0.72 + Math.sin(now * 0.003 + i * 1.7) * 0.18;
+                galaxyCtx.fillStyle = colorWithAlpha('#071326', 0.16 * chipAlpha);
+                galaxyCtx.fillRect(x, y - 8, chipW, 14);
+                galaxyCtx.strokeStyle = colorWithAlpha(chip.color, (0.22 + pulse * 0.08) * chipAlpha);
+                galaxyCtx.strokeRect(x + 0.5, y - 7.5, chipW, 14);
+                galaxyCtx.font = `bold 8px 'Electrolize', sans-serif`;
+                galaxyCtx.textAlign = 'left';
+                galaxyCtx.textBaseline = 'middle';
+                galaxyCtx.fillStyle = colorWithAlpha(chip.color, 0.72 * chipAlpha);
+                galaxyCtx.fillText(chip.label, x + 5, y);
+                galaxyCtx.textAlign = 'right';
+                galaxyCtx.fillStyle = colorWithAlpha('#ffffff', 0.68 * chipAlpha);
+                const valueText = truncateGalaxyDossierText(chip.value, chipW - 50, `bold 8px 'Electrolize', sans-serif`);
+                galaxyCtx.fillText(valueText, x + chipW - 5, y);
+            }
+        }
+
+        function drawGalaxyDossierCornerFrame(x, y, w, h, accent, alpha) {
+            const corner = 14;
+            galaxyCtx.strokeStyle = colorWithAlpha(accent, 0.46 * alpha);
+            galaxyCtx.lineWidth = 1;
+            galaxyCtx.beginPath();
+            galaxyCtx.moveTo(x, y + corner);
+            galaxyCtx.lineTo(x, y);
+            galaxyCtx.lineTo(x + corner, y);
+            galaxyCtx.moveTo(x + w - corner, y);
+            galaxyCtx.lineTo(x + w, y);
+            galaxyCtx.lineTo(x + w, y + corner);
+            galaxyCtx.moveTo(x + w, y + h - corner);
+            galaxyCtx.lineTo(x + w, y + h);
+            galaxyCtx.lineTo(x + w - corner, y + h);
+            galaxyCtx.moveTo(x + corner, y + h);
+            galaxyCtx.lineTo(x, y + h);
+            galaxyCtx.lineTo(x, y + h - corner);
+            galaxyCtx.stroke();
+
+            galaxyCtx.strokeStyle = colorWithAlpha('#dcecff', 0.063 * alpha);
+            galaxyCtx.strokeRect(x + 8.5, y + 8.5, w - 17, h - 17);
+        }
+
+        function updateGalaxyDossierAnimatedStats(galaxy, stats, now) {
+            const id = galaxy && galaxy.id ? galaxy.id : 'unknown';
+            const frameNow = Number.isFinite(now) ? now : performance.now();
+            const firstRun = !galaxyDossierStatState.galaxyId;
+            if (galaxyDossierStatState.galaxyId !== id) {
+                galaxyDossierStatState.galaxyId = id;
+                galaxyDossierStatState.scrambleUntil = frameNow + (firstRun ? 0 : 360);
+                galaxyDossierStatState.scrambleSeed = Math.floor(galaxyNoise(2300, frameNow * 0.001 + id.length) * 10000);
+                for (const stat of GALAXY_DOSSIER_STAT_LABELS) {
+                    const next = Number(stats[stat.key]) || 0;
+                    if (firstRun) galaxyDossierStatState.values[stat.key] = next;
+                    galaxyDossierStatState.targets[stat.key] = next;
+                }
+                galaxyDossierStatState.lastNow = frameNow;
+            }
+
+            const dt = Math.max(0, Math.min(0.06, (frameNow - (galaxyDossierStatState.lastNow || frameNow)) / 1000));
+            const step = 1 - Math.exp(-8.4 * dt);
+            for (const stat of GALAXY_DOSSIER_STAT_LABELS) {
+                const key = stat.key;
+                const target = galaxyDossierStatState.targets[key];
+                galaxyDossierStatState.values[key] += (target - galaxyDossierStatState.values[key]) * step;
+                if (Math.abs(target - galaxyDossierStatState.values[key]) < 0.08) galaxyDossierStatState.values[key] = target;
+            }
+            galaxyDossierStatState.lastNow = frameNow;
+            return galaxyDossierStatState.values;
+        }
+
+        function getGalaxyDossierDisplayNumber(key, value, now) {
+            const frameNow = Number.isFinite(now) ? now : performance.now();
+            if (frameNow < galaxyDossierStatState.scrambleUntil) {
+                const ticks = Math.floor(frameNow / 42);
+                const seed = galaxyDossierStatState.scrambleSeed + ticks * 17 + key.length * 31;
+                const scrambled = Math.floor(galaxyNoise(2400 + seed, ticks) * 100);
+                return String(scrambled).padStart(2, '0');
+            }
+            return String(Math.round(Math.max(0, Math.min(100, value)))).padStart(2, '0');
+        }
+
+        function getGalaxyDossierLowerLabelClearance(galaxies, selectedIndex, now) {
+            if (!Array.isArray(galaxies)) return height * 0.75;
+            let lowest = height * 0.60;
+            for (let i = 0; i < galaxies.length; i++) {
+                const slot = getGalaxySelectSlot(i);
+                const highlight = getGalaxySelectHighlightAmount(i, i === selectedIndex, now);
+                const radius = getGalaxySelectRenderRadius(i, i === selectedIndex, highlight);
+                if (slot.y < height * 0.48) continue;
+                lowest = Math.max(lowest, slot.y + radius + 48);
+            }
+            return lowest;
+        }
+
+        function drawGalaxyDossierStatBar(label, value, x, y, w, accent, dimmed, phase, statKey, now) {
+            const ratio = Math.max(0, Math.min(1, (Number(value) || 0) / 100));
+            const labelW = Math.min(116, Math.max(96, w * 0.42));
+            const valueW = 28;
+            const barX = x + labelW + 2;
+            const barW = Math.max(36, w - labelW - valueW - 10);
+            const barH = 6;
+            const barY = y - barH / 2;
+            const alpha = dimmed ? 0.36 : 0.77;
+            const statColor = dimmed ? mixGalaxySelectLabelColor(accent, '#8793a8', 0.72) : accent;
+
+            galaxyCtx.textAlign = 'left';
+            galaxyCtx.textBaseline = 'middle';
+            galaxyCtx.font = `bold 9px 'Electrolize', sans-serif`;
+            const labelPad = 5;
+            const labelBoxW = Math.min(labelW - 8, Math.max(34, Math.ceil(galaxyCtx.measureText(label).width + labelPad * 2)));
+            const labelBoxH = 14;
+            galaxyCtx.fillStyle = colorWithAlpha('#071326', (dimmed ? 0.20 : 0.27) * alpha);
+            galaxyCtx.fillRect(x, y - labelBoxH / 2, labelBoxW, labelBoxH);
+            galaxyCtx.strokeStyle = colorWithAlpha(statColor, (dimmed ? 0.26 : 0.34) * alpha);
+            galaxyCtx.strokeRect(x + 0.5, y - labelBoxH / 2 + 0.5, labelBoxW, labelBoxH);
+            galaxyCtx.fillStyle = colorWithAlpha('#eff8ff', (dimmed ? 0.58 : 0.68) * alpha);
+            galaxyCtx.fillText(label, x + labelPad, y + 0.5);
+
+            galaxyCtx.fillStyle = dimmed ? 'rgba(210, 236, 255, 0.035)' : 'rgba(210, 236, 255, 0.052)';
+            galaxyCtx.fillRect(barX, barY, barW, barH);
+            galaxyCtx.fillStyle = dimmed ? 'rgba(0, 0, 0, 0.11)' : 'rgba(0, 0, 0, 0.145)';
+            galaxyCtx.fillRect(barX + barW * ratio, barY, Math.max(0, barW * (1 - ratio)), barH);
+
+            const fillW = Math.max(3, barW * ratio);
+            const gradient = galaxyCtx.createLinearGradient(barX, barY, barX + barW, barY);
+            gradient.addColorStop(0, colorWithAlpha(statColor, 0.78 * alpha));
+            gradient.addColorStop(0.72, colorWithAlpha(mixGalaxySelectLabelColor(statColor, '#ffffff', 0.45), 0.90 * alpha));
+            gradient.addColorStop(1, colorWithAlpha('#ffffff', 0.95 * alpha));
+            galaxyCtx.fillStyle = gradient;
+            galaxyCtx.fillRect(barX, barY, fillW, barH);
+
+            galaxyCtx.fillStyle = colorWithAlpha('#ffffff', (dimmed ? 0.10 : 0.14) * alpha);
+            galaxyCtx.fillRect(barX, barY, fillW, 1);
+
+            const scanX = barX + ((phase % 1 + 1) % 1) * Math.max(1, fillW);
+            galaxyCtx.fillStyle = colorWithAlpha('#ffffff', (dimmed ? 0.10 : 0.13) * alpha);
+            galaxyCtx.fillRect(scanX, barY, 1, barH);
+
+            galaxyCtx.textAlign = 'right';
+            galaxyCtx.font = `bold 10px 'Electrolize', sans-serif`;
+            galaxyCtx.fillStyle = colorWithAlpha('#ffffff', (dimmed ? 0.76 : 0.85) * alpha);
+            galaxyCtx.fillText(getGalaxyDossierDisplayNumber(statKey, value, now), x + w, y);
+        }
+
+        function drawGalaxyDossierPanel(now, galaxy, galaxies, selectedIndex) {
+            const stats = getGalaxyDossierStats(galaxy);
+            const displayStats = updateGalaxyDossierAnimatedStats(galaxy, stats, now);
+            const colors = galaxy && galaxy.colors && galaxy.colors.length ? galaxy.colors : [currentThemeColor, '#ffffff'];
+            const accent = sampleGalaxySelectAnimatedColor(colors, now * 0.00007 + (galaxy && galaxy.seed ? galaxy.seed * 0.003 : 0));
+            const dimmed = !!(galaxy && !galaxy.available);
+            const compact = width < 660;
+            const terminalPanel = !!(galaxy && galaxy.mode === 'shipHub');
+            const panelW = Math.max(compact ? 300 : 340, Math.min(width - (compact ? 72 : 260), compact ? 430 : 480));
+            const panelH = compact ? 140 : 106;
+            const panelX = width / 2 - panelW / 2;
+            const lowerLabelClearance = getGalaxyDossierLowerLabelClearance(galaxies, selectedIndex, now);
+            const panelBottomLimit = height - panelH - (compact ? 58 : 62);
+            const panelY = Math.min(panelBottomLimit, Math.max(lowerLabelClearance + 10, height - panelH - (compact ? 92 : 78)));
+            const panelAlpha = dimmed ? 0.42 : 0.66;
+            const title = String((galaxy && (galaxy.title || galaxy.name)) || 'UNKNOWN ROUTE').toUpperCase();
+            const subtitle = String(getGalaxyDossierSubtitle(galaxy)).toUpperCase();
+            const reportSource = getGalaxyDossierReport(galaxy);
+            const report = truncateGalaxyDossierText(reportSource, panelW - 34, `bold 9px 'Electrolize', sans-serif`);
+
+            galaxyCtx.save();
+            galaxyCtx.globalAlpha = 1;
+            const panelGradient = galaxyCtx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
+            panelGradient.addColorStop(0, `rgba(5, 15, 30, ${(dimmed ? 0.22 : 0.29) * panelAlpha})`);
+            panelGradient.addColorStop(0.58, `rgba(2, 8, 17, ${(dimmed ? 0.52 : 0.61) * panelAlpha})`);
+            panelGradient.addColorStop(1, `rgba(6, 14, 26, ${(dimmed ? 0.24 : 0.31) * panelAlpha})`);
+            galaxyCtx.fillStyle = panelGradient;
+            galaxyCtx.fillRect(panelX, panelY, panelW, panelH);
+
+            galaxyCtx.globalCompositeOperation = 'screen';
+            if (!dimmed) {
+                const activeWash = galaxyCtx.createLinearGradient(panelX, panelY, panelX + panelW, panelY);
+                activeWash.addColorStop(0, colorWithAlpha(accent, 0.009));
+                activeWash.addColorStop(0.50, colorWithAlpha('#ffffff', 0.011));
+                activeWash.addColorStop(1, colorWithAlpha(accent, 0.007));
+                galaxyCtx.fillStyle = activeWash;
+                galaxyCtx.fillRect(panelX + 1, panelY + 1, panelW - 2, panelH - 2);
+            }
+            galaxyCtx.strokeStyle = colorWithAlpha(accent, (dimmed ? 0.13 : 0.31));
+            galaxyCtx.lineWidth = 1;
+            galaxyCtx.strokeRect(panelX + 0.5, panelY + 0.5, panelW, panelH);
+            drawGalaxyDossierCornerFrame(panelX + 6, panelY + 6, panelW - 12, panelH - 12, accent, dimmed ? 0.42 : 0.89);
+
+            galaxyCtx.globalAlpha = dimmed ? 0.18 : 0.34;
+            galaxyCtx.strokeStyle = colorWithAlpha(accent, dimmed ? 0.48 : 0.55);
+            galaxyCtx.beginPath();
+            galaxyCtx.moveTo(panelX + 14, panelY + 5);
+            galaxyCtx.lineTo(panelX + panelW - 14, panelY + 5);
+            galaxyCtx.moveTo(panelX + 14, panelY + panelH - 5);
+            galaxyCtx.lineTo(panelX + panelW - 14, panelY + panelH - 5);
+            galaxyCtx.stroke();
+            galaxyCtx.globalAlpha = 1;
+
+            const scanY = panelY + 20 + ((now * 0.018) % Math.max(1, panelH - 40));
+            galaxyCtx.fillStyle = colorWithAlpha('#ffffff', dimmed ? 0.014 : 0.035);
+            galaxyCtx.fillRect(panelX + 18, scanY, panelW - 36, 1);
+            galaxyCtx.globalCompositeOperation = 'source-over';
+
+            galaxyCtx.textAlign = 'left';
+            galaxyCtx.textBaseline = 'middle';
+            const titleFont = `bold 11px 'Electrolize', sans-serif`;
+            const subtitleFont = `bold 8px 'Electrolize', sans-serif`;
+            const titleMax = terminalPanel ? panelW * 0.44 : panelW * 0.48;
+            const titleText = truncateGalaxyDossierText(title, titleMax, titleFont);
+            galaxyCtx.font = titleFont;
+            galaxyCtx.fillStyle = colorWithAlpha(accent, dimmed ? 0.42 : 0.85);
+            galaxyCtx.fillText(titleText, panelX + 18, panelY + 18);
+
+            const titleWidth = galaxyCtx.measureText(titleText).width;
+            const subtitleX = panelX + 18 + titleWidth + 10;
+            const subtitleMax = Math.max(42, panelX + panelW - 18 - subtitleX);
+            const subtitleText = truncateGalaxyDossierText(subtitle, subtitleMax, subtitleFont);
+            galaxyCtx.font = subtitleFont;
+            galaxyCtx.fillStyle = dimmed ? 'rgba(218, 226, 240, 0.28)' : colorWithAlpha('#f1f8ff', 0.55);
+            galaxyCtx.fillText(subtitleText, subtitleX, panelY + 18);
+
+            galaxyCtx.textAlign = 'left';
+            galaxyCtx.font = `bold 9px 'Electrolize', sans-serif`;
+            galaxyCtx.fillStyle = dimmed ? 'rgba(206, 216, 232, 0.26)' : 'rgba(234, 246, 255, 0.49)';
+            galaxyCtx.fillText(report, panelX + 18, panelY + 40);
+
+            const statTop = panelY + (compact ? 66 : 68);
+            if (terminalPanel) {
+                drawGalaxyTerminalDossierPanel(panelX, panelY, panelW, accent, dimmed, now);
+            } else if (compact) {
+                const statW = panelW - 36;
+                for (let i = 0; i < GALAXY_DOSSIER_STAT_LABELS.length; i++) {
+                    const stat = GALAXY_DOSSIER_STAT_LABELS[i];
+                    drawGalaxyDossierStatBar(stat.label, displayStats[stat.key], panelX + 18, statTop + i * 17, statW, accent, dimmed, now * 0.00018 + i * 0.19, stat.key, now);
+                }
+            } else {
+                const gap = 24;
+                const statW = (panelW - 36 - gap) / 2;
+                for (let i = 0; i < GALAXY_DOSSIER_STAT_LABELS.length; i++) {
+                    const stat = GALAXY_DOSSIER_STAT_LABELS[i];
+                    const col = i % 2;
+                    const row = Math.floor(i / 2);
+                    drawGalaxyDossierStatBar(
+                        stat.label,
+                        displayStats[stat.key],
+                        panelX + 18 + col * (statW + gap),
+                        statTop + row * 21,
+                        statW,
+                        accent,
+                        dimmed,
+                        now * 0.00018 + i * 0.17,
+                        stat.key,
+                        now
+                    );
+                }
+            }
+
+            galaxyCtx.restore();
+            galaxyDossierLayerState.promptY = panelY + panelH + 26;
+            return galaxyDossierLayerState.promptY;
+        }
+
+        function drawGalaxySelectMiniVisualizer(now, galaxy) {
+            if (width < 620 || height < 500 || typeof drawMusicPlayerVisualizer !== 'function') return;
+
+            const musicStatus = typeof getMusicPlayerStatus === 'function' ? getMusicPlayerStatus() : null;
+            const musicPlayerActive = !!(musicStatus && musicStatus.isPlaying);
+            const signal = musicPlayerActive && typeof getMusicPlayerReactiveSignal === 'function'
+                ? getMusicPlayerReactiveSignal()
+                : (typeof getGameAudioReactiveSignal === 'function'
+                    ? getGameAudioReactiveSignal()
+                    : {
+                        bass: 0.16,
+                        bassGuitar: 0.18,
+                        bassPulse: 0.08,
+                        drumSnap: 0.12,
+                        leadTone: 0.16,
+                        air: 0.12,
+                        mid: 0.15,
+                        highMid: 0.18,
+                        treble: 0.12,
+                        energy: 0.18,
+                        pulse: 0.08,
+                        activity: 0.40,
+                        phase: (now || 0) * 0.00004
+                    });
+            const colors = galaxy && galaxy.colors && galaxy.colors.length ? galaxy.colors : [currentThemeColor, '#8ff7ff', '#ffffff'];
+            const accent = sampleGalaxySelectAnimatedColor(colors, (Number.isFinite(now) ? now : performance.now()) * 0.000055 + (galaxy && galaxy.seed ? galaxy.seed * 0.004 : 0));
+            const cloneScale = 0.50;
+            const sourceW = Math.round(Math.max(174, Math.min(250, width * 0.215)));
+            const sourceH = Math.round(sourceW * 0.56);
+            const displayW = sourceW * cloneScale;
+            const displayX = Math.round(width - displayW - Math.max(28, width * 0.027));
+            const displayY = Math.round(Math.max(48, height * 0.052));
+
+            galaxyCtx.save();
+            galaxyCtx.translate(displayX, displayY);
+            galaxyCtx.scale(cloneScale, cloneScale);
+            drawMusicPlayerVisualizer(0, 0, sourceW, sourceH, accent, { isPlaying: true }, {
+                embedded: true,
+                forceActive: true,
+                signal,
+                alphaScale: 0.48,
+                context: galaxyCtx,
+                left: 0,
+                right: sourceW,
+                topY: 0,
+                bottomY: sourceH
+            });
+            galaxyCtx.restore();
+            galaxyCtx.globalAlpha = 1;
+            galaxyCtx.globalCompositeOperation = 'source-over';
+            galaxyCtx.shadowBlur = 0;
+        }
+
         function drawGalaxySelectUiLayer(now, galaxies, selectedIndex) {
             galaxyCtx.save();
             galaxyCtx.textAlign = 'center';
@@ -3061,11 +3510,12 @@
             galaxyCtx.fillStyle = '#f2fbff';
             galaxyCtx.shadowColor = currentThemeColor;
             galaxyCtx.shadowBlur = glowEnabled ? 18 : 0;
-            galaxyCtx.fillText('GALAXY SELECT', width / 2, height * 0.085);
+            galaxyCtx.fillText('GALAXY SELECT', width / 2, height * GALAXY_SELECT_TITLE_Y);
             galaxyCtx.shadowBlur = 0;
             galaxyCtx.font = `12px 'Electrolize', sans-serif`;
             galaxyCtx.fillStyle = 'rgba(202, 229, 255, 0.72)';
-            galaxyCtx.fillText('Choose your destination', width / 2, height * 0.123);
+            galaxyCtx.fillText('Choose your destination', width / 2, height * GALAXY_SELECT_SUBTITLE_Y);
+            drawGalaxySelectMiniVisualizer(now, galaxies[selectedIndex]);
 
             for (let i = 0; i < galaxies.length; i++) {
                 const galaxy = galaxies[i];
@@ -3135,20 +3585,7 @@
                 galaxyCtx.shadowBlur = 0;
 
             }
-
-            const selectedGalaxy = galaxies[selectedIndex] || galaxies[0];
-            const descY = height * 0.862;
-            const descLines = drawCenteredWrappedText(
-                (selectedGalaxy.desc || '').toUpperCase(),
-                width / 2,
-                descY,
-                Math.min(760, width * 0.82),
-                18,
-                `bold 13px 'Electrolize', sans-serif`,
-                selectedGalaxy.available ? '#dcecff' : 'rgba(210,220,235,0.58)',
-                2
-            );
-            const promptY = descY + descLines * 14 + 22;
+            const promptY = galaxyDossierLayerState.promptY || Math.min(height - 40, height * 0.90);
             if (galaxySelectNoticeTimer > 0 && galaxySelectNotice) {
                 galaxyCtx.font = `bold 18px 'Electrolize', sans-serif`;
                 galaxyCtx.fillStyle = '#ff8fb5';
@@ -3172,6 +3609,7 @@
 
         function drawGalaxySelectContentDirect(now, selectedIndex, showCursor = true) {
             const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [getGalaxyDefinition(0)];
+            drawGalaxyDossierBackgroundLayer(now, galaxies, selectedIndex);
             drawGalaxySelectGalaxyLayerDirect(now, selectedIndex);
             drawGalaxySelectUiLayer(now, galaxies, selectedIndex);
             const cursorTarget = showCursor ? getGalaxySelectCurrentCursorTarget(now, selectedIndex) : null;

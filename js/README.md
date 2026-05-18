@@ -61,22 +61,25 @@ The game uses classic browser script tags, not ES modules. Files share globals, 
 19. `bitshift-scroller.js`
    Bitshift Dwarf / Vector Scroll side-scroller runtime, including mode state, first-stage pacing, spawning, terrain hazards, the Dwarf Core Warden boss, rendering, and debug helpers.
 
-20. `matrix-crawler.js`
+20. `fractal-gravity.js`
+   Fractal Halo / Gravity Run gravity-thrust prototype, including mode state, local gravity wells, enemy waves, hazards, the Gravity Core mini-boss, rendering, and debug helpers.
+
+21. `matrix-crawler.js`
    Matrix Nebula node crawler mode state, room generation, robot controls, enemies, pickups, rendering helpers, and HUD data.
 
-21. `prism-survivor.js`
+22. `prism-survivor.js`
    Prism Array survival run state, horde waves, survivor combat helpers, and survivor-specific rendering data.
 
-22. `physics.js`
+23. `physics.js`
    Main simulation update loop for player, enemies, bullets, bosses, drops, debris, and wave progression.
 
-23. `ui-render.js`
+24. `ui-render.js`
    Pause/settings menus, level-up cards, console overlay, title/loading screen, and canvas frame rendering.
 
-24. `hud.js`
+25. `hud.js`
    HUD color helpers, DOM construction, meter syncing, weapon grid syncing, and incremental HUD updates.
 
-25. `main-loop.js`
+26. `main-loop.js`
    `requestAnimationFrame` loop, FPS pacing, startup resize, and font-ready boot.
 
 ## Edit Rules
@@ -90,6 +93,7 @@ The game uses classic browser script tags, not ES modules. Files share globals, 
 - Add Terminal / fleet hub visuals, dock transitions, and ship-select screen work in `ship-terminal.js`; keep shared player ship config and runtime player behavior in `player.js`.
 - Add Binary Quasar / Bullet Route owner-shell work in `binary-vertical.js`; keep campaign wave definition data in `wave-data.js` and routing behavior in `waves.js`.
 - Add Bitshift Dwarf side-scroller behavior in `bitshift-scroller.js`; keep mode-specific runtime logic there.
+- Add Fractal Halo / Gravity Run gravity-thrust behavior in `fractal-gravity.js`; keep shared weapons, upgrades, projectiles, bombs, pickups, HUD, audio, input, and sprites shared.
 - Add Matrix Nebula node-crawler behavior in `matrix-crawler.js`.
 - Add Prism Array survival-run behavior in `prism-survivor.js`; preserve existing survivor globals unless doing an explicit API migration.
 - Add broad rendering/UI work in `ui-render.js` unless it only touches HUD DOM, then use `hud.js`.

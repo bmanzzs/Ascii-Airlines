@@ -703,6 +703,9 @@
             } else if (typeof isBitshiftScrollerModeActive === 'function' && isBitshiftScrollerModeActive() && typeof getBitshiftWeaponOrigin === 'function') {
                 frontOrigin = getBitshiftWeaponOrigin(false);
                 rearOrigin = getBitshiftWeaponOrigin(true);
+            } else if (typeof isFractalGravityModeActive === 'function' && isFractalGravityModeActive() && typeof getFractalGravityWeaponOrigin === 'function') {
+                frontOrigin = getFractalGravityWeaponOrigin(false);
+                rearOrigin = getFractalGravityWeaponOrigin(true);
             }
 
             function spawnBullet(x, y, vx, vy, isRear, options = {}) {
@@ -815,10 +818,13 @@
         function fireBomb() {
             const survivorMode = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
             const bitshiftMode = typeof isBitshiftScrollerModeActive === 'function' && isBitshiftScrollerModeActive();
+            const fractalMode = typeof isFractalGravityModeActive === 'function' && isFractalGravityModeActive();
             const origin = bitshiftMode && typeof getBitshiftWeaponOrigin === 'function'
                 ? getBitshiftWeaponOrigin(false)
                 : survivorMode && typeof getSurvivorWeaponOrigin === 'function'
                 ? getSurvivorWeaponOrigin(false)
+                : fractalMode && typeof getFractalGravityWeaponOrigin === 'function'
+                ? getFractalGravityWeaponOrigin(false)
                 : getPlayerBombIndicatorOrigin();
             const indicatorVisual = getPlayerBombIndicatorVisual();
             player.bombTimer = getPlayerBombCooldownTotal();
@@ -827,6 +833,8 @@
                 ? 0
                 : survivorMode && typeof getSurvivorPlayerAimAngle === 'function'
                 ? getSurvivorPlayerAimAngle()
+                : fractalMode && typeof getFractalGravityAimAngle === 'function'
+                ? getFractalGravityAimAngle()
                 : getPlayerFireAngle();
             const vx = Math.cos(angle) * BOMB_GRENADE_SPEED;
             const vy = Math.sin(angle) * BOMB_GRENADE_SPEED;
@@ -1119,6 +1127,7 @@
             if (typeof resetSurvivorRuntimeStateForCampaign === 'function') resetSurvivorRuntimeStateForCampaign();
             if (typeof resetMatrixCrawlerRuntimeStateForCampaign === 'function') resetMatrixCrawlerRuntimeStateForCampaign();
             if (typeof resetBitshiftScrollerRuntimeStateForCampaign === 'function') resetBitshiftScrollerRuntimeStateForCampaign();
+            if (typeof resetFractalGravityRuntimeState === 'function') resetFractalGravityRuntimeState();
             teardownBossCinematic();
             if (typeof resetRunCompleteTransition === 'function') resetRunCompleteTransition();
             resetRunStats();

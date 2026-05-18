@@ -2,7 +2,13 @@
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const gainNode = audioCtx.createGain();
         gainNode.gain.value = 0.4;
-        gainNode.connect(audioCtx.destination);
+        const gameAudioAnalyser = audioCtx.createAnalyser();
+        gameAudioAnalyser.fftSize = 512;
+        gameAudioAnalyser.smoothingTimeConstant = 0.58;
+        gameAudioAnalyser.minDecibels = -96;
+        gameAudioAnalyser.maxDecibels = -18;
+        gainNode.connect(gameAudioAnalyser);
+        gameAudioAnalyser.connect(audioCtx.destination);
 
         const bgmGain = audioCtx.createGain();
         bgmGain.connect(gainNode);
@@ -17,6 +23,7 @@
         musicPlayerAnalyser.maxDecibels = -18;
         musicPlayerGain.connect(musicPlayerAnalyser);
         musicPlayerAnalyser.connect(gainNode);
+        const gameAudioFrequencyData = new Uint8Array(gameAudioAnalyser.frequencyBinCount);
         const musicPlayerFrequencyData = new Uint8Array(musicPlayerAnalyser.frequencyBinCount);
 
         async function loadBuffer(url) {
@@ -74,6 +81,25 @@
             previousEnergy: 0,
             lastTime: 0,
             bands: null
+        };
+        let gameAudioVisualSignal = {
+            bass: 0,
+            bassGuitar: 0,
+            mid: 0,
+            highMid: 0,
+            treble: 0,
+            drumSnap: 0,
+            leadTone: 0,
+            air: 0,
+            energy: 0,
+            pulse: 0,
+            bassPulse: 0,
+            activity: 0,
+            absoluteEnergy: 0,
+            phase: 0,
+            previousEnergy: 0,
+            previousBass: 0,
+            lastTime: 0
         };
         let musicPlayerVisualProfile = {
             trackIndex: -1,
@@ -651,6 +677,125 @@
         function approachMusicPlayerSignal(current, target, dt, rise, fall) {
             const rate = target > current ? rise : fall;
             return current + (target - current) * Math.min(1, dt * rate);
+        }
+
+        function getGameAudioFrequencyBinRange(lowHz, highHz) {
+            const nyquist = Math.max(1, audioCtx.sampleRate / 2);
+            const count = Math.max(1, gameAudioFrequencyData.length);
+            const safeLow = Math.max(0, Math.min(nyquist, lowHz || 0));
+            const safeHigh = Math.max(safeLow + 1, Math.min(nyquist, highHz || nyquist));
+            const start = Math.max(1, Math.floor((safeLow / nyquist) * count));
+            const end = Math.max(start + 1, Math.min(count, Math.ceil((safeHigh / nyquist) * count)));
+            return { start, end };
+        }
+
+        function getGameAudioBandEnergy(lowHz, highHz, gain = 1, curve = 0.68) {
+            const range = getGameAudioFrequencyBinRange(lowHz, highHz);
+            let sum = 0;
+            let peak = 0;
+            for (let i = range.start; i < range.end; i++) {
+                const value = gameAudioFrequencyData[i] || 0;
+                sum += value;
+                if (value > peak) peak = value;
+            }
+            const avg = sum / Math.max(1, range.end - range.start);
+            const mixed = Math.max(0, Math.min(1, (avg * 0.58 + peak * 0.42) / 255));
+            return Math.max(0, Math.min(1, Math.pow(mixed, curve) * gain));
+        }
+
+        function getGameAudioAbsoluteActivity() {
+            const bass = getGameAudioBandEnergy(32, 170, 0.92, 0.78);
+            const lowMid = getGameAudioBandEnergy(170, 760, 0.86, 0.82);
+            const highMid = getGameAudioBandEnergy(760, 3600, 0.82, 0.78);
+            const air = getGameAudioBandEnergy(3600, 11200, 0.74, 0.76);
+            const absoluteEnergy = Math.max(0, Math.min(1, bass * 0.34 + lowMid * 0.27 + highMid * 0.24 + air * 0.15));
+            const quietFloor = 0.020;
+            const loudCeiling = 0.310;
+            const normalized = Math.max(0, Math.min(1, (absoluteEnergy - quietFloor) / Math.max(0.001, loudCeiling - quietFloor)));
+            return {
+                absoluteEnergy,
+                activity: Math.max(0, Math.min(1, Math.pow(normalized, 0.88)))
+            };
+        }
+
+        function approachGameAudioSignal(current, target, dt, rise, fall) {
+            const rate = target > current ? rise : fall;
+            return current + (target - current) * Math.min(1, dt * rate);
+        }
+
+        function getGameAudioReactiveSignal() {
+            const now = audioCtx.currentTime || 0;
+            const dt = gameAudioVisualSignal.lastTime > 0
+                ? Math.max(0.001, Math.min(0.08, now - gameAudioVisualSignal.lastTime))
+                : 1 / 60;
+            gameAudioVisualSignal.lastTime = now;
+
+            if (!bgmIsPlaying && !bossSources.length && !musicPlayerIsPlaying) {
+                gameAudioVisualSignal.bass *= Math.pow(0.16, dt);
+                gameAudioVisualSignal.bassGuitar *= Math.pow(0.16, dt);
+                gameAudioVisualSignal.mid *= Math.pow(0.16, dt);
+                gameAudioVisualSignal.highMid *= Math.pow(0.16, dt);
+                gameAudioVisualSignal.treble *= Math.pow(0.16, dt);
+                gameAudioVisualSignal.drumSnap *= Math.pow(0.14, dt);
+                gameAudioVisualSignal.leadTone *= Math.pow(0.16, dt);
+                gameAudioVisualSignal.air *= Math.pow(0.16, dt);
+                gameAudioVisualSignal.energy *= Math.pow(0.14, dt);
+                gameAudioVisualSignal.pulse *= Math.pow(0.08, dt);
+                gameAudioVisualSignal.bassPulse *= Math.pow(0.08, dt);
+                gameAudioVisualSignal.activity *= Math.pow(0.14, dt);
+                gameAudioVisualSignal.absoluteEnergy *= Math.pow(0.14, dt);
+                gameAudioVisualSignal.phase += dt * 0.045;
+                return gameAudioVisualSignal;
+            }
+
+            gameAudioAnalyser.getByteFrequencyData(gameAudioFrequencyData);
+            const absoluteActivity = getGameAudioAbsoluteActivity();
+            const rawBass = Math.max(
+                getGameAudioBandEnergy(34, 112, 1.12, 0.58),
+                getGameAudioBandEnergy(58, 260, 1.02, 0.62)
+            );
+            const rawMid = getGameAudioBandEnergy(240, 920, 0.98, 0.70);
+            const rawHighMid = getGameAudioBandEnergy(920, 3600, 1.08, 0.64);
+            const rawTreble = getGameAudioBandEnergy(3600, 11800, 1.16, 0.60);
+            const activityScale = 0.18 + absoluteActivity.activity * 0.82;
+            const rawBassGuitar = Math.max(rawBass * 0.84, getGameAudioBandEnergy(45, 320, 1.16, 0.58));
+            const rawDrumSnap = Math.max(
+                getGameAudioBandEnergy(42, 120, 0.86, 0.54),
+                getGameAudioBandEnergy(960, 4200, 1.08, 0.54)
+            );
+            const rawLeadTone = Math.max(rawHighMid * 0.62, getGameAudioBandEnergy(320, 1600, 1.06, 0.62));
+            const rawAir = Math.max(rawTreble * 0.76, getGameAudioBandEnergy(3600, 12000, 1.20, 0.58));
+            const scaledBass = rawBass * activityScale;
+            const scaledBassGuitar = rawBassGuitar * activityScale;
+            const scaledMid = rawMid * activityScale;
+            const scaledHighMid = rawHighMid * activityScale;
+            const scaledTreble = rawTreble * activityScale;
+            const scaledDrumSnap = rawDrumSnap * activityScale;
+            const scaledLeadTone = rawLeadTone * activityScale;
+            const scaledAir = rawAir * activityScale;
+            const rawEnergy = Math.max(0, Math.min(1, scaledBassGuitar * 0.30 + scaledMid * 0.18 + scaledHighMid * 0.24 + scaledTreble * 0.14 + scaledDrumSnap * 0.10));
+            const energyFlux = Math.max(0, rawEnergy - gameAudioVisualSignal.previousEnergy * 0.88);
+            const bassFlux = Math.max(0, scaledBassGuitar - gameAudioVisualSignal.previousBass * 0.94);
+            const pulseTarget = Math.max(0, Math.min(1, Math.pow(energyFlux * 4.8, 0.72) * Math.pow(absoluteActivity.activity, 0.72)));
+            const bassPulseTarget = Math.max(0, Math.min(1, Math.pow(bassFlux * 6.4, 0.62) * Math.pow(absoluteActivity.activity, 0.70)));
+
+            gameAudioVisualSignal.bass = approachGameAudioSignal(gameAudioVisualSignal.bass, scaledBass, dt, 18, 6.4);
+            gameAudioVisualSignal.bassGuitar = approachGameAudioSignal(gameAudioVisualSignal.bassGuitar, scaledBassGuitar, dt, 20, 6.8);
+            gameAudioVisualSignal.mid = approachGameAudioSignal(gameAudioVisualSignal.mid, scaledMid, dt, 11, 5.0);
+            gameAudioVisualSignal.highMid = approachGameAudioSignal(gameAudioVisualSignal.highMid, scaledHighMid, dt, 13, 5.2);
+            gameAudioVisualSignal.treble = approachGameAudioSignal(gameAudioVisualSignal.treble, scaledTreble, dt, 14, 5.6);
+            gameAudioVisualSignal.drumSnap = approachGameAudioSignal(gameAudioVisualSignal.drumSnap, scaledDrumSnap, dt, 22, 5.2);
+            gameAudioVisualSignal.leadTone = approachGameAudioSignal(gameAudioVisualSignal.leadTone, scaledLeadTone, dt, 12, 5.0);
+            gameAudioVisualSignal.air = approachGameAudioSignal(gameAudioVisualSignal.air, scaledAir, dt, 18, 5.8);
+            gameAudioVisualSignal.energy = approachGameAudioSignal(gameAudioVisualSignal.energy, rawEnergy, dt, 10, 4.6);
+            gameAudioVisualSignal.pulse = approachGameAudioSignal(gameAudioVisualSignal.pulse, pulseTarget, dt, 16, 4.0);
+            gameAudioVisualSignal.bassPulse = approachGameAudioSignal(gameAudioVisualSignal.bassPulse, bassPulseTarget, dt, 22, 4.6);
+            gameAudioVisualSignal.activity = approachGameAudioSignal(gameAudioVisualSignal.activity, absoluteActivity.activity, dt, 9, 4.8);
+            gameAudioVisualSignal.absoluteEnergy = approachGameAudioSignal(gameAudioVisualSignal.absoluteEnergy, absoluteActivity.absoluteEnergy, dt, 10, 4.8);
+            gameAudioVisualSignal.phase += dt * (0.052 + gameAudioVisualSignal.energy * 0.090 + gameAudioVisualSignal.pulse * 0.040);
+            gameAudioVisualSignal.previousEnergy = rawEnergy;
+            gameAudioVisualSignal.previousBass = scaledBassGuitar;
+            return gameAudioVisualSignal;
         }
 
         function getMusicPlayerReactiveSignal() {

@@ -1178,6 +1178,12 @@
                 dt *= getRunCompletePhysicsScale();
             }
 
+            if (typeof isFractalGravityModeActive === 'function' && isFractalGravityModeActive()) {
+                updateFieldParticles(dt, 0.12);
+                if (typeof updateFractalGravityRuntime === 'function') updateFractalGravityRuntime(dt);
+                return;
+            }
+
             if (typeof isBitshiftScrollerModeActive === 'function' && isBitshiftScrollerModeActive()) {
                 if (typeof updateBitshiftScrollerRuntime === 'function') updateBitshiftScrollerRuntime(dt);
                 return;

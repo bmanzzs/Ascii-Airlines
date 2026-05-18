@@ -2527,7 +2527,12 @@
             state.enemyBullets.length = 0;
             state.playerShots.length = 0;
             state.particles.length = 0;
+            if (state.bombBursts) state.bombBursts.length = 0;
+            else state.bombBursts = [];
+            state.boss = createGraphicsBenchmarkBoss(scene, rect);
             state.spawnClock = 0;
+            state.bossClock = 0.12;
+            state.bombClock = 0.58;
             state.shotClock = scene.id === 'binary' ? 0.08 : 0.12;
             state.sceneElapsed = 0;
 
@@ -2560,6 +2565,7 @@
             for (let i = 0; i < initialEnemies; i++) {
                 spawnGraphicsBenchmarkEnemy(state, rect);
             }
+            spawnGraphicsBenchmarkBossAttack(state, rect, true);
         }
 
         function updateGraphicsBenchmarkSceneTiming(state, dt, rect) {
@@ -3042,6 +3048,168 @@
             return `SAMPLING ${scene.label}`;
         }
 
+        function createGraphicsBenchmarkBoss(scene, rect) {
+            const base = {
+                sceneId: scene.id,
+                name: scene.label,
+                x: rect.x + rect.w * 0.5,
+                y: rect.y + rect.h * 0.22,
+                vx: 0,
+                vy: 0,
+                hp: 120,
+                maxHp: 120,
+                radius: 62,
+                color: scene.color,
+                accent: scene.accent,
+                phase: 0,
+                attackClock: 0.18,
+                ringAngle: 0,
+                moonAngle: 0,
+                gravityPulse: 0,
+                flareTimer: 0,
+                flashTimer: 0
+            };
+            if (scene.id === 'binary') {
+                return Object.assign(base, {
+                    name: 'BATTLE STARSHIP TRACE',
+                    sprite: typeof BATTLE_STARSHIP_SPRITE !== 'undefined' ? BATTLE_STARSHIP_SPRITE : [' [BATTLE STARSHIP] '],
+                    x: rect.x + rect.w * 0.50,
+                    y: rect.y + rect.h * 0.19,
+                    radius: 78,
+                    spriteFontSize: 4,
+                    color: '#9bd6ff',
+                    accent: '#fff07a',
+                    attackClock: 0.10
+                });
+            }
+            if (scene.id === 'prism') {
+                return Object.assign(base, {
+                    name: 'PRISM CONDUIT TRACE',
+                    sprite: typeof PRISM_CONDUIT_SPRITE !== 'undefined' ? PRISM_CONDUIT_SPRITE : ['  /\\  ', '<><>', '  \\/  '],
+                    x: rect.x + rect.w * 0.50,
+                    y: rect.y + rect.h * 0.48,
+                    radius: 72,
+                    spriteFontSize: 6,
+                    color: '#bfffff',
+                    accent: '#ff8fd8',
+                    attackClock: 0.16
+                });
+            }
+            if (scene.id === 'matrix') {
+                return Object.assign(base, {
+                    name: 'NULL PHANTOM TRACE',
+                    sprite: typeof NULL_PHANTOM_SOURCE !== 'undefined' ? NULL_PHANTOM_SOURCE : [' .-. ', '(0_0)', ' /|\\ '],
+                    x: rect.x + rect.w * 0.62,
+                    y: rect.y + rect.h * 0.36,
+                    radius: 72,
+                    spriteFontSize: 6,
+                    color: '#ff8fd8',
+                    accent: '#65ffb8',
+                    attackClock: 0.12
+                });
+            }
+            return Object.assign(base, {
+                name: 'NULLBYTE PLANET TRACE',
+                sprite: typeof BITSHIFT_PLANET_BOSS_SPRITE !== 'undefined' ? BITSHIFT_PLANET_BOSS_SPRITE : [' .-====-. ', '< 0101 >', ' `-====-` '],
+                x: rect.x + rect.w * 0.78,
+                y: rect.y + rect.h * 0.48,
+                radius: 76,
+                collisionRadius: 62,
+                spriteFontSize: 9,
+                color: '#ff9a73',
+                accent: '#8ff7ff',
+                isBitshiftPlanetBoss: true,
+                attackName: 'benchmark',
+                attackClock: 0.12
+            });
+        }
+
+        function pushGraphicsBenchmarkBullet(state, x, y, vx, vy, color, char, options = {}) {
+            state.enemyBullets.push({
+                x,
+                y,
+                vx,
+                vy,
+                life: options.life || 2.6,
+                color,
+                char,
+                bossBullet: !!options.bossBullet,
+                radius: options.radius || 8
+            });
+        }
+
+        function spawnGraphicsBenchmarkBossAttack(state, rect, opening = false) {
+            const bossObj = state && state.boss;
+            if (!bossObj) return;
+            const scene = getGraphicsBenchmarkScene(state);
+            const p = state.pilot;
+            bossObj.phase = (bossObj.phase || 0) + 1;
+            bossObj.flareTimer = 0.18;
+            bossObj.gravityPulse = scene.id === 'bitshift' ? 0.7 : 0.35;
+
+            if (scene.id === 'binary') {
+                const centerX = bossObj.x + Math.sin(state.sceneElapsed * 2.4) * 72;
+                const count = opening ? 7 : 5;
+                for (let i = 0; i < count; i++) {
+                    const spread = (i - (count - 1) / 2) * 0.19;
+                    pushGraphicsBenchmarkBullet(
+                        state,
+                        centerX + (i - (count - 1) / 2) * 26,
+                        bossObj.y + 48,
+                        Math.sin(spread) * 64,
+                        178 + Math.cos(spread) * 34,
+                        i % 2 ? '#ffba70' : '#fff07a',
+                        '!',
+                        { bossBullet: true, life: 2.8 }
+                    );
+                }
+            } else if (scene.id === 'prism') {
+                const count = opening ? 12 : 10;
+                const phase = state.sceneElapsed * 2.6 + bossObj.phase * 0.37;
+                for (let i = 0; i < count; i++) {
+                    const angle = phase + i * Math.PI * 2 / count;
+                    pushGraphicsBenchmarkBullet(
+                        state,
+                        bossObj.x + Math.cos(angle) * 42,
+                        bossObj.y + Math.sin(angle) * 34,
+                        Math.cos(angle) * 128,
+                        Math.sin(angle) * 128,
+                        i % 2 ? '#ff8fd8' : '#8ff7ff',
+                        '*',
+                        { bossBullet: true, life: 2.4 }
+                    );
+                }
+            } else if (scene.id === 'matrix') {
+                const angles = [-0.22, 0, 0.22];
+                const aim = Math.atan2(p.y - bossObj.y, p.x - bossObj.x);
+                for (let i = 0; i < angles.length; i++) {
+                    const angle = aim + angles[i];
+                    pushGraphicsBenchmarkBullet(
+                        state,
+                        bossObj.x,
+                        bossObj.y,
+                        Math.cos(angle) * 150,
+                        Math.sin(angle) * 150,
+                        i === 1 ? '#ffffff' : '#65ffb8',
+                        i === 1 ? '+' : '0',
+                        { bossBullet: true, life: 2.8 }
+                    );
+                }
+                for (let i = 0; i < 3; i++) {
+                    const laneY = rect.y + rect.h * (0.24 + i * 0.21) + Math.sin(state.sceneElapsed + i) * 10;
+                    pushGraphicsBenchmarkBullet(state, rect.x + rect.w * 0.82, laneY, -126, 0, '#9bffcf', '-', { bossBullet: true, life: 2.2 });
+                }
+            } else {
+                const lanes = opening ? 5 : 4;
+                for (let i = 0; i < lanes; i++) {
+                    const laneY = rect.y + rect.h * (0.20 + i * 0.15) + Math.sin(state.sceneElapsed * 2 + i) * 12;
+                    pushGraphicsBenchmarkBullet(state, bossObj.x - 62, laneY, -190, Math.sin(i + bossObj.phase) * 28, i % 2 ? '#8ff7ff' : '#ff9a73', i % 2 ? '<=' : 'o', { bossBullet: true, life: 2.6 });
+                }
+                const aim = Math.atan2(p.y - bossObj.y, p.x - bossObj.x);
+                pushGraphicsBenchmarkBullet(state, bossObj.x - 48, bossObj.y, Math.cos(aim) * 138, Math.sin(aim) * 138, '#fff1e8', '*', { bossBullet: true, life: 2.7 });
+            }
+        }
+
         function spawnGraphicsBenchmarkEnemy(state, rect) {
             const scene = getGraphicsBenchmarkScene(state);
             const roll = benchmarkRandom(state);
@@ -3165,6 +3333,140 @@
             }
         }
 
+        function spawnGraphicsBenchmarkBombEffect(state, rect, scene) {
+            if (!state || !state.pilot) return;
+            const target = state.boss || state.enemies[0] || null;
+            const p = state.pilot;
+            const color = scene.id === 'bitshift'
+                ? '#ff4f4a'
+                : scene.id === 'matrix'
+                    ? '#65ffb8'
+                    : scene.id === 'prism'
+                        ? '#ff8fd8'
+                        : '#8ff7ff';
+            const x = target ? p.x + (target.x - p.x) * 0.42 : p.x + p.aimX * 78;
+            const y = target ? p.y + (target.y - p.y) * 0.42 : p.y + p.aimY * 78;
+            const burst = {
+                x: benchmarkClamp(x, rect.x + 28, rect.x + rect.w - 28),
+                y: benchmarkClamp(y, rect.y + 28, rect.y + rect.h - 28),
+                life: 0,
+                maxLife: 0.62,
+                radius: 0,
+                maxRadius: scene.id === 'matrix' ? 118 : 142,
+                color,
+                accent: scene.accent || '#ffffff',
+                sceneId: scene.id
+            };
+            state.bombBursts.push(burst);
+            spawnGraphicsBenchmarkParticle(state, burst.x, burst.y, color, 16);
+
+            const clearRadiusSq = burst.maxRadius * burst.maxRadius * 0.72;
+            for (let i = state.enemyBullets.length - 1; i >= 0; i--) {
+                const b = state.enemyBullets[i];
+                const dx = b.x - burst.x;
+                const dy = b.y - burst.y;
+                if (dx * dx + dy * dy < clearRadiusSq) {
+                    spawnGraphicsBenchmarkParticle(state, b.x, b.y, b.color || color, 2);
+                    state.enemyBullets.splice(i, 1);
+                }
+            }
+            for (let i = state.enemies.length - 1; i >= 0; i--) {
+                const e = state.enemies[i];
+                const dx = e.x - burst.x;
+                const dy = e.y - burst.y;
+                if (dx * dx + dy * dy < clearRadiusSq) {
+                    e.hp -= 2;
+                    e.flashTimer = 0.12;
+                    if (e.hp <= 0) {
+                        spawnGraphicsBenchmarkParticle(state, e.x, e.y, e.color || color, 8);
+                        state.enemies.splice(i, 1);
+                    }
+                }
+            }
+            if (state.boss) {
+                const dx = state.boss.x - burst.x;
+                const dy = state.boss.y - burst.y;
+                if (dx * dx + dy * dy < clearRadiusSq * 1.35) {
+                    state.boss.hp = Math.max(0, state.boss.hp - 8);
+                    state.boss.flashTimer = 0.18;
+                    state.boss.flareTimer = Math.max(state.boss.flareTimer || 0, 0.22);
+                }
+            }
+        }
+
+        function scoreGraphicsBenchmarkPilotPosition(state, scene, rect, x, y, baseX, baseY) {
+            let score = Math.hypot(x - baseX, y - baseY) * 0.016;
+            const wallPad = 54;
+            score += Math.max(0, wallPad - (x - rect.x)) * 0.18;
+            score += Math.max(0, wallPad - (rect.x + rect.w - x)) * 0.18;
+            score += Math.max(0, wallPad - (y - rect.y)) * 0.18;
+            score += Math.max(0, wallPad - (rect.y + rect.h - y)) * 0.18;
+
+            for (let i = 0; i < state.enemyBullets.length; i++) {
+                const b = state.enemyBullets[i];
+                const vx = b.vx || 0;
+                const vy = b.vy || 0;
+                const speedSq = vx * vx + vy * vy;
+                let t = 0;
+                if (speedSq > 1) {
+                    t = benchmarkClamp(((x - b.x) * vx + (y - b.y) * vy) / speedSq, 0, 0.85);
+                }
+                const bx = b.x + vx * t;
+                const by = b.y + vy * t;
+                const dist = Math.hypot(x - bx, y - by);
+                const safe = b.bossBullet ? 74 : 58;
+                if (dist < safe) {
+                    const danger = (1 - dist / safe);
+                    score += danger * danger * (b.bossBullet ? 210 : 138) * (1.12 - t * 0.38);
+                }
+            }
+
+            for (let i = 0; i < state.enemies.length; i++) {
+                const e = state.enemies[i];
+                const futureX = e.x + (e.vx || 0) * 0.32;
+                const futureY = e.y + (e.vy || 0) * 0.32;
+                const dist = Math.hypot(x - futureX, y - futureY);
+                const safe = (e.radius || 18) + 48;
+                if (dist < safe) score += Math.pow(1 - dist / safe, 2) * 150;
+            }
+
+            if (state.boss) {
+                const bossDist = Math.hypot(x - state.boss.x, y - state.boss.y);
+                const safe = (state.boss.radius || 60) + 52;
+                if (bossDist < safe) score += Math.pow(1 - bossDist / safe, 2) * 180;
+            }
+
+            if (scene.id === 'binary') score += Math.abs(y - (rect.y + rect.h * 0.76)) * 0.006;
+            if (scene.id === 'bitshift') score += Math.max(0, x - (rect.x + rect.w * 0.42)) * 0.035;
+            return score;
+        }
+
+        function chooseGraphicsBenchmarkPilotTarget(state, scene, rect, desiredX, desiredY, minX, maxX, minY, maxY) {
+            const p = state.pilot;
+            const offsets = [
+                [0, 0], [54, 0], [-54, 0], [0, 54], [0, -54],
+                [42, 42], [-42, 42], [42, -42], [-42, -42],
+                [86, 0], [-86, 0], [0, 86], [0, -86],
+                [72, 36], [-72, 36], [72, -36], [-72, -36]
+            ];
+            let bestX = desiredX;
+            let bestY = desiredY;
+            let bestScore = scoreGraphicsBenchmarkPilotPosition(state, scene, rect, bestX, bestY, desiredX, desiredY);
+            for (let i = 0; i < offsets.length; i++) {
+                const ox = offsets[i][0];
+                const oy = offsets[i][1];
+                const candidateX = benchmarkClamp(p.x + ox, minX, maxX);
+                const candidateY = benchmarkClamp(p.y + oy, minY, maxY);
+                const score = scoreGraphicsBenchmarkPilotPosition(state, scene, rect, candidateX, candidateY, desiredX, desiredY);
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestX = candidateX;
+                    bestY = candidateY;
+                }
+            }
+            return { x: bestX, y: bestY, score: bestScore };
+        }
+
         function updateGraphicsBenchmarkPilot(state, dt, rect) {
             const scene = getGraphicsBenchmarkScene(state);
             const pilot = state.pilot;
@@ -3235,6 +3537,9 @@
             desiredY += dodgeY * 0.12;
             desiredX = benchmarkClamp(desiredX, minX, maxX);
             desiredY = benchmarkClamp(desiredY, minY, maxY);
+            const tacticalTarget = chooseGraphicsBenchmarkPilotTarget(state, scene, rect, desiredX, desiredY, minX, maxX, minY, maxY);
+            desiredX = tacticalTarget.x;
+            desiredY = tacticalTarget.y;
 
             pilot.vx += (desiredX - pilot.x) * 8.4 * dt + dodgeX * dt;
             pilot.vy += (desiredY - pilot.y) * 8.4 * dt + dodgeY * dt;
@@ -3293,22 +3598,58 @@
                 }
             }
 
+            if (state.boss) {
+                const bossObj = state.boss;
+                bossObj.phase += dt * 2.0;
+                bossObj.ringAngle = (bossObj.ringAngle || 0) + dt * (scene.id === 'bitshift' ? 0.72 : 0.42);
+                bossObj.moonAngle = (bossObj.moonAngle || 0) + dt * 0.86;
+                bossObj.gravityPulse = Math.max(0, (bossObj.gravityPulse || 0) - dt * 0.9);
+                bossObj.flareTimer = Math.max(0, (bossObj.flareTimer || 0) - dt);
+                bossObj.flashTimer = Math.max(0, (bossObj.flashTimer || 0) - dt);
+                if (scene.id === 'binary') {
+                    bossObj.x = rect.x + rect.w * 0.5 + Math.sin(state.sceneElapsed * 1.9) * rect.w * 0.15;
+                    bossObj.y = rect.y + rect.h * 0.18 + Math.sin(state.sceneElapsed * 2.4) * 8;
+                } else if (scene.id === 'prism') {
+                    bossObj.x = rect.x + rect.w * 0.5 + Math.sin(state.sceneElapsed * 1.4) * 18;
+                    bossObj.y = rect.y + rect.h * 0.48 + Math.cos(state.sceneElapsed * 1.8) * 16;
+                } else if (scene.id === 'matrix') {
+                    bossObj.x = rect.x + rect.w * (0.62 + Math.sin(state.sceneElapsed * 1.1) * 0.06);
+                    bossObj.y = rect.y + rect.h * (0.36 + Math.cos(state.sceneElapsed * 1.3) * 0.07);
+                } else {
+                    bossObj.x = rect.x + rect.w * 0.78 + Math.sin(state.sceneElapsed * 0.9) * 18;
+                    bossObj.y = rect.y + rect.h * 0.48 + Math.sin(state.sceneElapsed * 1.5) * 36;
+                }
+
+                state.bossClock -= dt;
+                if (!state.completed && state.bossClock <= 0) {
+                    spawnGraphicsBenchmarkBossAttack(state, rect, false);
+                    state.bossClock = scene.id === 'prism' ? 0.42 : (scene.id === 'matrix' ? 0.48 : 0.38);
+                }
+            }
+
             if (!state.completed) {
                 const interval = scene.id === 'prism'
-                    ? 0.26
+                    ? 0.24
                     : scene.id === 'binary'
-                        ? 0.34
+                        ? 0.30
                         : scene.id === 'matrix'
-                            ? 0.52
-                            : 0.38;
+                            ? 0.42
+                            : 0.34;
                 state.spawnClock += dt;
                 let guard = 0;
-                while (state.spawnClock >= interval && guard < 3) {
+                const enemyCap = scene.id === 'prism' ? 12 : (scene.id === 'matrix' ? 7 : 9);
+                while (state.spawnClock >= interval && guard < 3 && state.enemies.length < enemyCap) {
                     state.spawnClock -= interval;
                     spawnGraphicsBenchmarkEnemy(state, rect);
                     if ((scene.id === 'prism' || scene.id === 'binary') && benchmarkRandom(state) > 0.72) spawnGraphicsBenchmarkEnemy(state, rect);
                     guard++;
                 }
+            }
+
+            state.bombClock -= dt;
+            if (!state.completed && state.bombClock <= 0) {
+                spawnGraphicsBenchmarkBombEffect(state, rect, scene);
+                state.bombClock = 1.05;
             }
 
             state.shotClock -= dt;
@@ -3440,6 +3781,18 @@
                 p.life -= dt;
                 let consumed = p.life <= 0 || p.x > rect.x + rect.w + 34 || p.y < rect.y - 30 || p.y > rect.y + rect.h + 30;
                 if (!consumed) {
+                    if (state.boss) {
+                        const dx = p.x - state.boss.x;
+                        const dy = p.y - state.boss.y;
+                        if (dx * dx + dy * dy < (state.boss.radius + 8) * (state.boss.radius + 8)) {
+                            state.boss.hp = Math.max(0, state.boss.hp - 1);
+                            state.boss.flashTimer = 0.08;
+                            consumed = true;
+                            spawnGraphicsBenchmarkParticle(state, p.x, p.y, state.boss.accent || state.boss.color, 2);
+                        }
+                    }
+                }
+                if (!consumed) {
                     for (let j = state.enemies.length - 1; j >= 0; j--) {
                         const e = state.enemies[j];
                         const dx = p.x - e.x;
@@ -3466,6 +3819,16 @@
                 b.life -= dt;
                 if (b.life <= 0 || b.x < rect.x - 28 || b.x > rect.x + rect.w + 32 || b.y < rect.y - 28 || b.y > rect.y + rect.h + 28) {
                     state.enemyBullets.splice(i, 1);
+                }
+            }
+
+            if (state.bombBursts) {
+                for (let i = state.bombBursts.length - 1; i >= 0; i--) {
+                    const burst = state.bombBursts[i];
+                    burst.life += dt;
+                    const t = benchmarkClamp(burst.life / Math.max(0.1, burst.maxLife), 0, 1);
+                    burst.radius = burst.maxRadius * (1 - Math.pow(1 - t, 2.2));
+                    if (burst.life >= burst.maxLife) state.bombBursts.splice(i, 1);
                 }
             }
 
@@ -3779,6 +4142,99 @@
             ctx.restore();
         }
 
+        function drawGraphicsBenchmarkBoss(state, scene, renderNow) {
+            const bossObj = state && state.boss;
+            if (!bossObj) return;
+            ctx.save();
+            const alpha = scene.id === 'matrix' ? 0.74 : 0.86;
+            const flashColor = bossObj.flashTimer > 0 ? '#ffffff' : bossObj.color;
+            if (typeof drawCheapGlowDot === 'function') {
+                drawCheapGlowDot(ctx, bossObj.x, bossObj.y, bossObj.radius * 0.9, bossObj.accent || bossObj.color, {
+                    alpha: bossObj.flareTimer > 0 ? 0.10 : 0.045,
+                    core: false,
+                    maxRadius: 96
+                });
+            }
+            if (scene.id === 'bitshift') {
+                ctx.globalAlpha = 0.24 + (bossObj.gravityPulse || 0) * 0.12;
+                ctx.strokeStyle = colorWithAlpha('#8ff7ff', 0.45);
+                ctx.lineWidth = 2;
+                ctx.save();
+                ctx.translate(bossObj.x, bossObj.y);
+                ctx.rotate(bossObj.ringAngle || 0);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, bossObj.radius * 1.18, bossObj.radius * 0.38, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+                ctx.globalAlpha = 1;
+            }
+            ctx.globalAlpha = alpha;
+            if (bossObj.sprite) {
+                drawGraphicsBenchmarkSpriteLines(
+                    bossObj.sprite,
+                    bossObj.x,
+                    bossObj.y,
+                    flashColor,
+                    bossObj.spriteFontSize || 9,
+                    alpha
+                );
+            } else {
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = flashColor;
+                ctx.font = 'bold 34px Courier New';
+                ctx.fillText('@', bossObj.x, bossObj.y);
+            }
+            ctx.globalAlpha = 1;
+
+            const healthRatio = bossObj.maxHp > 0 ? benchmarkClamp(bossObj.hp / bossObj.maxHp, 0, 1) : 1;
+            const barW = Math.min(210, Math.max(130, bossObj.radius * 2.8));
+            const barX = bossObj.x - barW / 2;
+            const barY = bossObj.y + bossObj.radius * 0.82 + 22;
+            ctx.fillStyle = 'rgba(0, 5, 12, 0.72)';
+            ctx.fillRect(barX | 0, barY | 0, barW | 0, 6);
+            ctx.fillStyle = bossObj.accent || scene.accent || '#8ff7ff';
+            ctx.fillRect(barX | 0, barY | 0, (barW * healthRatio) | 0, 6);
+            ctx.strokeStyle = colorWithAlpha('#ffffff', 0.40);
+            ctx.strokeRect((barX + 0.5) | 0, (barY + 0.5) | 0, barW | 0, 6);
+            ctx.font = 'bold 10px Courier New';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = colorWithAlpha('#ffffff', 0.58);
+            ctx.fillText('BOSS TRACE', bossObj.x | 0, barY + 9);
+            ctx.restore();
+        }
+
+        function drawGraphicsBenchmarkBombBursts(state, renderNow) {
+            if (!state || !state.bombBursts) return;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i < state.bombBursts.length; i++) {
+                const burst = state.bombBursts[i];
+                const t = benchmarkClamp(burst.life / Math.max(0.1, burst.maxLife), 0, 1);
+                const alpha = Math.max(0, 1 - t);
+                ctx.globalAlpha = alpha * 0.58;
+                ctx.strokeStyle = burst.color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(burst.x | 0, burst.y | 0, Math.max(2, burst.radius), 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = alpha * 0.28;
+                ctx.strokeStyle = burst.accent || '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(burst.x | 0, burst.y | 0, Math.max(2, burst.radius * 0.58), 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = alpha * 0.72;
+                ctx.fillStyle = t < 0.18 ? '#ffffff' : burst.color;
+                ctx.font = `bold ${Math.round(20 + 18 * alpha)}px Courier New`;
+                ctx.fillText('*', burst.x | 0, burst.y | 0);
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+        }
+
         function drawGraphicsBenchmarkSceneTransition(state, rect, renderNow) {
             const t = benchmarkClamp((state.sceneTransition || 0) / GRAPHICS_BENCHMARK_SCENE_TRANSITION_SECONDS, 0, 1);
             if (t <= 0) return;
@@ -3812,6 +4268,7 @@
             ctx.clip();
             const scene = getGraphicsBenchmarkScene(state);
             drawGraphicsBenchmarkModeBackdrop(state, rect, renderNow, scene);
+            drawGraphicsBenchmarkBoss(state, scene, renderNow);
 
             for (let i = 0; i < state.playerShots.length; i++) {
                 const p = state.playerShots[i];
@@ -3845,6 +4302,7 @@
 
             drawGraphicsBenchmarkPilot(state, scene, renderNow);
             ctx.globalAlpha = 1;
+            drawGraphicsBenchmarkBombBursts(state, renderNow);
 
             for (let i = 0; i < state.particles.length; i++) {
                 const pfx = state.particles[i];
@@ -4038,6 +4496,8 @@
                 currentScene: getGraphicsBenchmarkScene(state).label,
                 sceneIndex: state.sceneIndex,
                 sceneElapsed: state.sceneElapsed,
+                boss: state.boss ? state.boss.name : null,
+                bossHp: state.boss ? state.boss.hp : 0,
                 recommendedProfile: state.recommendedProfile ? state.recommendedProfile.label : null,
                 currentFps: state.currentFps,
                 averageFps: state.averageFps,
@@ -4047,6 +4507,7 @@
                 enemies: state.enemies ? state.enemies.length : 0,
                 enemyBullets: state.enemyBullets ? state.enemyBullets.length : 0,
                 playerShots: state.playerShots ? state.playerShots.length : 0,
+                bombBursts: state.bombBursts ? state.bombBursts.length : 0,
                 particles: state.particles ? state.particles.length : 0
             };
         };
@@ -5391,6 +5852,8 @@
                 if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
             } else if (gameState === 'DYING' && typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive()) {
                 if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
+            } else if (typeof isFractalGravityModeActive === 'function' && isFractalGravityModeActive() && typeof drawFractalGravityRuntime === 'function') {
+                drawFractalGravityRuntime(renderNow, dt);
             } else if (typeof isBitshiftScrollerModeActive === 'function' && isBitshiftScrollerModeActive() && typeof drawBitshiftScrollerRuntime === 'function') {
                 drawBitshiftScrollerRuntime(renderNow, dt);
             } else if (gameState === 'START' || gameState === 'LAUNCHING' || gameState === 'SHIP_SELECT') {

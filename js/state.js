@@ -409,7 +409,7 @@
         const BENCHMARK_GAME_STATE = 'BENCHMARK';
         const GRAPHICS_BENCHMARK_MAX_TARGET_FPS = 144;
         const GRAPHICS_BENCHMARK_FALLBACK_TARGET_FPS = 60;
-        const GRAPHICS_BENCHMARK_PROFILE_SECONDS = 3.0;
+        const GRAPHICS_BENCHMARK_PROFILE_SECONDS = 4.0;
         const GRAPHICS_BENCHMARK_PROFILE_WARMUP_SECONDS = 0.45;
         const GRAPHICS_BENCHMARK_REFRESH_SAMPLE_SECONDS = 1.35;
 
@@ -476,6 +476,10 @@
                 enemies: [],
                 enemyBullets: [],
                 playerShots: [],
+                bombBursts: [],
+                boss: null,
+                bombClock: 0,
+                bossClock: 0,
                 particles: []
             };
         }
@@ -530,7 +534,12 @@
         }
 
         function setActiveGameMode(mode = 'campaign') {
-            activeGameMode = (mode === 'survivor' || mode === 'matrixCrawler' || mode === 'bitshiftScroller') ? mode : 'campaign';
+            activeGameMode = (
+                mode === 'survivor' ||
+                mode === 'matrixCrawler' ||
+                mode === 'bitshiftScroller' ||
+                mode === 'fractalGravity'
+            ) ? mode : 'campaign';
         }
 
         function isSurvivorGalaxy(index = currentGalaxyIndex) {
@@ -859,6 +868,7 @@
             if (typeof endMatrixCrawlerRun === 'function') endMatrixCrawlerRun();
             if (typeof resetBitshiftScrollerRuntimeStateForCampaign === 'function') resetBitshiftScrollerRuntimeStateForCampaign();
             if (typeof resetBinaryVerticalRuntimeState === 'function') resetBinaryVerticalRuntimeState();
+            if (typeof resetFractalGravityRuntimeState === 'function') resetFractalGravityRuntimeState();
             setActiveGameMode('campaign');
             resetRunCompleteTransition();
             selectedGalaxyIndex = Math.max(0, Math.min((typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS.length : 1) - 1, selectedGalaxyIndex));
@@ -983,6 +993,16 @@
                 }
                 return;
             }
+            if (galaxy && galaxy.mode === 'fractalGravity') {
+                if (typeof beginFractalGravityRun === 'function') {
+                    beginFractalGravityRun();
+                } else {
+                    gameState = 'GALAXY_SELECT';
+                    galaxySelectNotice = 'GRAVITY RUN UNAVAILABLE';
+                    galaxySelectNoticeTimer = 1.4;
+                }
+                return;
+            }
             if (galaxy && typeof isBinaryVerticalGalaxy === 'function' && isBinaryVerticalGalaxy(currentGalaxyIndex)) {
                 if (typeof beginBinaryVerticalRun === 'function') {
                     beginBinaryVerticalRun();
@@ -1001,7 +1021,8 @@
         }
 
         function isPausePowerupMenuAvailable() {
-            return pauseReturnState === 'PLAYING' && player && player.weapons && player.weapons.length > 0;
+            const supportsPausePowerups = pauseReturnState === 'PLAYING' || pauseReturnState === 'MATRIX_CRAWLER';
+            return supportsPausePowerups && player && player.weapons && player.weapons.length > 0;
         }
 
         function getPauseMenuOptions() {

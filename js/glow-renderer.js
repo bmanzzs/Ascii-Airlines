@@ -9,6 +9,8 @@
         const GLOW_RADIAL_CACHE_LIMIT = 96;
         const GLOW_SOFT_LIVE_BLUR_BUDGET = 3;
         const GLOW_FULL_LIVE_BLUR_BUDGET = 180;
+        const GLOW_SOFT_FAKE_GLYPH_INTENSITY = 1.55;
+        const GLOW_SOFT_FAKE_DOT_INTENSITY = 1.65;
 
         let glowQualityMode = normalizeGlowQualityMode(
             sessionStorage.getItem(GLOW_QUALITY_STORAGE_KEY) ||
@@ -205,23 +207,27 @@
             if (!text) return false;
             const safeFont = font || targetCtx.font || 'bold 20px Courier New';
             const fontSize = getGlowFontSize(safeFont, 20);
-            const boost = Number.isFinite(options.sizeBoost) ? options.sizeBoost : 1.18;
+            const boost = Number.isFinite(options.sizeBoost) ? Math.max(1, options.sizeBoost * 1.04) : 1.24;
             const maxFontSize = Number.isFinite(options.maxFontSize) ? options.maxFontSize : 42;
             const haloFontSize = Math.round(Math.min(maxFontSize, Math.max(fontSize, fontSize * boost)));
             const haloFont = safeFont.replace(/\d+(?:\.\d+)?px/, `${haloFontSize}px`);
-            const alpha = clampGlowAlpha(options.alpha, 0.14);
-            const echoAlpha = clampGlowAlpha(options.echoAlpha, alpha * 0.58);
+            const rawAlpha = Number.isFinite(options.alpha) ? options.alpha : 0.16;
+            const alpha = clampGlowAlpha(rawAlpha * GLOW_SOFT_FAKE_GLYPH_INTENSITY, 0.22);
+            const rawEchoAlpha = Number.isFinite(options.echoAlpha) ? options.echoAlpha : alpha * 0.62;
+            const echoAlpha = clampGlowAlpha(rawEchoAlpha * 1.35, alpha * 0.74);
             const echo = options.echo !== false;
+            const baseAlpha = targetCtx.globalAlpha;
             targetCtx.save();
             targetCtx.shadowBlur = 0;
+            targetCtx.globalCompositeOperation = options.composite || 'lighter';
             targetCtx.font = haloFont;
             targetCtx.fillStyle = color || '#ffffff';
             if (options.textAlign) targetCtx.textAlign = options.textAlign;
             if (options.textBaseline) targetCtx.textBaseline = options.textBaseline;
-            targetCtx.globalAlpha *= alpha;
+            targetCtx.globalAlpha = baseAlpha * alpha;
             targetCtx.fillText(text, x, y);
             if (echo) {
-                targetCtx.globalAlpha *= echoAlpha / Math.max(0.001, alpha);
+                targetCtx.globalAlpha = baseAlpha * echoAlpha;
                 const offset = Number.isFinite(options.echoOffset) ? options.echoOffset : 1;
                 targetCtx.fillText(text, x - offset, y);
                 targetCtx.fillText(text, x + offset, y);
@@ -234,16 +240,27 @@
         function drawCheapGlowDot(targetCtx, x, y, radius, color, options = {}) {
             if (!targetCtx || !isCheapSoftGlowQuality()) return false;
             const r = Math.max(1, Math.min(Number.isFinite(options.maxRadius) ? options.maxRadius : 34, Number(radius) || 8));
+            const baseAlpha = targetCtx.globalAlpha;
+            const rawAlpha = Number.isFinite(options.alpha) ? options.alpha : 0.12;
+            const alpha = clampGlowAlpha(rawAlpha * GLOW_SOFT_FAKE_DOT_INTENSITY, 0.18);
+            const midAlpha = clampGlowAlpha(options.midAlpha, 0.48);
+            const coreAlpha = clampGlowAlpha(options.coreAlpha, 0.68);
             targetCtx.save();
             targetCtx.shadowBlur = 0;
-            targetCtx.globalCompositeOperation = options.composite || 'source-over';
-            targetCtx.globalAlpha *= clampGlowAlpha(options.alpha, 0.10);
+            targetCtx.globalCompositeOperation = options.composite || 'lighter';
+            targetCtx.globalAlpha = baseAlpha * alpha;
             targetCtx.fillStyle = color || '#ffffff';
             targetCtx.beginPath();
             targetCtx.arc(x, y, r, 0, Math.PI * 2);
             targetCtx.fill();
+            if (options.mid !== false) {
+                targetCtx.globalAlpha = baseAlpha * alpha * midAlpha;
+                targetCtx.beginPath();
+                targetCtx.arc(x, y, Math.max(1, r * 0.56), 0, Math.PI * 2);
+                targetCtx.fill();
+            }
             if (options.core !== false) {
-                targetCtx.globalAlpha *= clampGlowAlpha(options.coreAlpha, 0.55);
+                targetCtx.globalAlpha = baseAlpha * alpha * coreAlpha;
                 targetCtx.beginPath();
                 targetCtx.arc(x, y, Math.max(1, r * 0.28), 0, Math.PI * 2);
                 targetCtx.fill();
@@ -440,6 +457,7 @@
             window.isSoftGlowQuality = isSoftGlowQuality;
             window.isCheapSoftGlowQuality = isCheapSoftGlowQuality;
             window.isFullGlowQuality = isFullGlowQuality;
+            window.isGlowRenderingEnabled = isGlowRenderingEnabled;
             window.getGlowQualityScale = getGlowQualityScale;
             window.getLiveGlowBlur = getLiveGlowBlur;
             window.shouldUseLiveShadowBlur = shouldUseLiveShadowBlur;

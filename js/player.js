@@ -1943,6 +1943,7 @@
                 'g1 Binary Quasar | g2 Prism Array | g3 Matrix Nebula',
                 'sw/ws <n> : Prism Array survival run wave',
                 'mu/music : open mini music player',
+                'fractal/fg : start Fractal Gravity prototype',
                 'lvl [n]',
                 'wep <n|weapon name>',
                 'remwep/rwep <active slot|weapon name>',
@@ -2293,6 +2294,16 @@
                     return true;
                 }
                 pushConsoleNotification('Music player is unavailable.', 'error');
+                return false;
+            }
+
+            if (command === 'fractal' || command === 'fg') {
+                if (typeof beginFractalGravityRun === 'function') {
+                    beginFractalGravityRun();
+                    pushConsoleNotification('Fractal Gravity prototype started.', 'success');
+                    return true;
+                }
+                pushConsoleNotification('Fractal Gravity mode is unavailable.', 'error');
                 return false;
             }
 

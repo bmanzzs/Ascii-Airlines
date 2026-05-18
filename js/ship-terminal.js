@@ -167,36 +167,58 @@
             'SYNC', 'RX', 'TX', 'SYS', 'CLK', 'ADDR', 'OPCODE', 'BUFFER', 'SWAP', 'MALLOC',
             'GC', 'JIT', 'WASM', 'CANVAS', 'SCANLINE', 'BLOOM', 'GLOW', 'ATLAS', 'SPRITE', 'FRAME'
         ];
-        const SHIP_SELECT_HANGAR_WORD_COLORS = ['#6aa8ff', '#8ff7ff', '#ffe8b8', '#c9b7ff', '#ffbd8a', '#9bffcf'];
-        const SHIP_SELECT_HANGAR_MOTES = Array.from({ length: 156 }, (_, i) => {
-            const isPixel = shipSelectNoise(97.47, i) < 0.22;
-            const wordIndex = Math.floor(shipSelectNoise(101.91, i) * SHIP_SELECT_HANGAR_WORDS.length) % SHIP_SELECT_HANGAR_WORDS.length;
+        const SHIP_SELECT_HANGAR_CLUSTER_WORDS = [
+            'AI', 'GPU', 'RTX', 'CUDA', 'VRAM', 'CORE', 'BUS', 'CLK', 'L1', 'L2', 'SM', 'NPU',
+            'FFT', 'XOR', 'CRC', 'VEC', 'MAT', 'SIMD', 'HASH', 'QBIT', 'WARP', 'NODE', 'RAY', 'ION',
+            'RX', 'TX', 'SYS', 'BOOT', 'JIT', 'WASM', 'DSP', 'PIX', 'ATLAS', 'BLOOM', 'NAV', 'GYRO'
+        ];
+        const SHIP_SELECT_HANGAR_WORD_COLORS = ['#dcecff', '#a8d4ff', '#8fbfff'];
+        const SHIP_SELECT_HANGAR_STAR_GLYPHS = ['.', "'", '*', '+'];
+        const SHIP_SELECT_HANGAR_STARS = Array.from({ length: 170 }, (_, i) => ({
+            x: shipSelectNoise(211.13, i),
+            y: shipSelectNoise(223.79, i),
+            size: 3 + Math.floor(shipSelectNoise(229.41, i) * 7),
+            alpha: 0.045 + shipSelectNoise(233.83, i) * 0.18,
+            speed: 0.000006 + shipSelectNoise(239.29, i) * 0.000018,
+            phase: shipSelectNoise(241.67, i) * Math.PI * 2,
+            glyph: SHIP_SELECT_HANGAR_STAR_GLYPHS[i % SHIP_SELECT_HANGAR_STAR_GLYPHS.length],
+            bright: shipSelectNoise(251.31, i) > 0.92
+        }));
+        const SHIP_SELECT_HANGAR_MOTES = Array.from({ length: 34 }, (_, i) => {
+            const wordIndex = Math.floor(shipSelectNoise(101.91, i) * SHIP_SELECT_HANGAR_CLUSTER_WORDS.length) % SHIP_SELECT_HANGAR_CLUSTER_WORDS.length;
             const fontRoll = shipSelectNoise(89.17, i);
-            const rotationRoll = shipSelectNoise(107.31, i);
-            const pop = !isPixel && shipSelectNoise(113.83, i) > 0.84;
-            let rotation = (shipSelectNoise(109.57, i) - 0.5) * 0.20;
-            if (rotationRoll < 0.10) rotation = -Math.PI / 2;
-            else if (rotationRoll < 0.18) rotation = Math.PI / 2;
-            else if (rotationRoll > 0.90) rotation = (shipSelectNoise(127.61, i) - 0.5) * 0.62;
+            const tokenCount = 3 + Math.floor(shipSelectNoise(107.31, i) * 4);
+            const kindRoll = shipSelectNoise(113.83, i);
+            const kind = kindRoll > 0.82 ? 'comet' : (kindRoll > 0.48 ? 'galaxy' : 'sphere');
             return {
                 x: shipSelectNoise(13.79, i),
                 y: shipSelectNoise(41.23, i),
-                size: 1 + Math.floor(shipSelectNoise(131.19, i) * 3),
-                alpha: isPixel
-                    ? 0.12 + shipSelectNoise(53.61, i) * 0.26
-                    : 0.10 + shipSelectNoise(53.61, i) * (pop ? 0.38 : 0.24),
-                speed: 0.000014 + shipSelectNoise(71.42, i) * 0.000060,
-                floatSpeed: 0.55 + shipSelectNoise(137.67, i) * 1.35,
-                floatAmp: shipSelectNoise(139.23, i) * (pop ? 12 : 6),
-                wobbleAmp: shipSelectNoise(149.49, i) * (pop ? 18 : 9),
+                alpha: 0.045 + shipSelectNoise(53.61, i) * 0.13,
+                speed: 0.000006 + shipSelectNoise(71.42, i) * 0.000028,
+                floatSpeed: 0.42 + shipSelectNoise(137.67, i) * 0.72,
+                floatAmp: 2 + shipSelectNoise(139.23, i) * 7,
+                wobbleAmp: 2 + shipSelectNoise(149.49, i) * 9,
                 phase: shipSelectNoise(29.31, i) * Math.PI * 2,
-                fontSize: isPixel ? 0 : Math.round(6 + fontRoll * 5 + (pop ? 4 : 0)),
-                rotation,
+                fontSize: Math.round(5 + fontRoll * 5),
+                rotation: (shipSelectNoise(109.57, i) - 0.5) * 0.46,
+                radius: 7 + shipSelectNoise(127.61, i) * 23,
+                squash: 0.38 + shipSelectNoise(131.19, i) * 0.44,
+                spin: (shipSelectNoise(157.77, i) > 0.5 ? 1 : -1) * (0.05 + shipSelectNoise(163.97, i) * 0.16),
+                tokenCount,
+                kind,
                 colorIndex: Math.floor(shipSelectNoise(151.11, i) * SHIP_SELECT_HANGAR_WORD_COLORS.length) % SHIP_SELECT_HANGAR_WORD_COLORS.length,
-                pop,
-                glyph: isPixel ? (shipSelectNoise(157.77, i) > 0.5 ? '.' : '|') : SHIP_SELECT_HANGAR_WORDS[wordIndex]
+                glyph: SHIP_SELECT_HANGAR_CLUSTER_WORDS[wordIndex],
+                tokens: Array.from({ length: tokenCount }, (_, j) => {
+                    const tokenIndex = (wordIndex + j * (3 + (i % 7))) % SHIP_SELECT_HANGAR_CLUSTER_WORDS.length;
+                    return SHIP_SELECT_HANGAR_CLUSTER_WORDS[tokenIndex];
+                })
             };
         });
+        const shipSelectHangarBackdropCache = {
+            sprites: [],
+            accent: '',
+            ready: false
+        };
 
         function getWrappedShipSelectOffset(index, selectedIndex, count) {
             let offset = index - selectedIndex;
@@ -291,6 +313,143 @@
             return shipSelectCarouselMotion.renderIndex;
         }
 
+        function renderShipSelectHangarMoteSprite(mote, accent, index) {
+            if (typeof document === 'undefined') return null;
+            const baseColor = SHIP_SELECT_HANGAR_WORD_COLORS[mote.colorIndex] || '#dcecff';
+            const color = index % 4 === 0 ? mixColor(baseColor, accent, 0.16) : baseColor;
+            const side = Math.max(52, Math.ceil(mote.radius * (mote.kind === 'comet' ? 4.4 : 3.1) + mote.fontSize * 7));
+            const sprite = document.createElement('canvas');
+            sprite.width = side;
+            sprite.height = side;
+            const spriteCtx = sprite.getContext('2d');
+            if (!spriteCtx) return null;
+            const cx = side / 2;
+            const cy = side / 2;
+
+            spriteCtx.save();
+            spriteCtx.translate(cx, cy);
+            spriteCtx.textAlign = 'center';
+            spriteCtx.textBaseline = 'middle';
+            spriteCtx.globalCompositeOperation = 'screen';
+            if (mote.kind === 'comet') {
+                const tail = mote.radius * 1.75;
+                spriteCtx.strokeStyle = colorWithAlpha(color, 0.42);
+                spriteCtx.lineWidth = 1;
+                spriteCtx.beginPath();
+                spriteCtx.moveTo(-tail, 0);
+                spriteCtx.quadraticCurveTo(-tail * 0.42, -mote.radius * 0.22, mote.radius * 0.34, 0);
+                spriteCtx.stroke();
+            } else {
+                spriteCtx.strokeStyle = colorWithAlpha(color, 0.18);
+                spriteCtx.lineWidth = 1;
+                spriteCtx.beginPath();
+                spriteCtx.ellipse(0, 0, mote.radius, mote.radius * mote.squash, 0, 0, Math.PI * 2);
+                spriteCtx.stroke();
+            }
+
+            for (let j = 0; j < mote.tokens.length; j++) {
+                const angle = mote.phase + (j / mote.tokens.length) * Math.PI * 2;
+                let px;
+                let py;
+                if (mote.kind === 'comet') {
+                    px = -j * (mote.radius * 0.26 + 4) + Math.cos(angle) * 2.4;
+                    py = Math.sin(angle) * mote.radius * 0.26;
+                } else {
+                    px = Math.cos(angle) * mote.radius;
+                    py = Math.sin(angle) * mote.radius * mote.squash;
+                }
+                const tokenAlpha = mote.kind === 'comet'
+                    ? Math.max(0.20, 0.74 - j * 0.10)
+                    : (0.34 + (Math.sin(angle) * 0.5 + 0.5) * 0.34);
+                spriteCtx.save();
+                spriteCtx.translate(px, py);
+                if (mote.kind === 'galaxy') {
+                    spriteCtx.rotate(angle + Math.PI / 2);
+                } else if (mote.kind === 'sphere') {
+                    spriteCtx.rotate(angle * 0.32);
+                } else {
+                    spriteCtx.rotate(-0.12 + Math.sin(angle) * 0.18);
+                }
+                spriteCtx.globalAlpha = tokenAlpha;
+                spriteCtx.font = `bold ${Math.max(5, mote.fontSize - (j % 3))}px Courier New`;
+                spriteCtx.fillStyle = color;
+                spriteCtx.fillText(mote.tokens[j], 0, 0);
+                spriteCtx.restore();
+            }
+            spriteCtx.globalAlpha = 0.72;
+            spriteCtx.fillStyle = index % 6 === 0 ? '#ffffff' : color;
+            spriteCtx.fillRect(-1, -1, 2, 2);
+            spriteCtx.restore();
+            spriteCtx.globalAlpha = 1;
+            spriteCtx.globalCompositeOperation = 'source-over';
+            return sprite;
+        }
+
+        function getShipSelectHangarMoteSprites(accent) {
+            const accentKey = accent || '#9ff7ff';
+            if (shipSelectHangarBackdropCache.ready && shipSelectHangarBackdropCache.accent === accentKey) {
+                return shipSelectHangarBackdropCache.sprites;
+            }
+            shipSelectHangarBackdropCache.accent = accentKey;
+            shipSelectHangarBackdropCache.sprites = SHIP_SELECT_HANGAR_MOTES.map((mote, index) => renderShipSelectHangarMoteSprite(mote, accentKey, index));
+            shipSelectHangarBackdropCache.ready = true;
+            return shipSelectHangarBackdropCache.sprites;
+        }
+
+        function drawShipSelectHangarLiveStars(now, alpha) {
+            const t = now * 0.001;
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            for (let i = 0; i < SHIP_SELECT_HANGAR_STARS.length; i++) {
+                const star = SHIP_SELECT_HANGAR_STARS[i];
+                const x = (star.x * (width + 90) - 45 + now * star.speed * width) % (width + 90) - 45;
+                const y = star.y * height + Math.sin(t * 0.42 + star.phase) * 2;
+                const twinkle = 0.5 + Math.sin(t * 0.95 + star.phase) * 0.5;
+                ctx.globalAlpha = alpha * star.alpha * (0.55 + twinkle * 0.45);
+                ctx.fillStyle = star.bright ? '#ffffff' : '#9ec7ff';
+                if (star.glyph === '+' || star.bright) {
+                    const size = Math.max(1, star.size * 0.22);
+                    ctx.fillRect(x - size, y, size * 2 + 1, 1);
+                    ctx.fillRect(x, y - size, 1, size * 2 + 1);
+                } else {
+                    const size = Math.max(1, star.size * 0.16);
+                    ctx.fillRect(x, y, size, size);
+                }
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        function drawShipSelectHangarCachedBackdrop(now, accent, alpha) {
+            if (width <= 0 || height <= 0) return false;
+            const t = now * 0.001;
+            drawShipSelectHangarLiveStars(now, alpha);
+            const sprites = getShipSelectHangarMoteSprites(accent);
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            for (let i = 0; i < SHIP_SELECT_HANGAR_MOTES.length; i++) {
+                const mote = SHIP_SELECT_HANGAR_MOTES[i];
+                const sprite = sprites[i];
+                if (!sprite) continue;
+                const x = (mote.x * (width + 170) - 85 + now * mote.speed * width + Math.sin(t * mote.floatSpeed + mote.phase) * mote.wobbleAmp) % (width + 170) - 85;
+                const y = mote.y * height + Math.sin(t * (mote.floatSpeed * 0.72) + mote.phase) * mote.floatAmp;
+                const flicker = 0.55 + Math.sin(t * 0.82 + mote.phase) * 0.45;
+                const drawAlpha = alpha * mote.alpha * (3.0 + flicker * 1.1);
+                const spriteSpin = mote.kind === 'comet' ? mote.spin * 0.38 : mote.spin * 0.82;
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.rotate(mote.rotation + Math.sin(t * 0.18 + mote.phase) * 0.10 + t * spriteSpin);
+                ctx.globalAlpha = Math.min(0.42, drawAlpha);
+                ctx.drawImage(sprite, -sprite.width / 2, -sprite.height / 2);
+                ctx.restore();
+            }
+            ctx.restore();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+            return true;
+        }
+
         function drawShipSelectHangarBackground(now, selectedShip, alpha) {
             const accent = selectedShip.previewColor || '#9ff7ff';
             const t = now * 0.001;
@@ -310,59 +469,23 @@
             ctx.fillRect(0, 0, width, height);
 
             const wallGlow = ctx.createRadialGradient(width * 0.5, height * 0.38, 0, width * 0.5, height * 0.38, Math.max(width, height) * 0.7);
-            wallGlow.addColorStop(0, colorWithAlpha(accent, 0.10 + wallPulse * 0.035));
-            wallGlow.addColorStop(0.38, 'rgba(80, 150, 210, 0.055)');
+            wallGlow.addColorStop(0, colorWithAlpha(accent, 0.060 + wallPulse * 0.020));
+            wallGlow.addColorStop(0.38, 'rgba(80, 150, 210, 0.034)');
             wallGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
             ctx.fillStyle = wallGlow;
             ctx.fillRect(0, 0, width, height);
+
+            drawShipSelectHangarCachedBackdrop(now, accent, alpha);
 
             ctx.save();
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.font = `bold ${Math.max(34, width * 0.052)}px 'Electrolize', sans-serif`;
-            ctx.fillStyle = colorWithAlpha('#dcecff', 0.030 + wallPulse * 0.012);
+            ctx.fillStyle = colorWithAlpha('#dcecff', 0.024 + wallPulse * 0.008);
             ctx.fillText('VECTOR BAY 07', width / 2, height * 0.255);
             ctx.font = `bold ${Math.max(11, width * 0.012)}px 'Electrolize', sans-serif`;
-            ctx.fillStyle = colorWithAlpha(accent, 0.17 + wallPulse * 0.05);
+            ctx.fillStyle = colorWithAlpha('#9ec7ff', 0.11 + wallPulse * 0.030);
             ctx.fillText('ORBITAL DRYDOCK // LOADOUT FRAME READY', width / 2, height * 0.305);
-            ctx.restore();
-
-            ctx.save();
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            for (let i = 0; i < SHIP_SELECT_HANGAR_MOTES.length; i++) {
-                const mote = SHIP_SELECT_HANGAR_MOTES[i];
-                const driftX = (mote.x * (width + 180) - 90 + now * mote.speed * width + Math.sin(t * mote.floatSpeed + mote.phase) * mote.wobbleAmp) % (width + 180) - 90;
-                const y = mote.y * height + Math.sin(t * (mote.floatSpeed * 0.72) + mote.phase) * mote.floatAmp;
-                const flicker = 0.55 + Math.sin(t * 1.4 + mote.phase) * 0.45;
-                const moteAlpha = alpha * mote.alpha * (0.54 + flicker * 0.46);
-                if (mote.fontSize > 0) {
-                    const baseColor = SHIP_SELECT_HANGAR_WORD_COLORS[mote.colorIndex] || '#6aa8ff';
-                    const color = i % 5 === 0 ? mixColor(baseColor, accent, 0.42) : baseColor;
-                    ctx.save();
-                    ctx.translate(driftX, y);
-                    ctx.rotate(mote.rotation);
-                    ctx.globalAlpha = moteAlpha;
-                    ctx.font = `bold ${mote.fontSize}px Courier New`;
-                    ctx.fillStyle = color;
-                    if (glowEnabled && mote.pop) {
-                        ctx.shadowColor = color;
-                        ctx.shadowBlur = 4 + flicker * 6;
-                    } else {
-                        ctx.shadowBlur = 0;
-                    }
-                    ctx.fillText(mote.glyph, 0, 0);
-                    ctx.restore();
-                } else {
-                    ctx.globalAlpha = moteAlpha;
-                    ctx.fillStyle = i % 7 === 0 ? '#ffe8b8' : (i % 3 === 0 ? accent : '#6aa8ff');
-                    if (mote.glyph === '|') {
-                        ctx.fillRect(driftX | 0, y | 0, 1, mote.size + 2);
-                    } else {
-                        ctx.fillRect(driftX | 0, y | 0, mote.size, mote.size);
-                    }
-                }
-            }
             ctx.restore();
 
             ctx.save();
