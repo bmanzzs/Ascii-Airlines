@@ -239,6 +239,44 @@
             direction: 0,
             progress: 1
         };
+        const SHIP_SELECT_LOCKED_NOTICE_DURATION = 920;
+        let shipSelectLockedNotice = {
+            shipId: '',
+            startedAt: -9999
+        };
+
+        function markShipSelectLockedAttempt(shipConfig = getShipSelectConfig()) {
+            shipSelectLockedNotice.shipId = shipConfig && shipConfig.id ? shipConfig.id : '';
+            shipSelectLockedNotice.startedAt = currentFrameNow || performance.now();
+        }
+
+        function getShipSelectLockedNoticeProgress(shipConfig, now) {
+            if (!shipConfig || shipSelectLockedNotice.shipId !== shipConfig.id) return 0;
+            const elapsed = Math.max(0, now - shipSelectLockedNotice.startedAt);
+            return elapsed < SHIP_SELECT_LOCKED_NOTICE_DURATION
+                ? 1 - (elapsed / SHIP_SELECT_LOCKED_NOTICE_DURATION)
+                : 0;
+        }
+
+        function getShipSelectLockedColor(shipConfig, amount = 0.58) {
+            const source = shipConfig && shipConfig.previewColor ? shipConfig.previewColor : '#dcecff';
+            if (typeof mixHexColor === 'function') {
+                return mixHexColor(source, '#87939f', amount);
+            }
+            const clamped = Math.max(0, Math.min(1, amount));
+            const a = String(source).replace('#', '').padEnd(6, 'f').slice(0, 6);
+            const b = '87939f';
+            const ar = parseInt(a.slice(0, 2), 16);
+            const ag = parseInt(a.slice(2, 4), 16);
+            const ab = parseInt(a.slice(4, 6), 16);
+            const br = parseInt(b.slice(0, 2), 16);
+            const bg = parseInt(b.slice(2, 4), 16);
+            const bb = parseInt(b.slice(4, 6), 16);
+            const r = Math.round((Number.isFinite(ar) ? ar : 255) + (br - (Number.isFinite(ar) ? ar : 255)) * clamped).toString(16).padStart(2, '0');
+            const g = Math.round((Number.isFinite(ag) ? ag : 255) + (bg - (Number.isFinite(ag) ? ag : 255)) * clamped).toString(16).padStart(2, '0');
+            const bl = Math.round((Number.isFinite(ab) ? ab : 255) + (bb - (Number.isFinite(ab) ? ab : 255)) * clamped).toString(16).padStart(2, '0');
+            return `#${r}${g}${bl}`;
+        }
 
         function normalizeShipSelectRenderIndexNear(index, reference, count) {
             let normalized = index;
@@ -675,6 +713,8 @@
         }
 
         function drawShipSelectPreview(shipConfig, slotX, slotY, selected, now, slotIndex, offset = 0) {
+            const locked = typeof isShipConfigLocked === 'function' && isShipConfigLocked(shipConfig);
+            const displayColor = locked ? getShipSelectLockedColor(shipConfig, selected ? 0.70 : 0.86) : shipConfig.previewColor;
             const previewShip = {
                 x: 0,
                 y: 0,
@@ -690,42 +730,88 @@
                 ? Math.sin(now * 0.0017) * 0.08
                 : offset * 0.045 + Math.sin(now * 0.001 + slotIndex) * 0.010);
             const scale = selected ? 1.03 : Math.max(0.43, 0.80 - distance * 0.095 + centerWeight * 0.12);
-            const glow = selected ? 28 : Math.max(4, 10 - distance);
+            const glow = selected ? (locked ? 34 : 28) : Math.max(4, 10 - distance);
             const sideAlpha = Math.max(0.15, 0.62 - distance * 0.105);
 
             ctx.save();
             ctx.translate(slotX, slotY + bob);
             ctx.rotate(rotation);
             ctx.scale(scale, scale);
-            ctx.globalAlpha = selected ? 1 : sideAlpha;
-            ctx.fillStyle = selected ? shipConfig.previewColor : mixColor(shipConfig.previewColor, '#6e8290', 0.70);
-            ctx.shadowColor = selected ? shipConfig.previewColor : colorWithAlpha(shipConfig.previewColor, 0.62);
-            ctx.shadowBlur = glowEnabled ? glow : 0;
+            ctx.globalAlpha = selected ? (locked ? 0.74 : 1) : (locked ? sideAlpha * 0.62 : sideAlpha);
+            if (locked) {
+                ctx.filter = selected
+                    ? 'grayscale(0.94) saturate(0.24) brightness(0.78)'
+                    : 'grayscale(1) saturate(0.18) brightness(0.62)';
+            }
+            ctx.fillStyle = selected
+                ? displayColor
+                : mixColor(displayColor, '#6e8290', locked ? 0.82 : 0.70);
+            ctx.shadowColor = selected ? displayColor : colorWithAlpha(displayColor, 0.62);
+            ctx.shadowBlur = glowEnabled ? (locked ? glow * 0.34 : glow) : 0;
             if (selected) drawSelectedShipPreviewThrusters(shipConfig, previewShip, now);
             drawPlayerShip(previewShip, 'center');
+            ctx.filter = 'none';
             ctx.restore();
 
             ctx.save();
-            ctx.globalAlpha = selected ? 0.78 : Math.max(0.10, sideAlpha * 0.42);
-            ctx.strokeStyle = selected ? shipConfig.previewColor : colorWithAlpha(shipConfig.previewColor, 0.50);
+            ctx.globalAlpha = locked
+                ? (selected ? 0.52 : Math.max(0.08, sideAlpha * 0.30))
+                : (selected ? 0.78 : Math.max(0.10, sideAlpha * 0.42));
+            ctx.strokeStyle = selected ? displayColor : colorWithAlpha(displayColor, 0.50);
             ctx.lineWidth = selected ? 2 : 1;
             if (glowEnabled && selected) {
-                ctx.shadowColor = shipConfig.previewColor;
-                ctx.shadowBlur = 16;
+                ctx.shadowColor = displayColor;
+                ctx.shadowBlur = locked ? 5 : 16;
             }
             ctx.beginPath();
             ctx.ellipse(slotX, slotY + 92, selected ? 84 : Math.max(38, 56 - distance * 5), selected ? 15 : 9, 0, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
 
+            if (locked && selected) {
+                const noticePulse = getShipSelectLockedNoticeProgress(shipConfig, now);
+                const lockPulse = 0.55 + Math.sin(now * 0.008) * 0.18 + noticePulse * 0.22;
+                ctx.save();
+                ctx.translate(slotX, slotY + 94);
+                ctx.globalAlpha = 0.58 + noticePulse * 0.28;
+                ctx.strokeStyle = colorWithAlpha('#ff5d42', 0.58 + noticePulse * 0.24);
+                ctx.lineWidth = 1.5;
+                ctx.shadowColor = '#ff5d42';
+                ctx.shadowBlur = glowEnabled ? 10 + noticePulse * 12 : 0;
+                ctx.beginPath();
+                ctx.moveTo(-70, -8);
+                ctx.lineTo(-44, -17);
+                ctx.lineTo(0, -10 - lockPulse * 4);
+                ctx.lineTo(44, -17);
+                ctx.lineTo(70, -8);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(-70, 8);
+                ctx.lineTo(-44, 17);
+                ctx.lineTo(0, 10 + lockPulse * 4);
+                ctx.lineTo(44, 17);
+                ctx.lineTo(70, 8);
+                ctx.stroke();
+                ctx.font = `bold 11px 'Electrolize', sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = noticePulse > 0 ? '#ffffff' : '#ffb391';
+                ctx.fillText(noticePulse > 0 ? 'ACCESS DENIED' : 'LOCKED', 0, 21);
+                ctx.restore();
+            }
+
             ctx.save();
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.font = `bold ${selected ? 18 : 13}px 'Electrolize', sans-serif`;
-            ctx.globalAlpha = selected ? 1 : Math.max(0.28, sideAlpha);
-            ctx.fillStyle = selected ? '#ffffff' : mixColor(shipConfig.previewColor, '#7f9aa8', 0.65);
-            ctx.shadowColor = selected ? shipConfig.previewColor : colorWithAlpha(shipConfig.previewColor, 0.32);
-            ctx.shadowBlur = glowEnabled && selected ? 10 : 0;
+            ctx.globalAlpha = locked
+                ? (selected ? 0.72 : Math.max(0.18, sideAlpha * 0.72))
+                : (selected ? 1 : Math.max(0.28, sideAlpha));
+            ctx.fillStyle = locked
+                ? mixColor('#b3bdc7', displayColor, selected ? 0.18 : 0.34)
+                : (selected ? '#ffffff' : mixColor(shipConfig.previewColor, '#7f9aa8', 0.65));
+            ctx.shadowColor = selected ? displayColor : colorWithAlpha(displayColor, 0.32);
+            ctx.shadowBlur = glowEnabled && selected && !locked ? 10 : 0;
             if (distance <= 2.35 || selected) {
                 ctx.fillText(shipConfig.name, slotX, slotY + (selected ? 134 : 118));
             }
@@ -734,6 +820,9 @@
 
         function drawShipSelectionScreen(now) {
             const selectedShip = getShipSelectConfig();
+            const selectedShipLocked = typeof isShipConfigLocked === 'function' && isShipConfigLocked(selectedShip);
+            const lockNotice = getShipSelectLockedNoticeProgress(selectedShip, now);
+            const panelAccent = selectedShipLocked ? getShipSelectLockedColor(selectedShip, 0.44) : selectedShip.previewColor;
             const hubMode = typeof shipSelectReturnState !== 'undefined' && shipSelectReturnState === 'GALAXY_SELECT';
             const alpha = Math.max(0.85, titleAlpha);
             const centerY = height * 0.43;
@@ -747,14 +836,14 @@
             const headerPulse = 0.7 + Math.sin(now * 0.0024) * 0.22;
             ctx.font = `bold 30px 'Electrolize', sans-serif`;
             ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = selectedShip.previewColor;
-            ctx.shadowBlur = glowEnabled ? 16 + headerPulse * 8 : 0;
+            ctx.shadowColor = panelAccent;
+            ctx.shadowBlur = glowEnabled ? (selectedShipLocked ? 7 + headerPulse * 3 : 16 + headerPulse * 8) : 0;
             ctx.fillText(hubMode ? 'TERMINAL' : 'HANGAR SELECT', width / 2, height * 0.12);
 
             ctx.font = `bold 11px 'Electrolize', sans-serif`;
-            ctx.fillStyle = colorWithAlpha(selectedShip.previewColor, 0.72);
+            ctx.fillStyle = colorWithAlpha(panelAccent, selectedShipLocked ? 0.58 : 0.72);
             ctx.shadowBlur = 0;
-            ctx.fillText(hubMode ? 'SELECT ACTIVE FRAME' : 'RUN FRAME ONLINE', width / 2, height * 0.155);
+            ctx.fillText(hubMode ? (selectedShipLocked ? 'CLASSIFIED FRAME' : 'SELECT ACTIVE FRAME') : 'RUN FRAME ONLINE', width / 2, height * 0.155);
 
             const shipCount = PLAYER_SHIP_TYPES.length;
             const slotSpacing = Math.min(168, Math.max(118, width * 0.126));
@@ -785,34 +874,52 @@
             const panelH = 230;
             const panelX = width / 2 - panelW / 2;
             const panelY = Math.min(height - panelH - 44, height * 0.655);
-            ctx.fillStyle = 'rgba(2, 8, 14, 0.78)';
+            ctx.fillStyle = selectedShipLocked ? 'rgba(2, 7, 12, 0.84)' : 'rgba(2, 8, 14, 0.78)';
             ctx.fillRect(panelX, panelY, panelW, panelH);
-            ctx.strokeStyle = colorWithAlpha(selectedShip.previewColor, 0.76);
+            ctx.strokeStyle = colorWithAlpha(panelAccent, selectedShipLocked ? 0.50 : 0.76);
             ctx.lineWidth = 1;
-            ctx.globalAlpha = 0.82;
+            ctx.globalAlpha = selectedShipLocked ? 0.72 : 0.82;
             ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW, panelH);
-            ctx.strokeStyle = colorWithAlpha(selectedShip.previewColor, 0.18);
+            ctx.strokeStyle = colorWithAlpha(panelAccent, selectedShipLocked ? 0.13 : 0.18);
             ctx.strokeRect(panelX + 7.5, panelY + 7.5, panelW - 15, panelH - 15);
             ctx.globalAlpha = alpha;
-            ctx.fillStyle = colorWithAlpha(selectedShip.previewColor, 0.20);
+            ctx.fillStyle = colorWithAlpha(panelAccent, selectedShipLocked ? 0.12 : 0.20);
             ctx.fillRect(panelX + 1, panelY + 10, 2, panelH - 20);
             ctx.fillRect(panelX + panelW - 3, panelY + 10, 2, panelH - 20);
 
             ctx.textAlign = 'left';
             ctx.font = `bold 20px 'Electrolize', sans-serif`;
-            ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = selectedShip.previewColor;
-            ctx.shadowBlur = glowEnabled ? 10 : 0;
+            ctx.fillStyle = selectedShipLocked ? '#c8d0d8' : '#ffffff';
+            ctx.shadowColor = panelAccent;
+            ctx.shadowBlur = glowEnabled ? (selectedShipLocked ? 3 : 10) : 0;
             ctx.fillText(selectedShip.name, panelX + 28, panelY + 32);
 
+            if (selectedShipLocked) {
+                const badgeW = 104;
+                const badgeH = 22;
+                const badgeX = panelX + panelW - badgeW - 24;
+                const badgeY = panelY + 19;
+                const badgeAlpha = 0.72 + lockNotice * 0.26;
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = colorWithAlpha('#2a0508', 0.54 + lockNotice * 0.18);
+                ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+                ctx.strokeStyle = colorWithAlpha('#ff624d', badgeAlpha);
+                ctx.strokeRect(badgeX + 0.5, badgeY + 0.5, badgeW, badgeH);
+                ctx.textAlign = 'center';
+                ctx.font = `bold 10px 'Electrolize', sans-serif`;
+                ctx.fillStyle = lockNotice > 0 ? '#ffffff' : '#ff967f';
+                ctx.fillText(lockNotice > 0 ? 'ACCESS DENIED' : 'LOCKED FRAME', badgeX + badgeW / 2, badgeY + badgeH / 2 + 1);
+                ctx.textAlign = 'left';
+            }
+
             ctx.font = `12px 'Electrolize', sans-serif`;
-            ctx.fillStyle = '#8fb9c8';
+            ctx.fillStyle = selectedShipLocked ? colorWithAlpha('#ffb391', 0.86) : '#8fb9c8';
             ctx.shadowBlur = 0;
             ctx.fillText(selectedShip.subtitle.toUpperCase(), panelX + 28, panelY + 55);
-            ctx.fillStyle = selectedShip.previewColor;
-            ctx.fillText(selectedShip.trait.toUpperCase(), panelX + 28, panelY + 75);
+            ctx.fillStyle = selectedShipLocked ? colorWithAlpha('#ff624d', 0.90 + lockNotice * 0.10) : selectedShip.previewColor;
+            ctx.fillText((selectedShipLocked ? (selectedShip.lockReason || selectedShip.trait) : selectedShip.trait).toUpperCase(), panelX + 28, panelY + 75);
 
-            drawShipSelectHullStat(selectedShip, panelX + 28, panelY + 92, panelW - 56, selectedShip.previewColor);
+            drawShipSelectHullStat(selectedShip, panelX + 28, panelY + 92, panelW - 56, panelAccent);
 
             const statX = panelX + 28;
             const statY = panelY + 142;
@@ -821,11 +928,11 @@
                 labelW: 72,
                 valueX: panelX + panelW - 28
             };
-            drawShipSelectStat('DMG', `${Math.round(selectedShip.damageMult * 100)}%`, selectedShip.damageMult / 1.22, statX, statY, selectedShip.previewColor, statOptions);
-            drawShipSelectStat('FIRE', `${Math.round((306 / selectedShip.fireRate) * 100)}%`, (306 / selectedShip.fireRate) / 1.11, statX, statY + 18, selectedShip.previewColor, statOptions);
-            drawShipSelectStat('SPEED', `${Math.round(selectedShip.moveSpeedMult * 100)}%`, selectedShip.moveSpeedMult / 1.16, statX, statY + 36, selectedShip.previewColor, statOptions);
-            drawShipSelectStat('BOMB', `${Math.round((1 / selectedShip.bombCooldownMult) * 100)}%`, (1 / selectedShip.bombCooldownMult) / 1.24, statX, statY + 54, selectedShip.previewColor, statOptions);
-            drawShipSelectStat('EVADE', `${Math.round((1 / selectedShip.hitboxMult) * 100)}%`, (1 / selectedShip.hitboxMult) / 1.12, statX, statY + 72, selectedShip.previewColor, statOptions);
+            drawShipSelectStat('DMG', `${Math.round(selectedShip.damageMult * 100)}%`, selectedShip.damageMult / 1.22, statX, statY, panelAccent, statOptions);
+            drawShipSelectStat('FIRE', `${Math.round((306 / selectedShip.fireRate) * 100)}%`, (306 / selectedShip.fireRate) / 1.11, statX, statY + 18, panelAccent, statOptions);
+            drawShipSelectStat('SPEED', `${Math.round(selectedShip.moveSpeedMult * 100)}%`, selectedShip.moveSpeedMult / 1.16, statX, statY + 36, panelAccent, statOptions);
+            drawShipSelectStat('BOMB', `${Math.round((1 / selectedShip.bombCooldownMult) * 100)}%`, (1 / selectedShip.bombCooldownMult) / 1.24, statX, statY + 54, panelAccent, statOptions);
+            drawShipSelectStat('EVADE', `${Math.round((1 / selectedShip.hitboxMult) * 100)}%`, (1 / selectedShip.hitboxMult) / 1.12, statX, statY + 72, panelAccent, statOptions);
 
             ctx.restore();
         }

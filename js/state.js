@@ -356,11 +356,24 @@
         let activeGameMode = 'campaign';
         let galaxySelectNotice = '';
         let galaxySelectNoticeTimer = 0;
+        const GALAXY_SELECT_MUSIC_PLAYER_INDEX = -1000;
         const RETURN_LOADING_DURATION = 0.9;
         let returnLoadingTransition = {
             active: false,
             startedAt: 0,
             color: '#6aa8ff'
+        };
+        const GALAXY_MUSIC_PLAYER_TRANSITION_DURATION = 1.08;
+        let galaxyMusicPlayerTransition = {
+            active: false,
+            startedAt: 0,
+            fromX: 0,
+            fromY: 0,
+            fromRot: 0,
+            fromScale: 0.22,
+            toX: 0,
+            toY: 0,
+            color: '#ffd95a'
         };
         const GALAXY_WARP_DURATION = 2.18;
         const GALAXY_WARP_HANDOFF_START = 0.80;
@@ -811,6 +824,9 @@
             if (gameState === 'RETURN_LOADING') {
                 const elapsed = ((currentFrameNow || performance.now()) - (returnLoadingTransition.startedAt || 0)) / 1000;
                 if (elapsed >= RETURN_LOADING_DURATION) completeReturnToGalaxySelectLoading();
+            } else if (gameState === 'GALAXY_MUSIC_PLAYER') {
+                const elapsed = ((currentFrameNow || performance.now()) - (galaxyMusicPlayerTransition.startedAt || 0)) / 1000;
+                if (elapsed >= GALAXY_MUSIC_PLAYER_TRANSITION_DURATION) completeGalaxyMusicPlayerTransition();
             } else if (gameState === 'GALAXY_WARP') {
                 const elapsed = ((currentFrameNow || performance.now()) - (galaxyWarpTransition.startedAt || 0)) / 1000;
                 if (elapsed >= GALAXY_WARP_DURATION) completeGalaxyWarpTransition();
@@ -886,6 +902,15 @@
         }
 
         function selectHighlightedGalaxy() {
+            if (typeof isGalaxySelectMusicPlayerIndex === 'function' && isGalaxySelectMusicPlayerIndex(selectedGalaxyIndex)) {
+                galaxySelectNotice = '';
+                galaxySelectNoticeTimer = 0;
+                clearGameplayKeys();
+                clearTerminalDockExitHold();
+                beginGalaxyMusicPlayerTransition();
+                titleAlpha = 1;
+                return true;
+            }
             const galaxy = getGalaxyDefinition(selectedGalaxyIndex);
             if (!galaxy.available) {
                 galaxySelectNotice = `${galaxy.title || galaxy.name} LOCKED`;
@@ -908,6 +933,56 @@
             beginGalaxyWarpTransition(selectedGalaxyIndex);
             titleAlpha = 1;
             return true;
+        }
+
+        function beginGalaxyMusicPlayerTransition() {
+            const now = currentFrameNow || performance.now();
+            const target = typeof getGalaxySelectMusicPlayerCursorTarget === 'function'
+                ? getGalaxySelectMusicPlayerCursorTarget(now)
+                : null;
+            const layout = typeof getGalaxySelectMiniVisualizerLayout === 'function'
+                ? getGalaxySelectMiniVisualizerLayout()
+                : null;
+            const toX = layout ? layout.centerX : width * 0.88;
+            const toY = layout ? layout.centerY : height * 0.11;
+            const fromX = pauseMenuShipCursor && pauseMenuShipCursor.initialized
+                ? (Number.isFinite(pauseMenuShipCursor.renderX) ? pauseMenuShipCursor.renderX : pauseMenuShipCursor.x)
+                : (target ? target.x : toX - 70);
+            const fromY = pauseMenuShipCursor && pauseMenuShipCursor.initialized
+                ? (Number.isFinite(pauseMenuShipCursor.renderY) ? pauseMenuShipCursor.renderY : pauseMenuShipCursor.y)
+                : (target ? target.y : toY + 18);
+            const fromRot = pauseMenuShipCursor && pauseMenuShipCursor.initialized && Number.isFinite(pauseMenuShipCursor.renderRot)
+                ? pauseMenuShipCursor.renderRot
+                : Math.atan2(toY - fromY, toX - fromX) + Math.PI / 2;
+            const fromScale = pauseMenuShipCursor && pauseMenuShipCursor.initialized && Number.isFinite(pauseMenuShipCursor.renderScale)
+                ? pauseMenuShipCursor.renderScale
+                : (pauseMenuShipCursor.scale || 0.22);
+            galaxyMusicPlayerTransition = {
+                active: true,
+                startedAt: now,
+                fromX,
+                fromY,
+                fromRot,
+                fromScale,
+                toX,
+                toY,
+                color: '#ffd95a'
+            };
+            gameState = 'GALAXY_MUSIC_PLAYER';
+            clearPauseVolumePreview();
+            applyCurrentVolume();
+        }
+
+        function completeGalaxyMusicPlayerTransition() {
+            if (!galaxyMusicPlayerTransition.active && gameState !== 'GALAXY_MUSIC_PLAYER') return;
+            galaxyMusicPlayerTransition.active = false;
+            gameState = 'GALAXY_SELECT';
+            pauseState = 'MAIN';
+            pauseSelection = 0;
+            resetPauseMenuShipCursor();
+            clearGameplayKeys();
+            if (typeof ensureGalaxySelectMusic === 'function') ensureGalaxySelectMusic(0.25);
+            if (typeof openMusicPlayer === 'function') openMusicPlayer();
         }
 
         function beginGalaxyWarpTransition(galaxyIndex = selectedGalaxyIndex) {

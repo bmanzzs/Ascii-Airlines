@@ -265,7 +265,7 @@
                 }
                 return;
             }
-            if (gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK') {
+            if (gameState === 'RETURN_LOADING' || gameState === 'GALAXY_MUSIC_PLAYER' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK') {
                 e.preventDefault();
                 return;
             }
@@ -336,6 +336,13 @@
                     return;
                 }
                 if (k === 'enter' || k === ' ') {
+                    if (typeof isShipIndexLocked === 'function' && isShipIndexLocked(shipSelectIndex)) {
+                        if (typeof markShipSelectLockedAttempt === 'function') {
+                            markShipSelectLockedAttempt(getShipSelectConfig());
+                        }
+                        e.preventDefault();
+                        return;
+                    }
                     selectShip(shipSelectIndex, true);
                     if (shipSelectReturnState === 'GALAXY_SELECT') {
                         shipSelectReturnState = 'LAUNCH';

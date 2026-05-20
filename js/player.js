@@ -373,6 +373,74 @@
                     weaponOrigin: { x: 8, y: -68 },
                     rearOrigin: { x: 5, y: 51 }
                 }
+            },
+            singularityCrown: {
+                center: {
+                    body: { char: '●', fontSize: 92, x: 0, y: -13, rotation: 0, color: '#03040b' },
+                    accents: [
+                        { char: '◆', fontSize: 128, x: 0, y: -13, rotation: 0.78, color: '#fff1a6' },
+                        { char: '▲', fontSize: 72, x: 0, y: -63, rotation: 0, color: '#ffffff' },
+                        { char: '◢', fontSize: 60, x: -52, y: -8, rotation: -0.22, color: '#ff52d2' },
+                        { char: '◣', fontSize: 60, x: 52, y: -8, rotation: 0.22, color: '#5fffff' },
+                        { char: '◆', fontSize: 32, x: -42, y: -44, rotation: -0.35, color: '#ff9c4a' },
+                        { char: '◆', fontSize: 32, x: 42, y: -44, rotation: 0.35, color: '#b98cff' },
+                        { char: '✦', fontSize: 34, x: -33, y: 26, rotation: -0.2, color: '#ff6b44' },
+                        { char: '✦', fontSize: 34, x: 33, y: 26, rotation: 0.2, color: '#6defff' }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 34, x: -42, y: 30, rotation: -0.26, color: '#ff5a42' },
+                        { char: '▲', fontSize: 44, x: -20, y: 39, rotation: -0.09, color: '#ffe28f' },
+                        { char: '▲', fontSize: 50, x: 0, y: 44, rotation: 0, color: '#ffffff' },
+                        { char: '▲', fontSize: 44, x: 20, y: 39, rotation: 0.09, color: '#7ff7ff' },
+                        { char: '▲', fontSize: 34, x: 42, y: 30, rotation: 0.26, color: '#b78cff' }
+                    ],
+                    weaponOrigin: { x: 0, y: -86 },
+                    rearOrigin: { x: 0, y: 64 }
+                },
+                left: {
+                    body: { char: '●', fontSize: 92, x: -9, y: -13, rotation: -0.08, color: '#03040b' },
+                    accents: [
+                        { char: '◆', fontSize: 128, x: -9, y: -13, rotation: 0.68, color: '#fff1a6' },
+                        { char: '▲', fontSize: 72, x: -11, y: -63, rotation: -0.08, color: '#ffffff' },
+                        { char: '◢', fontSize: 60, x: -60, y: -5, rotation: -0.3, color: '#ff52d2' },
+                        { char: '◣', fontSize: 56, x: 40, y: -13, rotation: 0.08, color: '#5fffff' },
+                        { char: '◆', fontSize: 32, x: -50, y: -42, rotation: -0.42, color: '#ff9c4a' },
+                        { char: '◆', fontSize: 30, x: 31, y: -47, rotation: 0.18, color: '#b98cff' },
+                        { char: '✦', fontSize: 34, x: -41, y: 28, rotation: -0.28, color: '#ff6b44' },
+                        { char: '✦', fontSize: 32, x: 22, y: 21, rotation: 0.02, color: '#6defff' }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 34, x: -49, y: 34, rotation: -0.32, color: '#ff5a42' },
+                        { char: '▲', fontSize: 42, x: -28, y: 41, rotation: -0.16, color: '#ffe28f' },
+                        { char: '▲', fontSize: 48, x: -8, y: 44, rotation: -0.04, color: '#ffffff' },
+                        { char: '▲', fontSize: 40, x: 13, y: 36, rotation: 0.02, color: '#7ff7ff' },
+                        { char: '▲', fontSize: 32, x: 34, y: 27, rotation: 0.16, color: '#b78cff' }
+                    ],
+                    weaponOrigin: { x: -9, y: -86 },
+                    rearOrigin: { x: -6, y: 64 }
+                },
+                right: {
+                    body: { char: '●', fontSize: 92, x: 9, y: -13, rotation: 0.08, color: '#03040b' },
+                    accents: [
+                        { char: '◆', fontSize: 128, x: 9, y: -13, rotation: 0.88, color: '#fff1a6' },
+                        { char: '▲', fontSize: 72, x: 11, y: -63, rotation: 0.08, color: '#ffffff' },
+                        { char: '◢', fontSize: 56, x: -40, y: -13, rotation: -0.08, color: '#ff52d2' },
+                        { char: '◣', fontSize: 60, x: 60, y: -5, rotation: 0.3, color: '#5fffff' },
+                        { char: '◆', fontSize: 30, x: -31, y: -47, rotation: -0.18, color: '#ff9c4a' },
+                        { char: '◆', fontSize: 32, x: 50, y: -42, rotation: 0.42, color: '#b98cff' },
+                        { char: '✦', fontSize: 32, x: -22, y: 21, rotation: -0.02, color: '#ff6b44' },
+                        { char: '✦', fontSize: 34, x: 41, y: 28, rotation: 0.28, color: '#6defff' }
+                    ],
+                    thrusters: [
+                        { char: '▲', fontSize: 32, x: -34, y: 27, rotation: -0.16, color: '#ff5a42' },
+                        { char: '▲', fontSize: 40, x: -13, y: 36, rotation: -0.02, color: '#ffe28f' },
+                        { char: '▲', fontSize: 48, x: 8, y: 44, rotation: 0.04, color: '#ffffff' },
+                        { char: '▲', fontSize: 42, x: 28, y: 41, rotation: 0.16, color: '#7ff7ff' },
+                        { char: '▲', fontSize: 34, x: 49, y: 34, rotation: 0.32, color: '#b78cff' }
+                    ],
+                    weaponOrigin: { x: 9, y: -86 },
+                    rearOrigin: { x: 6, y: 64 }
+                }
             }
         };
 
@@ -484,6 +552,23 @@
                 previewColor: '#c9b7ff',
                 trait: 'high hull, narrow hitbox',
                 models: PLAYER_SHIP_VARIANT_MODELS.nullOrchid
+            },
+            {
+                id: 'singularityCrown',
+                name: 'SINGULARITY CROWN',
+                subtitle: 'forbidden omega prototype',
+                maxHp: 260,
+                damageMult: 2.4,
+                fireRate: 148,
+                moveSpeedMult: 1.42,
+                hitboxMult: 0.58,
+                bombCooldownMult: 0.42,
+                previewColor: '#ffd66b',
+                trait: 'LOCKED // unstable godframe',
+                lockReason: 'COSMIC CLEARANCE REQUIRED',
+                locked: true,
+                available: false,
+                models: PLAYER_SHIP_VARIANT_MODELS.singularityCrown
             }
         ];
         const DEFAULT_PLAYER_SHIP_INDEX = 1;
@@ -504,6 +589,14 @@
 
         function getShipSelectConfig() {
             return PLAYER_SHIP_TYPES[shipSelectIndex] || getSelectedShipConfig();
+        }
+
+        function isShipConfigLocked(shipConfig) {
+            return !!(shipConfig && (shipConfig.locked || shipConfig.available === false));
+        }
+
+        function isShipIndexLocked(index) {
+            return isShipConfigLocked(PLAYER_SHIP_TYPES[wrapShipIndex(index)]);
         }
 
         function createBaseWeaponStats() {
@@ -628,7 +721,16 @@
         };
 
         function selectShip(index, applyToPlayer = false) {
-            selectedShipIndex = wrapShipIndex(index);
+            const nextIndex = wrapShipIndex(index);
+            const nextShip = PLAYER_SHIP_TYPES[nextIndex];
+            if (isShipConfigLocked(nextShip)) {
+                shipSelectIndex = nextIndex;
+                if (typeof markShipSelectLockedAttempt === 'function') {
+                    markShipSelectLockedAttempt(nextShip);
+                }
+                return getSelectedShipConfig();
+            }
+            selectedShipIndex = nextIndex;
             shipSelectIndex = selectedShipIndex;
             if (applyToPlayer) applySelectedShipToPlayer({ heal: true });
             return getSelectedShipConfig();

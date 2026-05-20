@@ -635,7 +635,7 @@
         function syncStatsPanel(forceHide = false) {
             if (!statsPanel) return;
             const hiddenForMatrixCrawlerPlay = gameState === 'MATRIX_CRAWLER' || (gameState === 'DYING' && typeof isMatrixCrawlerModeActive === 'function' && isMatrixCrawlerModeActive());
-            const hiddenForState = forceHide || hiddenForMatrixCrawlerPlay || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT') || window.innerHeight < 700 || window.innerWidth < 525;
+            const hiddenForState = forceHide || hiddenForMatrixCrawlerPlay || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'GALAXY_MUSIC_PLAYER' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT') || window.innerHeight < 700 || window.innerWidth < 525;
             const visible = showStatsPanel && !hiddenForState;
             statsPanel.style.display = visible ? 'block' : 'none';
             if (!visible) {
@@ -676,7 +676,7 @@
                 syncStatsPanel(true);
                 return;
             }
-            if (gameState === BENCHMARK_GAME_STATE || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT')) {
+            if (gameState === BENCHMARK_GAME_STATE || gameState === 'START' || gameState === 'SHIP_SELECT' || gameState === 'GALAXY_SELECT' || gameState === 'GALAXY_MUSIC_PLAYER' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE' || gameState === 'GAMEOVER' || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT')) {
                 hud.style.display = 'none';
                 hud.style.opacity = 0;
                 hud.style.transform = 'translateY(calc(100% + 6px))';

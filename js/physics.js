@@ -1065,7 +1065,7 @@
                     ? canUseFocusAbilitiesNow()
                     : gameState === 'PLAYING' && !(bossCinematic && bossCinematic.paused));
             }
-            if (gameState === 'GALAXY_SELECT' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE') {
+            if (gameState === 'GALAXY_SELECT' || gameState === 'GALAXY_MUSIC_PLAYER' || gameState === 'RETURN_LOADING' || gameState === 'GALAXY_WARP' || gameState === 'TERMINAL_DOCK' || gameState === 'VICTORY' || gameState === 'RUN_SCORE') {
                 if (gameState === 'RETURN_LOADING' || gameState === 'VICTORY' || gameState === 'RUN_SCORE') updateFieldParticles(dt);
                 if (typeof updateCampaignScreens === 'function') updateCampaignScreens(dt);
                 return;

@@ -73,6 +73,15 @@
             drumSnap: 0,
             leadTone: 0,
             air: 0,
+            kick: 0,
+            snare: 0,
+            hat: 0,
+            melody: 0,
+            melodyFlux: 0,
+            spectralFlux: 0,
+            sectionEnergy: 0,
+            loudness: 0,
+            brightness: 0,
             activity: 0,
             absoluteEnergy: 0,
             phase: 0,
@@ -80,7 +89,10 @@
             previousBassGuitar: 0,
             previousEnergy: 0,
             lastTime: 0,
-            bands: null
+            bands: null,
+            perceptual: null,
+            events: null,
+            envelopes: null
         };
         let gameAudioVisualSignal = {
             bass: 0,
@@ -109,8 +121,22 @@
             fast: [],
             bassEnd: 0.09,
             midEnd: 0.25,
-            highMidEnd: 0.58
+            highMidEnd: 0.58,
+            perceptualBands: null,
+            perceptualOrder: [],
+            fluxAverage: 0,
+            fluxPeak: 0,
+            rawEnergyAverage: 0,
+            rawEnergyPeak: 0
         };
+        const MUSIC_PLAYER_PERCEPTUAL_BAND_DEFS = [
+            { key: 'subBass', label: 'SUB', lowHz: 22, highHz: 58, gain: 1.28, curve: 0.58 },
+            { key: 'bass', label: 'BASS', lowHz: 58, highHz: 165, gain: 1.20, curve: 0.60 },
+            { key: 'lowMids', label: 'LOW MID', lowHz: 165, highHz: 430, gain: 1.02, curve: 0.66 },
+            { key: 'mids', label: 'MID', lowHz: 430, highHz: 1400, gain: 1.05, curve: 0.68 },
+            { key: 'presence', label: 'PRES', lowHz: 1400, highHz: 5200, gain: 1.10, curve: 0.62 },
+            { key: 'brilliance', label: 'AIR', lowHz: 5200, highHz: 15000, gain: 1.16, curve: 0.58 }
+        ];
         const MUSIC_PLAYER_PREVIOUS_TRACK_GRACE_SECONDS = 3;
         const MUSIC_PLAYER_TRACKS = [
             { name: 'Main Theme', intro: () => buf1, loop: () => buf2 },
@@ -531,6 +557,117 @@
             return { start, end, lowHz: safeLow, highHz: safeHigh };
         }
 
+        function clampMusicPlayer01(value) {
+            return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+        }
+
+        function createMusicPlayerPerceptualBandState(def) {
+            return {
+                key: def.key,
+                label: def.label,
+                lowHz: def.lowHz,
+                highHz: def.highHz,
+                raw: 0,
+                smoothed: 0,
+                average: 0,
+                peak: 0.08,
+                normalized: 0,
+                previousNormalized: 0,
+                onset: 0,
+                envelope: 0
+            };
+        }
+
+        function createMusicPlayerPerceptualBandMap() {
+            const bands = {};
+            for (const def of MUSIC_PLAYER_PERCEPTUAL_BAND_DEFS) {
+                bands[def.key] = createMusicPlayerPerceptualBandState(def);
+            }
+            return bands;
+        }
+
+        function getMusicPlayerPerceptualBandRaw(def) {
+            const range = getMusicPlayerFrequencyBinRange(def.lowHz, def.highHz);
+            let sum = 0;
+            let peak = 0;
+            let weighted = 0;
+            for (let i = range.start; i < range.end; i++) {
+                const normalized = clampMusicPlayer01((musicPlayerFrequencyData[i] || 0) / 255);
+                const shaped = Math.pow(normalized, 0.72);
+                const binT = (i - range.start) / Math.max(1, range.end - range.start - 1);
+                const centerWeight = 0.78 + Math.sin(binT * Math.PI) * 0.22;
+                sum += shaped;
+                weighted += shaped * centerWeight;
+                if (shaped > peak) peak = shaped;
+            }
+            const count = Math.max(1, range.end - range.start);
+            const avg = sum / count;
+            const weightedAvg = weighted / count;
+            return clampMusicPlayer01(Math.pow(avg * 0.42 + weightedAvg * 0.24 + peak * 0.34, def.curve || 0.64) * (def.gain || 1));
+        }
+
+        function updateMusicPlayerPerceptualBands(profile, dt) {
+            if (!profile.perceptualBands) {
+                profile.perceptualBands = createMusicPlayerPerceptualBandMap();
+                profile.perceptualOrder = MUSIC_PLAYER_PERCEPTUAL_BAND_DEFS.map(def => def.key);
+            }
+
+            let flux = 0;
+            let energy = 0;
+            let brightness = 0;
+            const weights = {
+                subBass: 0.13,
+                bass: 0.23,
+                lowMids: 0.16,
+                mids: 0.17,
+                presence: 0.18,
+                brilliance: 0.13
+            };
+            const confidence = clampMusicPlayer01(profile.age / 8);
+            for (const def of MUSIC_PLAYER_PERCEPTUAL_BAND_DEFS) {
+                const band = profile.perceptualBands[def.key];
+                const raw = getMusicPlayerPerceptualBandRaw(def);
+                const rise = 30 - confidence * 8;
+                const fall = 8 + confidence * 2;
+                band.raw = raw;
+                band.smoothed = approachMusicPlayerSignal(band.smoothed, raw, dt, rise, fall);
+                const averageRate = Math.min(1, dt * (profile.age < 6 ? 0.95 : 0.18));
+                band.average += (raw - band.average) * averageRate;
+                band.peak = Math.max(raw, band.peak * Math.pow(0.62, dt));
+                band.peak = Math.max(band.peak, band.average + 0.055);
+                const adaptiveFloor = Math.max(0.004, band.average * (0.42 + confidence * 0.10));
+                const normalized = clampMusicPlayer01((band.smoothed - adaptiveFloor) / Math.max(0.045, band.peak - adaptiveFloor));
+                const onsetDelta = Math.max(0, normalized - band.previousNormalized * (0.86 + confidence * 0.06));
+                band.normalized = Math.pow(normalized, 0.76);
+                band.onset = Math.max(band.onset * Math.pow(0.045, dt), clampMusicPlayer01(Math.pow(onsetDelta * 6.2, 0.70)));
+                band.envelope = approachMusicPlayerSignal(band.envelope, Math.max(band.normalized, band.onset * 0.82), dt, 20, 4.4);
+                flux += onsetDelta * (0.85 + (weights[def.key] || 0.15) * 1.6);
+                energy += band.raw * (weights[def.key] || 0.15);
+                if (def.key === 'presence' || def.key === 'brilliance') brightness += band.normalized * 0.5;
+                band.previousNormalized = normalized;
+            }
+
+            profile.fluxAverage += (flux - profile.fluxAverage) * Math.min(1, dt * 0.90);
+            profile.fluxPeak = Math.max(flux, (profile.fluxPeak || 0.12) * Math.pow(0.55, dt));
+            const spectralFlux = clampMusicPlayer01(
+                Math.pow(Math.max(0, flux - profile.fluxAverage * 0.42) / Math.max(0.025, profile.fluxPeak - profile.fluxAverage * 0.42), 0.72)
+            );
+            profile.rawEnergyAverage += (energy - profile.rawEnergyAverage) * Math.min(1, dt * (profile.age < 8 ? 0.72 : 0.12));
+            profile.rawEnergyPeak = Math.max(energy, (profile.rawEnergyPeak || 0.18) * Math.pow(0.70, dt));
+            const loudness = clampMusicPlayer01(
+                Math.pow(Math.max(0, energy - profile.rawEnergyAverage * 0.34) / Math.max(0.070, profile.rawEnergyPeak - profile.rawEnergyAverage * 0.34), 0.82)
+            );
+
+            return {
+                bands: profile.perceptualBands,
+                spectralFlux,
+                rawEnergy: clampMusicPlayer01(energy),
+                loudness,
+                brightness: clampMusicPlayer01(brightness),
+                confidence
+            };
+        }
+
         function resetMusicPlayerVisualProfile() {
             musicPlayerVisualProfile.trackIndex = musicPlayerTrackIndex;
             musicPlayerVisualProfile.binCount = musicPlayerFrequencyData.length;
@@ -540,6 +677,12 @@
             musicPlayerVisualProfile.bassEnd = 0.09;
             musicPlayerVisualProfile.midEnd = 0.25;
             musicPlayerVisualProfile.highMidEnd = 0.58;
+            musicPlayerVisualProfile.perceptualBands = createMusicPlayerPerceptualBandMap();
+            musicPlayerVisualProfile.perceptualOrder = MUSIC_PLAYER_PERCEPTUAL_BAND_DEFS.map(def => def.key);
+            musicPlayerVisualProfile.fluxAverage = 0;
+            musicPlayerVisualProfile.fluxPeak = 0.12;
+            musicPlayerVisualProfile.rawEnergyAverage = 0;
+            musicPlayerVisualProfile.rawEnergyPeak = 0.18;
             musicPlayerVisualSignal.previousEnergy = 0;
             musicPlayerVisualSignal.previousBass = 0;
             musicPlayerVisualSignal.previousBassGuitar = 0;
@@ -548,9 +691,21 @@
             musicPlayerVisualSignal.drumSnap = 0;
             musicPlayerVisualSignal.leadTone = 0;
             musicPlayerVisualSignal.air = 0;
+            musicPlayerVisualSignal.kick = 0;
+            musicPlayerVisualSignal.snare = 0;
+            musicPlayerVisualSignal.hat = 0;
+            musicPlayerVisualSignal.melody = 0;
+            musicPlayerVisualSignal.melodyFlux = 0;
+            musicPlayerVisualSignal.spectralFlux = 0;
+            musicPlayerVisualSignal.sectionEnergy = 0;
+            musicPlayerVisualSignal.loudness = 0;
+            musicPlayerVisualSignal.brightness = 0;
             musicPlayerVisualSignal.activity = 0;
             musicPlayerVisualSignal.absoluteEnergy = 0;
             musicPlayerVisualSignal.bands = null;
+            musicPlayerVisualSignal.perceptual = null;
+            musicPlayerVisualSignal.events = null;
+            musicPlayerVisualSignal.envelopes = null;
         }
 
         function ensureMusicPlayerVisualProfile() {
@@ -558,6 +713,7 @@
                 musicPlayerVisualProfile.trackIndex !== musicPlayerTrackIndex
                 || musicPlayerVisualProfile.binCount !== musicPlayerFrequencyData.length
                 || musicPlayerVisualProfile.averages.length !== musicPlayerFrequencyData.length
+                || !musicPlayerVisualProfile.perceptualBands
             ) {
                 resetMusicPlayerVisualProfile();
             }
@@ -817,88 +973,148 @@
                 musicPlayerVisualSignal.drumSnap *= Math.pow(0.14, dt);
                 musicPlayerVisualSignal.leadTone *= Math.pow(0.18, dt);
                 musicPlayerVisualSignal.air *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.kick *= Math.pow(0.08, dt);
+                musicPlayerVisualSignal.snare *= Math.pow(0.10, dt);
+                musicPlayerVisualSignal.hat *= Math.pow(0.10, dt);
+                musicPlayerVisualSignal.melody *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.melodyFlux *= Math.pow(0.12, dt);
+                musicPlayerVisualSignal.spectralFlux *= Math.pow(0.12, dt);
+                musicPlayerVisualSignal.sectionEnergy *= Math.pow(0.18, dt);
+                musicPlayerVisualSignal.loudness *= Math.pow(0.16, dt);
+                musicPlayerVisualSignal.brightness *= Math.pow(0.16, dt);
                 musicPlayerVisualSignal.activity *= Math.pow(0.14, dt);
                 musicPlayerVisualSignal.absoluteEnergy *= Math.pow(0.14, dt);
                 musicPlayerVisualSignal.phase += dt * 0.045;
+                musicPlayerVisualSignal.events = {
+                    kick: musicPlayerVisualSignal.kick,
+                    snare: musicPlayerVisualSignal.snare,
+                    hat: musicPlayerVisualSignal.hat,
+                    melody: musicPlayerVisualSignal.melody,
+                    melodyFlux: musicPlayerVisualSignal.melodyFlux,
+                    spectralFlux: musicPlayerVisualSignal.spectralFlux
+                };
                 return musicPlayerVisualSignal;
             }
 
             musicPlayerAnalyser.getByteFrequencyData(musicPlayerFrequencyData);
             const absoluteActivity = getMusicPlayerAbsoluteActivity();
             const profile = updateMusicPlayerVisualProfile(dt);
+            const perceptual = updateMusicPlayerPerceptualBands(profile, dt);
+            const bands = perceptual.bands;
+            const subBass = bands.subBass;
+            const bassBand = bands.bass;
+            const lowMids = bands.lowMids;
+            const mids = bands.mids;
+            const presence = bands.presence;
+            const brilliance = bands.brilliance;
+            const quietAwareLoudness = Math.min(
+                perceptual.loudness,
+                Math.pow(absoluteActivity.activity, 0.70) * 1.18
+            );
+            const sectionTarget = clampMusicPlayer01(Math.pow(quietAwareLoudness * 0.62 + absoluteActivity.activity * 0.38, 1.04));
             const bassEnd = profile.bassEnd;
             const midEnd = profile.midEnd;
             const highMidEnd = profile.highMidEnd;
-            const subPulse = getMusicPlayerInstrumentBandEnergy(profile, 28, 74, 1.18, 0.58, {
+            const legacySubPulse = getMusicPlayerInstrumentBandEnergy(profile, 28, 74, 1.10, 0.60, {
                 sustainWeight: 0.25,
-                liftWeight: 0.70,
-                peakWeight: 0.42,
-                avgReject: 0.82
-            });
-            const bassFundamental = getMusicPlayerInstrumentBandEnergy(profile, 45, 165, 1.84, 0.50, {
-                sustainWeight: 0.48,
                 liftWeight: 0.62,
                 peakWeight: 0.36,
-                avgReject: 0.70
+                avgReject: 0.82
             });
-            const bassHarmonic = getMusicPlayerInstrumentBandEnergy(profile, 90, 320, 1.18, 0.64, {
-                sustainWeight: 0.30,
-                liftWeight: 0.58,
-                peakWeight: 0.24,
-                avgReject: 0.76
+            const legacyBassFundamental = getMusicPlayerInstrumentBandEnergy(profile, 45, 165, 1.58, 0.54, {
+                sustainWeight: 0.50,
+                liftWeight: 0.50,
+                peakWeight: 0.30,
+                avgReject: 0.72
             });
-            const kickBody = getMusicPlayerInstrumentBandEnergy(profile, 36, 105, 1.40, 0.56, {
+            const legacyBassHarmonic = getMusicPlayerInstrumentBandEnergy(profile, 90, 320, 1.04, 0.66, {
+                sustainWeight: 0.34,
+                liftWeight: 0.46,
+                peakWeight: 0.22,
+                avgReject: 0.78
+            });
+            const legacyKickBody = getMusicPlayerInstrumentBandEnergy(profile, 36, 105, 1.10, 0.60, {
                 sustainWeight: 0.20,
-                liftWeight: 0.78,
-                peakWeight: 0.46,
+                liftWeight: 0.64,
+                peakWeight: 0.38,
                 avgReject: 0.86
             });
-            const snareBody = getMusicPlayerInstrumentBandEnergy(profile, 900, 3600, 1.08, 0.68, {
+            const legacySnareBody = getMusicPlayerInstrumentBandEnergy(profile, 900, 3600, 0.96, 0.70, {
                 sustainWeight: 0.18,
-                liftWeight: 0.78,
-                peakWeight: 0.38,
+                liftWeight: 0.62,
+                peakWeight: 0.32,
                 avgReject: 0.84
             });
-            const leadTone = getMusicPlayerInstrumentBandEnergy(profile, 320, 1500, 1.10, 0.66, {
-                sustainWeight: 0.32,
-                liftWeight: 0.58,
-                peakWeight: 0.24,
-                avgReject: 0.75
+            const legacyLeadTone = getMusicPlayerInstrumentBandEnergy(profile, 320, 1500, 1.02, 0.68, {
+                sustainWeight: 0.34,
+                liftWeight: 0.46,
+                peakWeight: 0.22,
+                avgReject: 0.76
             });
-            const airTone = getMusicPlayerInstrumentBandEnergy(profile, 3600, 11200, 1.18, 0.64, {
+            const legacyAirTone = getMusicPlayerInstrumentBandEnergy(profile, 3600, 11200, 1.02, 0.66, {
                 sustainWeight: 0.16,
-                liftWeight: 0.82,
-                peakWeight: 0.44,
+                liftWeight: 0.64,
+                peakWeight: 0.36,
                 avgReject: 0.86
             });
-            const bassSource = Math.max(
-                bassFundamental * 0.82 + bassHarmonic * 0.22,
-                subPulse * 0.70 + bassFundamental * 0.44,
-                getMusicPlayerAdaptiveBandEnergy(profile, 0.006, bassEnd, 0.86, 0.60)
+            const legacyBassSource = Math.max(
+                legacyBassFundamental * 0.82 + legacyBassHarmonic * 0.22,
+                legacySubPulse * 0.64 + legacyBassFundamental * 0.40,
+                getMusicPlayerAdaptiveBandEnergy(profile, 0.006, bassEnd, 0.78, 0.62)
             );
-            const rawBassGuitar = Math.max(0, Math.min(1, Math.pow(bassSource, 0.76) * 0.92));
-            const rawBass = Math.max(0, Math.min(1, rawBassGuitar * 0.84 + subPulse * 0.20));
-            const rawMid = getMusicPlayerAdaptiveBandEnergy(profile, bassEnd, midEnd, 0.94, 0.70);
-            const rawHighMid = getMusicPlayerAdaptiveBandEnergy(profile, midEnd, highMidEnd, 1.00, 0.66);
-            const rawTreble = getMusicPlayerAdaptiveBandEnergy(profile, highMidEnd, 0.965, 1.06, 0.62);
-            const rawDrumSnap = Math.max(0, Math.min(1, kickBody * 0.56 + snareBody * 0.58));
-            const rawLeadTone = Math.max(0, Math.min(1, leadTone * 0.72 + rawHighMid * 0.26));
-            const rawAir = Math.max(0, Math.min(1, airTone * 0.72 + rawTreble * 0.24));
-            const activityScale = 0.10 + absoluteActivity.activity * 0.90;
-            const pulseScale = Math.pow(absoluteActivity.activity, 1.12);
-            const scaledBass = rawBass * activityScale;
-            const scaledBassGuitar = rawBassGuitar * activityScale;
-            const scaledMid = rawMid * activityScale;
-            const scaledHighMid = rawHighMid * activityScale;
-            const scaledTreble = rawTreble * activityScale;
-            const scaledDrumSnap = rawDrumSnap * activityScale;
-            const scaledLeadTone = rawLeadTone * activityScale;
-            const scaledAir = rawAir * activityScale;
-            const rawEnergy = Math.max(0, Math.min(1, scaledBass * 0.28 + scaledMid * 0.18 + scaledHighMid * 0.22 + scaledTreble * 0.16 + scaledDrumSnap * 0.12));
-            const flux = Math.max(0, rawEnergy - musicPlayerVisualSignal.previousEnergy * 0.86);
-            const bassFlux = Math.max(0, scaledBassGuitar - musicPlayerVisualSignal.previousBassGuitar * 0.965);
-            const pulseTarget = Math.max(0, Math.min(1, Math.pow(flux * 4.0, 0.70) * pulseScale));
-            const bassPulseTarget = Math.max(0, Math.min(1, Math.pow(Math.max(bassFlux * 7.2, (subPulse * 0.68 + kickBody * 0.22) * activityScale), 0.56) * pulseScale));
+            const legacyBassGuitar = clampMusicPlayer01(Math.pow(legacyBassSource, 0.78) * 0.88);
+            const legacyBass = clampMusicPlayer01(legacyBassGuitar * 0.82 + legacySubPulse * 0.18);
+            const legacyMid = getMusicPlayerAdaptiveBandEnergy(profile, bassEnd, midEnd, 0.86, 0.72);
+            const legacyHighMid = getMusicPlayerAdaptiveBandEnergy(profile, midEnd, highMidEnd, 0.90, 0.68);
+            const legacyTreble = getMusicPlayerAdaptiveBandEnergy(profile, highMidEnd, 0.965, 0.92, 0.64);
+            const legacyDrumSnap = clampMusicPlayer01(legacyKickBody * 0.42 + legacySnareBody * 0.54);
+            const legacyMelody = clampMusicPlayer01(legacyLeadTone * 0.72 + legacyHighMid * 0.24);
+            const legacyAir = clampMusicPlayer01(legacyAirTone * 0.72 + legacyTreble * 0.22);
+            const activityScale = 0.10 + sectionTarget * 0.90;
+            const transientGate = 0.22 + sectionTarget * 0.62;
+            const lowTransient = Math.max(subBass.onset * 0.70, bassBand.onset * 0.82);
+            const perceptualKick = clampMusicPlayer01(Math.pow(lowTransient * (0.46 + bassBand.envelope * 0.64), 0.76) * transientGate);
+            const perceptualSnare = clampMusicPlayer01(Math.pow(mids.onset * 0.24 + presence.onset * 0.46 + brilliance.onset * 0.16, 0.82) * transientGate);
+            const perceptualHat = clampMusicPlayer01(Math.pow(brilliance.onset * 0.72 + presence.onset * 0.22, 0.80) * (0.36 + perceptual.brightness * 0.54) * transientGate);
+            const kickTarget = clampMusicPlayer01(perceptualKick * 0.72 + legacyKickBody * activityScale * 0.28);
+            const snareTarget = clampMusicPlayer01(perceptualSnare * 0.70 + legacySnareBody * activityScale * 0.30);
+            const hatTarget = clampMusicPlayer01(perceptualHat * 0.72 + legacyAirTone * activityScale * 0.28);
+            const perceptualMelody = clampMusicPlayer01((
+                lowMids.envelope * 0.20
+                + mids.envelope * 0.38
+                + presence.envelope * 0.34
+                + brilliance.envelope * 0.08
+            ) * (0.50 + perceptual.spectralFlux * 0.22) * activityScale);
+            const melodyTarget = clampMusicPlayer01(perceptualMelody * 0.58 + legacyMelody * activityScale * 0.42);
+            const perceptualMelodyFlux = clampMusicPlayer01((
+                lowMids.onset * 0.20
+                + mids.onset * 0.38
+                + presence.onset * 0.34
+                + perceptual.spectralFlux * 0.20
+            ) * (0.38 + melodyTarget * 0.54) * transientGate);
+            const melodyFluxTarget = clampMusicPlayer01(perceptualMelodyFlux * 0.68 + Math.max(0, legacyMelody - musicPlayerVisualSignal.melody * 0.90) * 0.32);
+            const perceptualBass = clampMusicPlayer01((subBass.envelope * 0.36 + bassBand.envelope * 0.74) * activityScale);
+            const perceptualBassGuitar = clampMusicPlayer01((subBass.envelope * 0.18 + bassBand.envelope * 0.62 + lowMids.envelope * 0.36) * activityScale);
+            const perceptualMid = clampMusicPlayer01((lowMids.envelope * 0.34 + mids.envelope * 0.74) * activityScale);
+            const perceptualHighMid = clampMusicPlayer01((mids.envelope * 0.30 + presence.envelope * 0.82) * activityScale);
+            const perceptualTreble = clampMusicPlayer01((presence.envelope * 0.28 + brilliance.envelope * 0.88) * activityScale);
+            const scaledBass = clampMusicPlayer01(perceptualBass * 0.58 + legacyBass * activityScale * 0.42);
+            const scaledBassGuitar = clampMusicPlayer01(perceptualBassGuitar * 0.56 + legacyBassGuitar * activityScale * 0.44);
+            const scaledMid = clampMusicPlayer01(perceptualMid * 0.60 + legacyMid * activityScale * 0.40);
+            const scaledHighMid = clampMusicPlayer01(perceptualHighMid * 0.60 + legacyHighMid * activityScale * 0.40);
+            const scaledTreble = clampMusicPlayer01(perceptualTreble * 0.58 + legacyTreble * activityScale * 0.42);
+            const scaledDrumSnap = clampMusicPlayer01(kickTarget * 0.36 + snareTarget * 0.74 + hatTarget * 0.26);
+            const scaledLeadTone = clampMusicPlayer01(melodyTarget * 0.82 + melodyFluxTarget * 0.18);
+            const scaledAir = clampMusicPlayer01((brilliance.envelope * 0.60 + hatTarget * 0.24) * 0.62 + legacyAir * activityScale * 0.38);
+            const rawEnergy = clampMusicPlayer01(
+                perceptual.rawEnergy * 0.48
+                + sectionTarget * 0.26
+                + (scaledBass + scaledMid + scaledHighMid + scaledTreble) * 0.055
+                + (legacyBass + legacyMid + legacyHighMid + legacyTreble) * activityScale * 0.035
+            );
+            const hybridFlux = clampMusicPlayer01(perceptual.spectralFlux * 0.64 + melodyFluxTarget * 0.20 + (kickTarget + snareTarget + hatTarget) * 0.055);
+            const pulseTarget = clampMusicPlayer01(Math.pow(Math.max(hybridFlux, kickTarget * 0.42 + snareTarget * 0.34 + hatTarget * 0.16), 0.86) * (0.30 + sectionTarget * 0.64));
+            const bassPulseTarget = clampMusicPlayer01(Math.pow(kickTarget * 0.68 + lowTransient * 0.26 + legacySubPulse * activityScale * 0.18, 0.76) * (0.36 + sectionTarget * 0.58));
 
             musicPlayerVisualSignal.bass = approachMusicPlayerSignal(musicPlayerVisualSignal.bass, scaledBass, dt, 22, 8.5);
             musicPlayerVisualSignal.bassGuitar = approachMusicPlayerSignal(musicPlayerVisualSignal.bassGuitar, scaledBassGuitar, dt, 26, 9.2);
@@ -911,24 +1127,61 @@
             musicPlayerVisualSignal.energy = approachMusicPlayerSignal(musicPlayerVisualSignal.energy, rawEnergy, dt, 12, 5.4);
             musicPlayerVisualSignal.pulse = approachMusicPlayerSignal(musicPlayerVisualSignal.pulse, pulseTarget, dt, 16, 4.2);
             musicPlayerVisualSignal.bassPulse = approachMusicPlayerSignal(musicPlayerVisualSignal.bassPulse, bassPulseTarget, dt, 30, 5.0);
-            musicPlayerVisualSignal.activity = approachMusicPlayerSignal(musicPlayerVisualSignal.activity, absoluteActivity.activity, dt, 9, 5.2);
+            musicPlayerVisualSignal.kick = approachMusicPlayerSignal(musicPlayerVisualSignal.kick, kickTarget, dt, 26, 5.2);
+            musicPlayerVisualSignal.snare = approachMusicPlayerSignal(musicPlayerVisualSignal.snare, snareTarget, dt, 22, 5.0);
+            musicPlayerVisualSignal.hat = approachMusicPlayerSignal(musicPlayerVisualSignal.hat, hatTarget, dt, 24, 6.0);
+            musicPlayerVisualSignal.melody = approachMusicPlayerSignal(musicPlayerVisualSignal.melody, melodyTarget, dt, 10, 4.2);
+            musicPlayerVisualSignal.melodyFlux = approachMusicPlayerSignal(musicPlayerVisualSignal.melodyFlux, melodyFluxTarget, dt, 12, 4.2);
+            musicPlayerVisualSignal.spectralFlux = approachMusicPlayerSignal(musicPlayerVisualSignal.spectralFlux, hybridFlux, dt, 12, 4.6);
+            musicPlayerVisualSignal.sectionEnergy = approachMusicPlayerSignal(musicPlayerVisualSignal.sectionEnergy, sectionTarget, dt, 4.2, 1.8);
+            musicPlayerVisualSignal.loudness = approachMusicPlayerSignal(musicPlayerVisualSignal.loudness, perceptual.loudness, dt, 8.5, 3.2);
+            musicPlayerVisualSignal.brightness = approachMusicPlayerSignal(musicPlayerVisualSignal.brightness, perceptual.brightness, dt, 11, 4.2);
+            musicPlayerVisualSignal.activity = approachMusicPlayerSignal(musicPlayerVisualSignal.activity, sectionTarget, dt, 9, 5.2);
             musicPlayerVisualSignal.absoluteEnergy = approachMusicPlayerSignal(musicPlayerVisualSignal.absoluteEnergy, absoluteActivity.absoluteEnergy, dt, 12, 5.4);
-            musicPlayerVisualSignal.phase += dt * (0.052 + musicPlayerVisualSignal.energy * 0.095 + musicPlayerVisualSignal.pulse * 0.040);
+            musicPlayerVisualSignal.phase += dt * (
+                0.044
+                + musicPlayerVisualSignal.sectionEnergy * 0.052
+                + musicPlayerVisualSignal.spectralFlux * 0.038
+                + musicPlayerVisualSignal.hat * 0.028
+            );
             musicPlayerVisualSignal.previousEnergy = rawEnergy;
             musicPlayerVisualSignal.previousBass = scaledBass;
             musicPlayerVisualSignal.previousBassGuitar = scaledBassGuitar;
             musicPlayerVisualSignal.bands = {
-                bass: [0.006, bassEnd],
-                mid: [bassEnd, midEnd],
-                highMid: [midEnd, highMidEnd],
-                treble: [highMidEnd, 0.965],
-                instruments: {
-                    bassGuitar: [45, 320],
-                    drums: [36, 105, 900, 3600],
-                    leadTone: [320, 1500],
-                    air: [3600, 11200]
-                },
-                age: profile.age
+                subBass: [22, 58],
+                bass: [58, 165],
+                lowMids: [165, 430],
+                mids: [430, 1400],
+                presence: [1400, 5200],
+                brilliance: [5200, 15000],
+                age: profile.age,
+                confidence: perceptual.confidence
+            };
+            musicPlayerVisualSignal.perceptual = {
+                subBass: subBass.normalized,
+                bass: bassBand.normalized,
+                lowMids: lowMids.normalized,
+                mids: mids.normalized,
+                presence: presence.normalized,
+                brilliance: brilliance.normalized,
+                brightness: perceptual.brightness,
+                rawEnergy: perceptual.rawEnergy
+            };
+            musicPlayerVisualSignal.events = {
+                kick: musicPlayerVisualSignal.kick,
+                snare: musicPlayerVisualSignal.snare,
+                hat: musicPlayerVisualSignal.hat,
+                melody: musicPlayerVisualSignal.melody,
+                melodyFlux: musicPlayerVisualSignal.melodyFlux,
+                spectralFlux: musicPlayerVisualSignal.spectralFlux
+            };
+            musicPlayerVisualSignal.envelopes = {
+                bassSustain: bassBand.envelope,
+                accretion: clampMusicPlayer01(bassBand.envelope * 0.62 + lowMids.envelope * 0.24 + musicPlayerVisualSignal.kick * 0.20),
+                outerOrbit: clampMusicPlayer01(brilliance.envelope * 0.45 + musicPlayerVisualSignal.hat * 0.64),
+                innerOrbit: clampMusicPlayer01(presence.envelope * 0.38 + musicPlayerVisualSignal.snare * 0.66),
+                mobius: clampMusicPlayer01(musicPlayerVisualSignal.melody * 0.70 + musicPlayerVisualSignal.melodyFlux * 0.45),
+                section: musicPlayerVisualSignal.sectionEnergy
             };
             return musicPlayerVisualSignal;
         }

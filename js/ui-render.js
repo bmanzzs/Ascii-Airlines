@@ -5522,6 +5522,7 @@
                 && gameState !== 'SHIP_SELECT'
                 && gameState !== 'RETURN_LOADING'
                 && gameState !== 'GALAXY_SELECT'
+                && gameState !== 'GALAXY_MUSIC_PLAYER'
                 && gameState !== 'GALAXY_WARP'
                 && gameState !== 'VICTORY'
                 && gameState !== 'RUN_SCORE'
@@ -5752,6 +5753,7 @@
                 return;
             }
             const galaxySelectSceneCoversField = gameState === 'GALAXY_SELECT'
+                || gameState === 'GALAXY_MUSIC_PLAYER'
                 || (gameState === 'PAUSED' && pauseReturnState === 'GALAXY_SELECT');
             const survivorModeVisual = typeof isSurvivorModeActive === 'function' && isSurvivorModeActive();
 
@@ -5842,6 +5844,9 @@
                 if (typeof drawMatrixCrawler === 'function') drawMatrixCrawler(renderNow);
             } else if (gameState === 'GALAXY_SELECT') {
                 drawGalaxySelectScreen(renderNow);
+            } else if (gameState === 'GALAXY_MUSIC_PLAYER') {
+                if (typeof drawGalaxyMusicPlayerTransition === 'function') drawGalaxyMusicPlayerTransition(renderNow);
+                else drawGalaxySelectScreen(renderNow, false);
             } else if (gameState === 'RETURN_LOADING') {
                 drawReturnLoadingScreen(renderNow);
             } else if (gameState === 'GALAXY_WARP') {
@@ -7045,7 +7050,7 @@
             if (bossCameraActive) ctx.restore();
             drawRunCompleteTransitionOverlay(renderNow);
 
-            if (gameState === 'PAUSED') drawPauseMenu();
+            if (gameState === 'PAUSED' && !(typeof musicPlayerOpen !== 'undefined' && musicPlayerOpen)) drawPauseMenu();
             else if (pausePowerupBarAnim.mode === 'closing') {
                 drawPausePowerupBar(pausePowerupBarAnim.lastTableY || Math.round(height * 0.68));
             }

@@ -547,6 +547,7 @@
                 totalCombatRooms: 0,
                 fireCooldown: 0,
                 invuln: 0,
+                invulnBlinkTimer: 0,
                 message: '',
                 messageTimer: 0,
                 roomFlash: 0,
@@ -685,6 +686,7 @@
             player.hp = Math.max(0, (player.hp || 0) - damage);
             player.flashTimer = 0.22;
             matrixCrawlerState.invuln = 0.92 + (player.modifiers.invincibility || 0);
+            matrixCrawlerState.invulnBlinkTimer = matrixCrawlerState.invuln;
             if (typeof recordRunDamageTaken === 'function') recordRunDamageTaken(damage);
             addShake(7);
             if (player.hp <= 0) {
@@ -4322,7 +4324,6 @@
             player.vx = 0;
             player.vy = 0;
             state.invuln = Math.max(state.invuln || 0, MATRIX_CRAWLER_ENEMY_ENTRY_INVULN);
-            player.flashTimer = Math.max(player.flashTimer || 0, 0.12);
             syncMatrixCacheDaemonToPlayer(true);
             setMatrixCrawlerCameraToPlayer(true);
 
@@ -6864,6 +6865,7 @@
             updateMatrixCrawlerHoverRipples(dt);
             if (matrixCrawlerState.fireCooldown > 0) matrixCrawlerState.fireCooldown = Math.max(0, matrixCrawlerState.fireCooldown - dt);
             if (matrixCrawlerState.invuln > 0) matrixCrawlerState.invuln = Math.max(0, matrixCrawlerState.invuln - dt);
+            if (matrixCrawlerState.invulnBlinkTimer > 0) matrixCrawlerState.invulnBlinkTimer = Math.max(0, matrixCrawlerState.invulnBlinkTimer - dt);
             if (player.flashTimer > 0) player.flashTimer = Math.max(0, player.flashTimer - dt);
         }
 
@@ -8365,7 +8367,7 @@
         }
 
         function drawMatrixCrawlerShip(now) {
-            const blink = matrixCrawlerState.invuln > 0 && Math.floor(now / 70) % 2 === 0;
+            const blink = matrixCrawlerState.invulnBlinkTimer > 0 && Math.floor(now / 70) % 2 === 0;
             if (blink) return;
             const bob = getMatrixCrawlerPlayerHoverBob(now);
             ctx.save();

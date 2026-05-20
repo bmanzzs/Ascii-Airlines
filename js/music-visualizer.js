@@ -14,6 +14,15 @@
             impact: 0,
             lastNow: 0
         };
+        const musicPlayerEmbeddedBassCoreState = {
+            x: 0,
+            y: 0,
+            vx: 0,
+            vy: 0,
+            lastBass: 0,
+            impact: 0,
+            lastNow: 0
+        };
         const musicPlayerSatelliteOrbitState = {
             outerAngle: 0,
             outerVelocity: 0,
@@ -22,6 +31,23 @@
             innerVelocity: 0,
             innerDrive: 0,
             lastNow: 0
+        };
+        const musicPlayerEmbeddedSatelliteOrbitState = {
+            outerAngle: 0,
+            outerVelocity: 0,
+            outerDrive: 0,
+            innerAngle: 0,
+            innerVelocity: 0,
+            innerDrive: 0,
+            lastNow: 0
+        };
+        const musicPlayerBackgroundVisualState = {
+            energy: 0,
+            brightness: 0
+        };
+        const musicPlayerEmbeddedBackgroundVisualState = {
+            energy: 0,
+            brightness: 0
         };
         function getMusicPlayerSignalGradient(left, right, topY, bottomY, accentColor, renderContext = ctx) {
             const createGradient = () => {
@@ -82,12 +108,55 @@
             ctx.restore();
         }
 
+        function drawMusicPlayerFullscreenIcon(x, y, size, selected, accentColor) {
+            const pulse = selected ? (Math.sin(currentFrameNow * 0.007) + 1) * 0.5 : 0;
+            const cx = x + size / 2;
+            const cy = y + size / 2;
+            const inner = size * 0.08;
+            const neck = size * 0.27;
+            const outer = size * 0.49;
+            const shaft = Math.max(1.5, size * 0.075);
+            const head = Math.max(3.6, size * 0.16);
+
+            ctx.save();
+            ctx.fillStyle = selected
+                ? mixColor(accentColor, '#ffffff', 0.74)
+                : colorWithAlpha('#dcecff', 0.76);
+            ctx.globalAlpha = selected ? 0.84 + pulse * 0.14 : 0.68;
+            if (glowEnabled && selected) {
+                ctx.shadowColor = accentColor;
+                ctx.shadowBlur = 7 + pulse * 6;
+            }
+            const drawArrow = (angle) => {
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(angle);
+                ctx.beginPath();
+                ctx.moveTo(inner, -shaft * 0.5);
+                ctx.lineTo(neck, -shaft * 0.5);
+                ctx.lineTo(neck, -head);
+                ctx.lineTo(outer, 0);
+                ctx.lineTo(neck, head);
+                ctx.lineTo(neck, shaft * 0.5);
+                ctx.lineTo(inner, shaft * 0.5);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            };
+            drawArrow(-Math.PI * 0.25);
+            drawArrow(Math.PI * 0.25);
+            drawArrow(Math.PI * 0.75);
+            drawArrow(-Math.PI * 0.75);
+            ctx.restore();
+        }
+
         function drawMusicPlayerVisualizer(panelX, panelY, panelW, panelH, accentColor, status, options = {}) {
             const fullscreen = !!options.fullscreen;
             const visualizerCtx = options.context || ctx;
             const selected = !!options.selected;
             const embedded = !!options.embedded;
             const alphaScale = Number.isFinite(options.alphaScale) ? Math.max(0, Math.min(1.5, options.alphaScale)) : 1;
+            const motionScale = Number.isFinite(options.motionScale) ? Math.max(0.5, Math.min(1.8, options.motionScale)) : 1;
             const left = Number.isFinite(options.left) ? options.left : panelX + 16;
             const right = Number.isFinite(options.right) ? options.right : panelX + panelW - 16;
             const topY = Number.isFinite(options.topY) ? options.topY : panelY + 58;
@@ -111,59 +180,87 @@
             const mid = Math.max(0, Math.min(1, signal.mid || 0));
             const highMid = Math.max(0, Math.min(1, Number.isFinite(signal.highMid) ? signal.highMid : mid));
             const treble = Math.max(0, Math.min(1, signal.treble || 0));
+            const events = signal.events || {};
+            const envelopes = signal.envelopes || {};
+            const perceptual = signal.perceptual || {};
+            const kickEvent = Math.max(0, Math.min(1, (Number.isFinite(events.kick) ? events.kick : (Number.isFinite(signal.kick) ? signal.kick : bassPulse)) * motionScale));
+            const snareEvent = Math.max(0, Math.min(1, (Number.isFinite(events.snare) ? events.snare : (Number.isFinite(signal.snare) ? signal.snare : drumSnap)) * motionScale));
+            const hatEvent = Math.max(0, Math.min(1, (Number.isFinite(events.hat) ? events.hat : (Number.isFinite(signal.hat) ? signal.hat : treble)) * motionScale));
+            const melodyFlux = Math.max(0, Math.min(1, (Number.isFinite(events.melodyFlux) ? events.melodyFlux : (Number.isFinite(signal.melodyFlux) ? signal.melodyFlux : pulse)) * (0.9 + motionScale * 0.1)));
+            const spectralFlux = Math.max(0, Math.min(1, (Number.isFinite(events.spectralFlux) ? events.spectralFlux : (Number.isFinite(signal.spectralFlux) ? signal.spectralFlux : pulse)) * (0.88 + motionScale * 0.12)));
+            const sectionEnergy = Math.max(0, Math.min(1, (Number.isFinite(signal.sectionEnergy) ? signal.sectionEnergy : activity) * (0.96 + motionScale * 0.04)));
+            const bassSustain = Math.max(0, Math.min(1, Number.isFinite(envelopes.bassSustain) ? envelopes.bassSustain : bassGuitar));
+            const accretionEnergy = Math.max(0, Math.min(1, Number.isFinite(envelopes.accretion) ? envelopes.accretion : bassGuitar));
+            const mobiusEnergy = Math.max(0, Math.min(1, Number.isFinite(envelopes.mobius) ? envelopes.mobius : leadTone));
+            const outerOrbitEnergy = Math.max(0, Math.min(1, Number.isFinite(envelopes.outerOrbit) ? envelopes.outerOrbit : airTone));
+            const innerOrbitEnergy = Math.max(0, Math.min(1, Number.isFinite(envelopes.innerOrbit) ? envelopes.innerOrbit : drumSnap));
+            const brightnessEnergy = Math.max(0, Math.min(1, Number.isFinite(signal.brightness) ? signal.brightness : (Number.isFinite(perceptual.brightness) ? perceptual.brightness : treble)));
             const phase = (signal.phase || 0) * Math.PI * 2;
             const bandProfileAge = signal.bands && Number.isFinite(signal.bands.age) ? Math.max(0, signal.bands.age) : 0;
             const profileLock = Math.max(0, Math.min(1, bandProfileAge / 10));
             const cx = left + viewW * 0.5;
             const cy = topY + viewH * 0.53;
-            const baseRx = Math.min(viewW * (fullscreen ? 0.30 : 0.34), fullscreen ? 360 : 178) * (0.82 + highMid * 0.17 + energy * 0.030);
-            const baseRy = Math.min(viewH * (fullscreen ? 0.28 : 0.44), fullscreen ? 190 : 62) * (0.82 + mid * 0.075 + bassGuitar * 0.030 + pulse * 0.014);
+            const sectionBreath = 0.84 + sectionEnergy * 0.12 + spectralFlux * 0.018;
+            const baseRx = Math.min(viewW * (fullscreen ? 0.30 : 0.34), fullscreen ? 360 : 178) * sectionBreath * (1 + melodyFlux * 0.012);
+            const baseRy = Math.min(viewH * (fullscreen ? 0.28 : 0.44), fullscreen ? 190 : 62) * (0.81 + sectionEnergy * 0.070 + snareEvent * 0.010 + bassSustain * 0.020);
             const signalGradient = getMusicPlayerSignalGradient(left, right, topY, bottomY, accentColor, visualizerCtx);
-            const coreState = musicPlayerBassCoreState;
+            const coreState = embedded ? musicPlayerEmbeddedBassCoreState : musicPlayerBassCoreState;
             const renderNow = currentFrameNow || performance.now();
             const coreDt = coreState.lastNow > 0
                 ? Math.max(0.001, Math.min(0.08, (renderNow - coreState.lastNow) / 1000))
                 : 1 / 60;
             coreState.lastNow = renderNow;
+            const backgroundState = embedded ? musicPlayerEmbeddedBackgroundVisualState : musicPlayerBackgroundVisualState;
+            const backgroundEnergyTarget = Math.max(0, Math.min(1, activity * 0.28 + energy * 0.36 + sectionEnergy * 0.24 + bassSustain * 0.12));
+            const backgroundBrightnessTarget = Math.max(0, Math.min(1, activity * 0.18 + brightnessEnergy * 0.34 + sectionEnergy * 0.24 + treble * 0.10));
+            const backgroundRise = 1 - Math.pow(0.18, coreDt);
+            const backgroundFall = 1 - Math.pow(0.50, coreDt);
+            backgroundState.energy += (backgroundEnergyTarget - backgroundState.energy) * (backgroundEnergyTarget > backgroundState.energy ? backgroundRise : backgroundFall);
+            backgroundState.brightness += (backgroundBrightnessTarget - backgroundState.brightness) * (backgroundBrightnessTarget > backgroundState.brightness ? backgroundRise : backgroundFall);
+            const backgroundEnergy = Math.max(0, Math.min(1, backgroundState.energy));
+            const backgroundBrightness = Math.max(0, Math.min(1, backgroundState.brightness));
             const bassRise = Math.max(0, bassGuitar - coreState.lastBass * 0.965);
             coreState.lastBass = bassGuitar;
-            coreState.impact = Math.max(coreState.impact * Math.pow(0.10, coreDt), Math.min(1, bassPulse * 1.05 + bassRise * 3.8 + pulse * 0.08));
+            coreState.impact = Math.max(
+                coreState.impact * Math.pow(0.10, coreDt),
+                Math.min(1, kickEvent * 1.18 + bassPulse * 0.52 + bassRise * 2.2 + spectralFlux * 0.06)
+            );
             coreState.x = 0;
             coreState.y = 0;
             coreState.vx = 0;
             coreState.vy = 0;
-            const bassGlow = Math.max(0, Math.min(1, Math.pow(bassGuitar * 0.78 + bassPulse * 0.72 + coreState.impact * 0.48, 0.64)));
+            const bassGlow = Math.max(0, Math.min(1, Math.pow(bassSustain * 0.58 + kickEvent * 0.62 + coreState.impact * 0.54, 0.64)));
             const coreCx = cx;
             const coreCy = cy;
-            const gasPhaseSeed = phase * 0.73 + bassGuitar * 1.2;
-            const voidSunReturn = Math.pow(Math.max(0, Math.sin(renderNow * 0.00046 + 0.95) - 0.88) / 0.12, 2) * (0.42 + bassPulse * 0.32);
+            const gasPhaseSeed = phase * 0.73 + bassSustain * 1.2 + kickEvent * 0.65;
+            const voidSunReturn = Math.pow(Math.max(0, Math.sin(renderNow * 0.00046 + 0.95) - 0.88) / 0.12, 2) * (0.42 + kickEvent * 0.24 + bassPulse * 0.12);
             const voidMode = Math.max(0, Math.min(1, 1 - voidSunReturn * 0.78));
             const voidFieldRadius = Math.min(viewW * 0.24, Math.max(42, viewH * 0.62));
-            const satelliteOrbitState = musicPlayerSatelliteOrbitState;
+            const satelliteOrbitState = embedded ? musicPlayerEmbeddedSatelliteOrbitState : musicPlayerSatelliteOrbitState;
             const orbitDt = satelliteOrbitState.lastNow > 0
                 ? Math.max(0.001, Math.min(0.08, (renderNow - satelliteOrbitState.lastNow) / 1000))
                 : coreDt;
             satelliteOrbitState.lastNow = renderNow;
-            const outerOrbitDrive = Math.max(0, Math.min(1, airTone * 0.54 + treble * 0.30 + highMid * 0.10 + pulse * 0.24));
+            const outerOrbitDrive = Math.max(0, Math.min(1, outerOrbitEnergy * 0.52 + hatEvent * 0.48 + brightnessEnergy * 0.14));
             const outerOrbitRise = Math.max(0, outerOrbitDrive - satelliteOrbitState.outerDrive * 0.90);
             satelliteOrbitState.outerDrive = outerOrbitDrive;
             const outerOrbitTargetSpeed = isVisualizerActive
-                ? 0.060 + Math.pow(outerOrbitDrive, 0.82) * (fullscreen ? 0.96 : 0.74) + pulse * 0.16
+                ? 0.030 + Math.pow(outerOrbitDrive, 0.78) * (fullscreen ? 0.82 : 0.64) + hatEvent * 0.10
                 : 0.025;
-            satelliteOrbitState.outerVelocity += outerOrbitRise * (fullscreen ? 0.50 : 0.38);
-            satelliteOrbitState.outerVelocity += (outerOrbitTargetSpeed - satelliteOrbitState.outerVelocity) * Math.min(1, orbitDt * (7.4 + outerOrbitRise * 18));
-            satelliteOrbitState.outerVelocity = Math.max(0.015, Math.min(fullscreen ? 1.35 : 1.08, satelliteOrbitState.outerVelocity));
+            satelliteOrbitState.outerVelocity += outerOrbitRise * (fullscreen ? 0.34 : 0.26);
+            satelliteOrbitState.outerVelocity += (outerOrbitTargetSpeed - satelliteOrbitState.outerVelocity) * Math.min(1, orbitDt * (3.8 + outerOrbitRise * 12));
+            satelliteOrbitState.outerVelocity = Math.max(0.015, Math.min(fullscreen ? 0.96 : 0.78, satelliteOrbitState.outerVelocity));
             satelliteOrbitState.outerAngle = (satelliteOrbitState.outerAngle + satelliteOrbitState.outerVelocity * orbitDt) % (Math.PI * 2);
 
-            const innerOrbitDrive = Math.max(0, Math.min(1, drumSnap * 0.54 + highMid * 0.22 + pulse * 0.24));
+            const innerOrbitDrive = Math.max(0, Math.min(1, innerOrbitEnergy * 0.66 + snareEvent * 0.42 + melodyFlux * 0.10));
             const innerOrbitRise = Math.max(0, innerOrbitDrive - satelliteOrbitState.innerDrive * 0.90);
             satelliteOrbitState.innerDrive = innerOrbitDrive;
             const innerOrbitTargetSpeed = isVisualizerActive
-                ? 0.045 + Math.pow(innerOrbitDrive, 0.86) * (fullscreen ? 0.50 : 0.38) + pulse * 0.08
+                ? 0.022 + Math.pow(innerOrbitDrive, 0.84) * (fullscreen ? 0.42 : 0.34) + snareEvent * 0.045
                 : 0.018;
-            satelliteOrbitState.innerVelocity += innerOrbitRise * (fullscreen ? 0.22 : 0.16);
-            satelliteOrbitState.innerVelocity += (innerOrbitTargetSpeed - satelliteOrbitState.innerVelocity) * Math.min(1, orbitDt * (5.6 + innerOrbitRise * 10));
-            satelliteOrbitState.innerVelocity = Math.max(0.010, Math.min(fullscreen ? 0.72 : 0.56, satelliteOrbitState.innerVelocity));
+            satelliteOrbitState.innerVelocity += innerOrbitRise * (fullscreen ? 0.18 : 0.13);
+            satelliteOrbitState.innerVelocity += (innerOrbitTargetSpeed - satelliteOrbitState.innerVelocity) * Math.min(1, orbitDt * (3.6 + innerOrbitRise * 8));
+            satelliteOrbitState.innerVelocity = Math.max(0.010, Math.min(fullscreen ? 0.52 : 0.42, satelliteOrbitState.innerVelocity));
             satelliteOrbitState.innerAngle = (satelliteOrbitState.innerAngle + satelliteOrbitState.innerVelocity * orbitDt) % (Math.PI * 2);
 
             const distortVisualizerPoint = (x, y, strength = 1) => {
@@ -253,15 +350,15 @@
                 visualizerCtx.beginPath();
                 for (let i = 0; i <= steps; i++) {
                     const t = (Math.PI * 2 * i) / steps;
-                    const drift = Math.sin(t * 3 + phase * 1.15 + spin) * (0.025 + highMid * 0.024) * wobbleScale
-                        + Math.sin(t * 5 - phase * 0.92 - spin) * (0.016 + treble * 0.020) * wobbleScale;
-                    const orbit = t + phase * spin * (0.21 + highMid * 0.035) + drift;
+                    const drift = Math.sin(t * 3 + phase * (0.82 + melodyFlux * 0.18) + spin) * (0.016 + melodyFlux * 0.022) * wobbleScale
+                        + Math.sin(t * 5 - phase * (0.66 + hatEvent * 0.18) - spin) * (0.010 + hatEvent * 0.018) * wobbleScale;
+                    const orbit = t + phase * spin * (0.16 + sectionEnergy * 0.036 + melodyFlux * 0.016) + drift;
                     const rawX = cx
                         + Math.cos(orbit) * rx
-                        + Math.sin(t * 2 - phase * 0.46) * rx * (0.014 + treble * 0.014);
+                        + Math.sin(t * 2 - phase * 0.46) * rx * (0.008 + hatEvent * 0.014);
                     const rawY = cy
-                        + Math.sin(t * 2 + phase * spin * 0.20) * ry * (0.68 + bass * 0.055)
-                        + Math.cos(t * 3 + phase * 0.38) * ry * (0.014 + mid * 0.017);
+                        + Math.sin(t * 2 + phase * spin * 0.20) * ry * (0.66 + sectionEnergy * 0.060)
+                        + Math.cos(t * 3 + phase * 0.38) * ry * (0.010 + snareEvent * 0.014);
                     const warped = distortVisualizerPoint(rawX, rawY, 0.48);
                     const x = warped.x;
                     const y = warped.y;
@@ -279,14 +376,14 @@
                 const edgeA = [];
                 const edgeB = [];
                 const ribs = [];
-                const ribbonW = 5.5 + highMid * 9 + pulse * 3;
+                const ribbonW = 5.2 + mobiusEnergy * 7.0 + melodyFlux * 2.0;
                 for (let i = 0; i <= steps; i++) {
                     const t = (Math.PI * 2 * i) / steps;
-                    const theta = t + phase * (0.16 + highMid * 0.08);
+                    const theta = t + phase * (0.10 + mobiusEnergy * 0.075 + melodyFlux * 0.035);
                     const centerX = cx + Math.sin(theta) * rx;
                     const centerY = cy
-                        + Math.sin(theta * 2 - phase * 0.42) * ry * (0.54 + highMid * 0.10)
-                        + Math.cos(theta - phase * 0.32) * ry * 0.12;
+                        + Math.sin(theta * 2 - phase * (0.32 + melodyFlux * 0.10)) * ry * (0.50 + mobiusEnergy * 0.095)
+                        + Math.cos(theta - phase * 0.24) * ry * (0.10 + melodyFlux * 0.020);
                     const dx = Math.cos(theta) * rx;
                     const dy = Math.cos(theta * 2 - phase * 0.42) * ry * 2 * (0.54 + highMid * 0.10)
                         - Math.sin(theta - phase * 0.32) * ry * 0.12;
@@ -303,7 +400,7 @@
                 }
 
                 visualizerCtx.save();
-                visualizerCtx.globalAlpha = (0.10 + highMid * 0.070 + pulse * 0.030) * activeAlpha;
+                visualizerCtx.globalAlpha = (0.09 + mobiusEnergy * 0.080 + melodyFlux * 0.024) * activeAlpha;
                 visualizerCtx.fillStyle = getMusicPlayerSignalGradient(left, right, topY, bottomY, accentColor);
                 visualizerCtx.beginPath();
                 visualizerCtx.moveTo(edgeA[0].x, edgeA[0].y);
@@ -314,11 +411,11 @@
 
                 if (glowEnabled) {
                     visualizerCtx.shadowColor = '#7ee7ff';
-                    visualizerCtx.shadowBlur = 7 + highMid * 8;
+                    visualizerCtx.shadowBlur = 7 + mobiusEnergy * 8;
                 }
-                visualizerCtx.globalAlpha = (0.38 + highMid * 0.20) * activeAlpha;
+                visualizerCtx.globalAlpha = (0.34 + mobiusEnergy * 0.20 + melodyFlux * 0.040) * activeAlpha;
                 visualizerCtx.strokeStyle = colorWithAlpha(getBreathingPaletteColor(['#7ee7ff', '#ffffff', accentColor], 2, 0.11, 0.4), 0.86);
-                visualizerCtx.lineWidth = 1.15 + highMid * 1.05;
+                visualizerCtx.lineWidth = 1.10 + mobiusEnergy * 0.88;
                 visualizerCtx.beginPath();
                 visualizerCtx.moveTo(edgeA[0].x, edgeA[0].y);
                 for (let i = 1; i < edgeA.length; i++) visualizerCtx.lineTo(edgeA[i].x, edgeA[i].y);
@@ -332,7 +429,7 @@
 
                 visualizerCtx.lineWidth = 0.8;
                 for (const rib of ribs) {
-                    visualizerCtx.globalAlpha = (0.13 + Math.abs(rib.twist) * 0.26 + treble * 0.080) * activeAlpha;
+                    visualizerCtx.globalAlpha = (0.12 + Math.abs(rib.twist) * 0.22 + melodyFlux * 0.060) * activeAlpha;
                     const ribColor = getBreathingPaletteColor(
                         Math.abs(rib.twist) > 0.62 ? ['#ffffff', '#7ee7ff', '#fff1b2'] : [accentColor, '#ff8fd8', '#7ee7ff'],
                         rib.index || 0,
@@ -349,9 +446,9 @@
             };
 
             const drawBassGasCorona = (coreRadius) => {
-                const gas = Math.max(0, Math.min(1, bassGlow * 0.82 + bassPulse * 0.58 + coreState.impact * 0.34));
+                const gas = Math.max(0, Math.min(1, accretionEnergy * 0.70 + kickEvent * 0.42 + coreState.impact * 0.34));
                 if (gas <= 0.01) return;
-                const gasPhase = phase * (0.44 + bassGuitar * 0.18);
+                const gasPhase = phase * (0.34 + bassSustain * 0.16 + kickEvent * 0.10);
                 const coronaRadius = coreRadius * (2.65 + gas * 1.70);
                 const outerGas = visualizerCtx.createRadialGradient(coreCx, coreCy, coreRadius * 0.18, coreCx, coreCy, coronaRadius * 1.30);
                 outerGas.addColorStop(0, colorWithAlpha('#ffffff', (0.16 + gas * 0.22) * activeAlpha));
@@ -382,7 +479,7 @@
                     visualizerCtx.save();
                     visualizerCtx.translate(coreCx, coreCy);
                     visualizerCtx.rotate(angle + flutter * 0.36);
-                    visualizerCtx.globalAlpha = (0.055 + gas * 0.070 + bassPulse * 0.045) * activeAlpha;
+                    visualizerCtx.globalAlpha = (0.050 + gas * 0.070 + kickEvent * 0.050) * activeAlpha;
                     visualizerCtx.fillStyle = i % 3 === 0
                         ? colorWithAlpha('#ffffff', 0.58)
                         : (i % 3 === 1 ? colorWithAlpha('#7ee7ff', 0.66) : colorWithAlpha(accentColor, 0.62));
@@ -398,7 +495,7 @@
                     const inner = coreRadius * (0.72 + (i % 3) * 0.06);
                     const outer = coronaRadius * (0.52 + (i % 4) * 0.045 + gas * 0.10);
                     const bend = Math.sin(gasPhase * 1.45 + i) * coreRadius * (0.55 + gas * 0.36);
-                    visualizerCtx.globalAlpha = (0.035 + gas * 0.085 + bassPulse * 0.040) * activeAlpha;
+                    visualizerCtx.globalAlpha = (0.035 + gas * 0.085 + kickEvent * 0.045) * activeAlpha;
                     visualizerCtx.strokeStyle = i % 2 ? colorWithAlpha('#7ee7ff', 0.76) : colorWithAlpha(accentColor, 0.70);
                     visualizerCtx.lineWidth = 0.8 + gas * 1.1;
                     visualizerCtx.beginPath();
@@ -422,10 +519,10 @@
                     return value - Math.floor(value);
                 };
                 const groups = [
-                    { mode: 'bass', count: 5, signal: bassGuitar, pulse: bassPulse, palette: [accentColor, '#ffb45a', '#fff1b2'], phaseOffset: 0.15, size: 1.95, colorSpeed: 0.09 },
-                    { mode: 'drums', count: 6, signal: drumSnap, pulse, palette: ['#ffffff', '#7ee7ff', '#dcecff'], phaseOffset: 1.45, size: 1.42, colorSpeed: 0.24 },
-                    { mode: 'lead', count: 5, signal: leadTone, pulse: highMid, palette: ['#7ee7ff', '#ff8fd8', '#ffffff'], phaseOffset: 2.80, size: 1.50, colorSpeed: 0.17 },
-                    { mode: 'air', count: 5, signal: airTone, pulse: treble, palette: ['#ff8fd8', '#ffffff', '#7ee7ff'], phaseOffset: 4.12, size: 1.18, colorSpeed: 0.31 }
+                    { mode: 'bass', count: 5, signal: accretionEnergy, pulse: kickEvent, palette: [accentColor, '#ffb45a', '#fff1b2'], phaseOffset: 0.15, size: 1.95, colorSpeed: 0.07 },
+                    { mode: 'drums', count: 6, signal: innerOrbitEnergy, pulse: snareEvent, palette: ['#ffffff', '#7ee7ff', '#dcecff'], phaseOffset: 1.45, size: 1.42, colorSpeed: 0.21 },
+                    { mode: 'lead', count: 5, signal: mobiusEnergy, pulse: melodyFlux, palette: ['#7ee7ff', '#ff8fd8', '#ffffff'], phaseOffset: 2.80, size: 1.50, colorSpeed: 0.15 },
+                    { mode: 'air', count: 5, signal: outerOrbitEnergy, pulse: hatEvent, palette: ['#ff8fd8', '#ffffff', '#7ee7ff'], phaseOffset: 4.12, size: 1.18, colorSpeed: 0.31 }
                 ];
 
                 const getSatellitePosition = (group, i, phaseValue, groupSignal, groupPulse) => {
@@ -436,26 +533,26 @@
                     if (group.mode === 'bass') {
                         const spread = (lane - 0.5) * baseRx * 1.32;
                         x = cx + spread + Math.sin(phaseValue * 0.32 + seed) * baseRx * (0.010 + groupSignal * 0.006);
-                        y = cy + baseRy * (0.42 + seededUnit(seed) * 0.12) + Math.sin(phaseValue * 0.45 + seed) * baseRy * (0.035 + groupPulse * 0.022);
+                        y = cy + baseRy * (0.42 + seededUnit(seed) * 0.12) + Math.sin(phaseValue * 0.45 + seed) * baseRy * (0.026 + groupPulse * 0.030);
                     } else if (group.mode === 'drums') {
                         const speedBias = 0.92 + seededUnit(seed + 6) * 0.18;
                         const angle = phaseValue * speedBias + lane * Math.PI * 2 + group.phaseOffset + seededUnit(seed + 2) * 0.18;
-                        const rx = baseRx * (0.50 + groupPulse * 0.035);
-                        const ry = baseRy * (0.34 + groupSignal * 0.040);
+                        const rx = baseRx * (0.48 + groupPulse * 0.040 + groupSignal * 0.018);
+                        const ry = baseRy * (0.32 + groupSignal * 0.045 + groupPulse * 0.018);
                         x = cx + Math.cos(angle) * rx;
-                        y = cy + Math.sin(angle) * ry + Math.sin(angle * 2.0 + phase * 0.16 + seed) * baseRy * 0.018;
+                        y = cy + Math.sin(angle) * ry + Math.sin(angle * 2.0 + phase * 0.16 + seed) * baseRy * (0.014 + groupPulse * 0.010);
                     } else if (group.mode === 'lead') {
-                        const drift = phaseValue * 0.090 + group.phaseOffset + lane * Math.PI * 1.35;
-                        x = cx + Math.cos(drift) * baseRx * (0.84 + groupSignal * 0.040);
-                        y = cy - baseRy * 0.34 + (lane - 0.5) * baseRy * 0.82 + Math.sin(drift * 2.1) * baseRy * (0.075 + groupSignal * 0.025);
+                        const drift = phaseValue * (0.068 + groupPulse * 0.028) + group.phaseOffset + lane * Math.PI * 1.35;
+                        x = cx + Math.cos(drift) * baseRx * (0.80 + groupSignal * 0.048);
+                        y = cy - baseRy * 0.34 + (lane - 0.5) * baseRy * 0.82 + Math.sin(drift * 2.1) * baseRy * (0.060 + groupSignal * 0.026 + groupPulse * 0.014);
                     } else {
                         const orbitSpeedBias = 0.94 + seededUnit(seed + 5) * 0.12;
                         const angle = phaseValue * orbitSpeedBias + lane * Math.PI * 2 + group.phaseOffset + seededUnit(seed + 1) * 0.22;
-                        const radiusBreath = 0.995 + Math.sin(phase * 0.14 + seed) * 0.010;
-                        const rx = baseRx * (1.08 + seededUnit(seed + 2) * 0.10 + groupSignal * 0.008) * radiusBreath;
-                        const ry = baseRy * (0.84 + seededUnit(seed + 3) * 0.14 + groupPulse * 0.008) * radiusBreath;
+                        const radiusBreath = 0.990 + Math.sin(phase * 0.14 + seed) * 0.010 + groupPulse * 0.016;
+                        const rx = baseRx * (1.08 + seededUnit(seed + 2) * 0.10 + groupSignal * 0.020 + groupPulse * 0.022) * radiusBreath;
+                        const ry = baseRy * (0.84 + seededUnit(seed + 3) * 0.14 + groupSignal * 0.016 + groupPulse * 0.026) * radiusBreath;
                         x = cx + Math.cos(angle) * rx;
-                        y = cy + Math.sin(angle) * ry + Math.sin(angle * 2.0 + phase * 0.12 + seed) * baseRy * 0.020;
+                        y = cy + Math.sin(angle) * ry + Math.sin(angle * 2.0 + phase * 0.12 + seed) * baseRy * (0.018 + groupPulse * 0.012);
                     }
                     return distortVisualizerPoint(x, y, group.mode === 'bass' ? 0.38 : (group.mode === 'air' ? 0.42 : 0.58));
                 };
@@ -506,7 +603,7 @@
             };
 
             const drawVisualizerEclipseCorona = () => {
-                const eclipseEnergy = Math.max(0, Math.min(1, energy * 0.34 + mid * 0.20 + bassGlow * 0.36 + pulse * 0.12));
+                const eclipseEnergy = Math.max(0, Math.min(1, sectionEnergy * 0.24 + bassGlow * 0.34 + kickEvent * 0.26 + spectralFlux * 0.16));
                 const coronaRadius = Math.max(baseRy * 1.35, Math.min(baseRx * 0.54, 112)) * (0.88 + eclipseEnergy * 0.24);
                 const rimRadius = Math.max(18, coronaRadius * (0.42 + bassGlow * 0.055));
                 const outerRadius = coronaRadius * (1.72 + treble * 0.10);
@@ -562,12 +659,16 @@
             };
 
             const drawVoidAccretionDisk = (shadowRadius, frontOnly = false) => {
-                const axis = -0.18 + Math.sin(phase * 0.13) * 0.035;
-                const diskPulse = 0.86 + bassGlow * 0.18 + coreState.impact * 0.12 + voidSunReturn * 0.24;
+                const axis = -0.18 + Math.sin(phase * 0.13 + melodyFlux * 0.24) * 0.035;
+                const diskPulse = 0.84 + accretionEnergy * 0.22 + kickEvent * 0.14 + coreState.impact * 0.10 + voidSunReturn * 0.20;
+                const diskDance = Math.max(0, Math.min(1, sectionEnergy * 0.36 + kickEvent * 0.28 + snareEvent * 0.18 + hatEvent * 0.12 + spectralFlux * 0.10));
+                const diskMotion = 1 + diskDance * (embedded ? 0.16 : 0.07);
+                const embeddedDiskAlpha = embedded ? 0.64 : 1;
+                const embeddedDiskWidth = embedded ? 0.82 : 1;
                 const bands = [
                     {
-                        rx: shadowRadius * (2.42 + bassGlow * 0.18),
-                        ry: shadowRadius * (0.48 + bassPulse * 0.035),
+                        rx: shadowRadius * (2.42 + accretionEnergy * 0.20) * diskMotion,
+                        ry: shadowRadius * (0.48 + kickEvent * 0.045 + snareEvent * 0.020),
                         y: -shadowRadius * 0.13,
                         width: 3.4,
                         blur: 11,
@@ -576,8 +677,8 @@
                         speed: 0.060
                     },
                     {
-                        rx: shadowRadius * (2.04 + coreState.impact * 0.10),
-                        ry: shadowRadius * 0.36,
+                        rx: shadowRadius * (2.04 + coreState.impact * 0.10 + bassSustain * 0.06) * (1 + diskDance * (embedded ? 0.12 : 0.05)),
+                        ry: shadowRadius * (0.36 + kickEvent * 0.018),
                         y: -shadowRadius * 0.08,
                         width: 1.8,
                         blur: 8,
@@ -586,8 +687,8 @@
                         speed: 0.050
                     },
                     {
-                        rx: shadowRadius * 1.18,
-                        ry: shadowRadius * 0.28,
+                        rx: shadowRadius * (1.18 + snareEvent * 0.040 + hatEvent * 0.030),
+                        ry: shadowRadius * (0.28 + spectralFlux * 0.020),
                         y: shadowRadius * 0.04,
                         width: 1.45,
                         blur: 12,
@@ -608,10 +709,10 @@
                     const band = bands[i];
                     const color = getBreathingPaletteColor(band.palette, i, band.speed + i * 0.012, 5.7 + i);
                     visualizerCtx.strokeStyle = colorWithAlpha(color, 0.86);
-                    visualizerCtx.lineWidth = Math.max(0.7, band.width + bassGlow * 0.7);
+                    visualizerCtx.lineWidth = Math.max(0.7, (band.width + bassGlow * 0.7 + diskDance * 0.35) * embeddedDiskWidth);
                     visualizerCtx.shadowColor = color;
                     visualizerCtx.shadowBlur = glowEnabled ? band.blur + bassGlow * 10 : 0;
-                    visualizerCtx.globalAlpha = band.alpha * diskPulse * activeAlpha * (frontOnly ? 1.15 : 0.78);
+                    visualizerCtx.globalAlpha = band.alpha * diskPulse * activeAlpha * embeddedDiskAlpha * (frontOnly ? 1.15 : 0.78);
                     visualizerCtx.beginPath();
                     if (frontOnly) {
                         visualizerCtx.ellipse(0, band.y, band.rx, band.ry, 0, 0.02, Math.PI - 0.02);
@@ -675,10 +776,10 @@
             visualizerCtx.globalCompositeOperation = 'screen';
 
             const aura = visualizerCtx.createRadialGradient(cx, cy, 2, cx, cy, Math.max(baseRx * 0.94, baseRy * 1.8));
-            aura.addColorStop(0, colorWithAlpha('#ffffff', (0.13 + bassGlow * 0.12 + energy * 0.045) * activeAlpha));
-            aura.addColorStop(0.18, colorWithAlpha('#7ee7ff', (0.13 + highMid * 0.080) * activeAlpha));
-            aura.addColorStop(0.42, colorWithAlpha(accentColor, (0.070 + bassGlow * 0.070) * activeAlpha));
-            aura.addColorStop(0.75, colorWithAlpha('#ff8fd8', (0.050 + treble * 0.055) * activeAlpha));
+            aura.addColorStop(0, colorWithAlpha('#ffffff', (0.12 + backgroundEnergy * 0.035) * activeAlpha));
+            aura.addColorStop(0.18, colorWithAlpha('#7ee7ff', (0.12 + backgroundBrightness * 0.040) * activeAlpha));
+            aura.addColorStop(0.42, colorWithAlpha(accentColor, (0.060 + backgroundEnergy * 0.030) * activeAlpha));
+            aura.addColorStop(0.75, colorWithAlpha('#ff8fd8', (0.040 + backgroundBrightness * 0.026) * activeAlpha));
             aura.addColorStop(1, 'rgba(255,255,255,0)');
             visualizerCtx.fillStyle = aura;
             if (embedded) {
@@ -714,59 +815,59 @@
 
             drawVisualizerEclipseCorona();
 
-            visualizerCtx.globalAlpha = (0.12 + treble * 0.090) * activeAlpha;
+            visualizerCtx.globalAlpha = (0.10 + brightnessEnergy * 0.055 + snareEvent * 0.024) * activeAlpha;
             for (let i = 0; i < 4; i++) {
                 const ringT = i / 3;
-                visualizerCtx.lineWidth = 0.65 + treble * 0.52 + ringT * 0.30;
+                visualizerCtx.lineWidth = 0.65 + brightnessEnergy * 0.36 + snareEvent * 0.14 + ringT * 0.30;
                 visualizerCtx.strokeStyle = colorWithAlpha(getBreathingPaletteColor(['#ffffff', '#7ee7ff', '#ff8fd8', accentColor], i, 0.12 + i * 0.025, 1.25), 0.72);
                 visualizerCtx.beginPath();
                 visualizerCtx.ellipse(
                     cx,
                     cy,
-                    baseRx * (0.24 + ringT * 0.22 + treble * 0.020),
-                    baseRy * (0.24 + ringT * 0.16 + treble * 0.016),
-                    phase * (0.12 + i * 0.032 + treble * 0.012),
+                    baseRx * (0.24 + ringT * 0.22 + brightnessEnergy * 0.018 + snareEvent * 0.008),
+                    baseRy * (0.24 + ringT * 0.16 + brightnessEnergy * 0.016 + snareEvent * 0.010),
+                    phase * (0.12 + i * 0.032 + hatEvent * 0.008),
                     0,
                     Math.PI * 2
                 );
                 visualizerCtx.stroke();
             }
 
-            drawMobiusStrip(baseRx * (0.76 + profileLock * 0.030 + highMid * 0.070), baseRy * (0.86 + profileLock * 0.030 + highMid * 0.075));
+            drawMobiusStrip(baseRx * (0.76 + profileLock * 0.030 + mobiusEnergy * 0.060), baseRy * (0.86 + profileLock * 0.030 + mobiusEnergy * 0.055));
 
             if (glowEnabled) {
                 visualizerCtx.shadowColor = accentColor;
                 visualizerCtx.shadowBlur = 9 + energy * 5.5;
             }
-            drawIrisLoop(baseRx * (0.92 + highMid * 0.038), baseRy * (0.84 + highMid * 0.030), signalGradient, 0.46 + highMid * 0.16, 1.35 + highMid * 0.88, 1.0, 0.80);
-            drawIrisLoop(baseRx * (0.70 + treble * 0.028), baseRy * (1.02 + treble * 0.060), colorWithAlpha('#7ee7ff', 0.92), 0.33 + treble * 0.15, 0.98 + treble * 0.56, -1.35, 0.84);
-            drawIrisLoop(baseRx * (1.06 + highMid * 0.055), baseRy * (0.60 + highMid * 0.045), colorWithAlpha('#ff8fd8', 0.86), 0.27 + highMid * 0.15, 0.90 + highMid * 0.60, 1.75, 0.74);
+            drawIrisLoop(baseRx * (0.92 + sectionEnergy * 0.032), baseRy * (0.84 + snareEvent * 0.018), signalGradient, 0.40 + sectionEnergy * 0.14, 1.20 + sectionEnergy * 0.48, 1.0, 0.74);
+            drawIrisLoop(baseRx * (0.70 + hatEvent * 0.024), baseRy * (1.02 + hatEvent * 0.045), colorWithAlpha('#7ee7ff', 0.92), 0.28 + hatEvent * 0.11, 0.88 + hatEvent * 0.38, -1.35, 0.76);
+            drawIrisLoop(baseRx * (1.06 + melodyFlux * 0.040), baseRy * (0.60 + melodyFlux * 0.032), colorWithAlpha('#ff8fd8', 0.86), 0.24 + melodyFlux * 0.11, 0.80 + melodyFlux * 0.42, 1.75, 0.70);
             visualizerCtx.shadowBlur = 0;
 
             drawInstrumentSatellites();
 
-            visualizerCtx.globalAlpha = (0.12 + treble * 0.11) * activeAlpha;
+            visualizerCtx.globalAlpha = (0.08 + backgroundBrightness * 0.052) * activeAlpha;
             visualizerCtx.textAlign = 'center';
             visualizerCtx.textBaseline = 'middle';
             visualizerCtx.font = `bold ${Math.max(7, Math.min(10, viewH * 0.075))}px Courier New`;
             const glyphs = ['0', '1', '+', 'x', '::', '<>'];
             for (let i = 0; i < 14; i++) {
                 const lane = i / 13;
-                const drift = (phase * (0.022 + (i % 4) * 0.006) + lane) % 1;
+                const drift = (phase * (0.012 + backgroundBrightness * 0.010 + (i % 4) * 0.003) + lane) % 1;
                 const rawX = left + drift * viewW;
-                const rawY = topY + 12 + ((i * 29) % Math.max(1, viewH - 24));
-                const warped = distortVisualizerPoint(rawX, rawY, 0.48);
+                const rawY = topY + 12 + ((i * 29) % Math.max(1, viewH - 24)) + Math.sin(phase * 0.18 + i) * viewH * backgroundEnergy * 0.006;
+                const warped = distortVisualizerPoint(rawX, rawY, 0.18);
                 const glyphColor = getBreathingPaletteColor(
                     i % 3 === 0 ? ['#ffffff', '#7ee7ff', '#fff1b2'] : (i % 2 ? ['#7ee7ff', '#ff8fd8', '#ffffff'] : [accentColor, '#7ee7ff', '#ff8fd8']),
                     i,
                     0.10 + (i % 5) * 0.025,
                     3.4
                 );
-                visualizerCtx.fillStyle = colorWithAlpha(glyphColor, 0.68);
+                visualizerCtx.fillStyle = colorWithAlpha(glyphColor, 0.44 + backgroundBrightness * 0.12);
                 visualizerCtx.fillText(glyphs[i % glyphs.length], warped.x, warped.y);
             }
 
-            const coreRadius = 8 + bassGuitar * 5 + bassGlow * 6 + coreState.impact * 3.5;
+            const coreRadius = 8 + bassSustain * 4.2 + bassGlow * 5.8 + kickEvent * 3.2 + coreState.impact * 2.8;
             const shadowRadius = Math.max(13, coreRadius * (1.08 + voidMode * 0.38));
             const coreGlowRadius = coreRadius * (2.35 + bassGlow * 0.70 + coreState.impact * 0.42);
             drawBassGasCorona(coreRadius);
@@ -987,10 +1088,16 @@
             ctx.fillText(trackLabel, panelX + pad, panelY + 38);
 
             if (status.selection === 5) {
-                ctx.textAlign = 'right';
-                ctx.font = `bold 9px 'Electrolize', sans-serif`;
-                ctx.fillStyle = colorWithAlpha('#ffffff', 0.62 + pulse * 0.16);
-                ctx.fillText('ENTER FULLSCREEN', panelX + panelW - pad, panelY + 176);
+                const visualizerRight = panelX + panelW - 16;
+                const visualizerBottom = Math.min(panelY + panelH - 116, panelY + 178);
+                const iconSize = 26;
+                drawMusicPlayerFullscreenIcon(
+                    Math.round(visualizerRight - iconSize - 8),
+                    Math.round(visualizerBottom - iconSize - 8),
+                    iconSize,
+                    true,
+                    accent
+                );
             }
 
             const seekX = panelX + pad;

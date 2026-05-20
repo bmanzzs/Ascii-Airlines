@@ -637,20 +637,61 @@
         }
 
         function getGalaxyVisualProfile(index) {
-            return GALAXY_SELECT_LAYOUT[index % GALAXY_SELECT_LAYOUT.length] || GALAXY_SELECT_LAYOUT[0];
+            const length = GALAXY_SELECT_LAYOUT.length || 1;
+            const wrapped = ((index % length) + length) % length;
+            return GALAXY_SELECT_LAYOUT[wrapped] || GALAXY_SELECT_LAYOUT[0];
+        }
+
+        function getGalaxySelectMusicPlayerIndex() {
+            return typeof GALAXY_SELECT_MUSIC_PLAYER_INDEX === 'number'
+                ? GALAXY_SELECT_MUSIC_PLAYER_INDEX
+                : -1000;
+        }
+
+        function isGalaxySelectMusicPlayerIndex(index) {
+            return index === getGalaxySelectMusicPlayerIndex();
+        }
+
+        function getGalaxySelectMiniVisualizerLayout() {
+            const cloneScale = 0.50;
+            const sourceW = Math.round(Math.max(174, Math.min(250, width * 0.215)));
+            const sourceH = Math.round(sourceW * 0.56);
+            const displayW = sourceW * cloneScale;
+            const displayH = sourceH * cloneScale;
+            const displayX = Math.round(width - displayW - Math.max(28, width * 0.027));
+            const displayY = Math.round(Math.max(48, height * 0.052));
+            return {
+                cloneScale,
+                sourceW,
+                sourceH,
+                displayW,
+                displayH,
+                displayX,
+                displayY,
+                centerX: displayX + displayW / 2,
+                centerY: displayY + displayH / 2,
+                radius: Math.max(34, Math.min(displayW, displayH) * 0.68)
+            };
+        }
+
+        function getGalaxySelectMusicPlayerSlot() {
+            const layout = getGalaxySelectMiniVisualizerLayout();
+            return { x: layout.centerX, y: layout.centerY };
         }
 
         function getGalaxySelectDirectionalIndex(currentIndex, dirX, dirY) {
             const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [];
             const count = galaxies.length || GALAXY_SELECT_LAYOUT.length;
             if (count <= 1) return 0;
-            const current = Math.max(0, Math.min(count - 1, currentIndex || 0));
+            const musicIndex = getGalaxySelectMusicPlayerIndex();
+            const currentIsMusic = isGalaxySelectMusicPlayerIndex(currentIndex);
+            const current = currentIsMusic ? musicIndex : Math.max(0, Math.min(count - 1, currentIndex || 0));
             const currentGalaxy = galaxies[current];
             if (currentGalaxy && currentGalaxy.id === 'red-dwarf' && dirY < 0 && Math.abs(dirY) >= Math.abs(dirX)) {
                 const fractalIndex = galaxies.findIndex(galaxy => galaxy && galaxy.id === 'rose-quasar');
                 if (fractalIndex !== -1) return fractalIndex;
             }
-            const from = getGalaxySelectSlot(current);
+            const from = currentIsMusic ? getGalaxySelectMusicPlayerSlot() : getGalaxySelectSlot(current);
             const dirLen = Math.max(0.001, Math.hypot(dirX, dirY));
             const nx = dirX / dirLen;
             const ny = dirY / dirLen;
@@ -658,10 +699,19 @@
             let bestScore = Infinity;
             let fallbackIndex = current;
             let fallbackScore = Infinity;
+            const candidates = [];
 
             for (let i = 0; i < count; i++) {
+                candidates.push({ index: i, slot: getGalaxySelectSlot(i) });
+            }
+            if (width >= 620 && height >= 500) {
+                candidates.push({ index: musicIndex, slot: getGalaxySelectMusicPlayerSlot() });
+            }
+
+            for (const candidate of candidates) {
+                const i = candidate.index;
                 if (i === current) continue;
-                const slot = getGalaxySelectSlot(i);
+                const slot = candidate.slot;
                 const dx = slot.x - from.x;
                 const dy = slot.y - from.y;
                 const dist = Math.max(0.001, Math.hypot(dx, dy));
@@ -2761,6 +2811,33 @@
             };
         }
 
+        function getGalaxySelectMusicPlayerCursorTarget(now = currentFrameNow || performance.now()) {
+            const musicIndex = getGalaxySelectMusicPlayerIndex();
+            const slot = getGalaxySelectMusicPlayerSlot();
+            const layout = getGalaxySelectMiniVisualizerLayout();
+            const radius = Math.max(32, layout.radius);
+            const pose = getGalaxySelectCursorRestPose(musicIndex, slot, radius, { cursorAngle: Math.PI * 0.86 });
+            const angle = pose.angle;
+            const distance = radius + GALAXY_SELECT_CURSOR_REST_BASE_OFFSET + pose.distanceNoise * GALAXY_SELECT_CURSOR_REST_RANDOM_OFFSET;
+            const restPoint = getGalaxyCursorRestCandidate(slot, angle, distance);
+            const approachDistance = distance + GALAXY_SELECT_CURSOR_APPROACH_BASE_OFFSET + pose.approachNoise * GALAXY_SELECT_CURSOR_APPROACH_RANDOM_OFFSET;
+            const bend = (pose.bendNoise - 0.5) * 36;
+            const normalX = -Math.sin(angle);
+            const normalY = Math.cos(angle);
+            return {
+                x: restPoint.x,
+                y: restPoint.y,
+                faceX: slot.x,
+                faceY: slot.y,
+                approachX: Math.max(24, Math.min(width - 24, slot.x + Math.cos(angle) * approachDistance + normalX * bend)),
+                approachY: Math.max(80, Math.min(height - 100, slot.y + Math.sin(angle) * approachDistance + normalY * bend)),
+                scale: 0.20 + pose.scaleNoise * 0.03,
+                key: `music-player-${pose.token}`,
+                color: '#ffd95a',
+                floaty: true
+            };
+        }
+
         function drawGalaxyCursorGuide(target, color, now) {
             if (!target) return;
             galaxyCtx.save();
@@ -3038,9 +3115,16 @@
                     }
                 }
             }
+            if (isGalaxySelectMusicPlayerIndex(selectedIndex)) {
+                const cursorTarget = getGalaxySelectMusicPlayerCursorTarget(now);
+                if (cursorTarget && !cursorTarget.suppressGuide) {
+                    drawGalaxyCursorGuide(cursorTarget, '#ffd95a', now);
+                }
+            }
         }
 
         function drawGalaxyDossierBackgroundLayer(now, galaxies, selectedIndex) {
+            if (isGalaxySelectMusicPlayerIndex(selectedIndex)) return;
             const selectedGalaxy = galaxies[selectedIndex] || galaxies[0];
             if (!selectedGalaxy) return;
             drawGalaxyDossierPanel(now, selectedGalaxy, galaxies, selectedIndex);
@@ -3449,9 +3533,12 @@
             return galaxyDossierLayerState.promptY;
         }
 
-        function drawGalaxySelectMiniVisualizer(now, galaxy) {
+        function drawGalaxySelectMiniVisualizer(now, galaxy, options = {}) {
             if (width < 620 || height < 500 || typeof drawMusicPlayerVisualizer !== 'function') return;
 
+            const selected = !!options.selected;
+            const musicIndex = getGalaxySelectMusicPlayerIndex();
+            const highlight = getGalaxySelectHighlightAmount(musicIndex, selected, now);
             const musicStatus = typeof getMusicPlayerStatus === 'function' ? getMusicPlayerStatus() : null;
             const musicPlayerActive = !!(musicStatus && musicStatus.isPlaying);
             const signal = musicPlayerActive && typeof getMusicPlayerReactiveSignal === 'function'
@@ -3473,28 +3560,32 @@
                         activity: 0.40,
                         phase: (now || 0) * 0.00004
                     });
-            const colors = galaxy && galaxy.colors && galaxy.colors.length ? galaxy.colors : [currentThemeColor, '#8ff7ff', '#ffffff'];
-            const accent = sampleGalaxySelectAnimatedColor(colors, (Number.isFinite(now) ? now : performance.now()) * 0.000055 + (galaxy && galaxy.seed ? galaxy.seed * 0.004 : 0));
-            const cloneScale = 0.50;
-            const sourceW = Math.round(Math.max(174, Math.min(250, width * 0.215)));
-            const sourceH = Math.round(sourceW * 0.56);
-            const displayW = sourceW * cloneScale;
-            const displayX = Math.round(width - displayW - Math.max(28, width * 0.027));
-            const displayY = Math.round(Math.max(48, height * 0.052));
+            const colors = selected
+                ? ['#ffd95a', '#7ee7ff', '#ff8fd8', '#ffffff']
+                : (galaxy && galaxy.colors && galaxy.colors.length ? galaxy.colors : [currentThemeColor, '#8ff7ff', '#ffffff']);
+            const accent = sampleGalaxySelectAnimatedColor(colors, (Number.isFinite(now) ? now : performance.now()) * 0.000055 + (selected ? 0.37 : (galaxy && galaxy.seed ? galaxy.seed * 0.004 : 0)));
+            const layout = getGalaxySelectMiniVisualizerLayout();
+            const selectedScale = 1 + highlight * 0.08;
+            const displayW = layout.displayW * selectedScale;
+            const displayH = layout.displayH * selectedScale;
+            const displayX = layout.centerX - displayW / 2;
+            const displayY = layout.centerY - displayH / 2;
+            const renderScale = layout.cloneScale * selectedScale;
 
             galaxyCtx.save();
             galaxyCtx.translate(displayX, displayY);
-            galaxyCtx.scale(cloneScale, cloneScale);
-            drawMusicPlayerVisualizer(0, 0, sourceW, sourceH, accent, { isPlaying: true }, {
+            galaxyCtx.scale(renderScale, renderScale);
+            drawMusicPlayerVisualizer(0, 0, layout.sourceW, layout.sourceH, accent, { isPlaying: true }, {
                 embedded: true,
                 forceActive: true,
                 signal,
-                alphaScale: 0.48,
+                alphaScale: 0.48 + highlight * 0.20,
+                motionScale: 1.22 + highlight * 0.18,
                 context: galaxyCtx,
                 left: 0,
-                right: sourceW,
+                right: layout.sourceW,
                 topY: 0,
-                bottomY: sourceH
+                bottomY: layout.sourceH
             });
             galaxyCtx.restore();
             galaxyCtx.globalAlpha = 1;
@@ -3515,7 +3606,8 @@
             galaxyCtx.font = `12px 'Electrolize', sans-serif`;
             galaxyCtx.fillStyle = 'rgba(202, 229, 255, 0.72)';
             galaxyCtx.fillText('Choose your destination', width / 2, height * GALAXY_SELECT_SUBTITLE_Y);
-            drawGalaxySelectMiniVisualizer(now, galaxies[selectedIndex]);
+            const miniSelected = isGalaxySelectMusicPlayerIndex(selectedIndex);
+            drawGalaxySelectMiniVisualizer(now, miniSelected ? null : galaxies[selectedIndex], { selected: miniSelected });
 
             for (let i = 0; i < galaxies.length; i++) {
                 const galaxy = galaxies[i];
@@ -3655,6 +3747,9 @@
         }
 
         function getGalaxySelectCurrentCursorTarget(now, selectedIndex = selectedGalaxyIndex) {
+            if (isGalaxySelectMusicPlayerIndex(selectedIndex)) {
+                return getGalaxySelectMusicPlayerCursorTarget(now);
+            }
             const galaxies = typeof GALAXY_DEFINITIONS !== 'undefined' ? GALAXY_DEFINITIONS : [getGalaxyDefinition(0)];
             const galaxy = galaxies[selectedIndex] || galaxies[0];
             if (!galaxy) return null;
@@ -3674,6 +3769,229 @@
             drawGalaxySelectBaseLayerDirect(now, selectedGalaxyIndex);
             const cursorTarget = showCursor ? getGalaxySelectCurrentCursorTarget(now, selectedGalaxyIndex) : null;
             if (showCursor && cursorTarget) drawGalaxySelectCursor(cursorTarget);
+        }
+
+        function drawGalaxyMusicPlayerTransition(now = currentFrameNow || performance.now()) {
+            const transition = typeof galaxyMusicPlayerTransition !== 'undefined' ? galaxyMusicPlayerTransition : null;
+            if (!transition || !transition.active) {
+                drawGalaxySelectScreen(now, true);
+                return;
+            }
+
+            const duration = typeof GALAXY_MUSIC_PLAYER_TRANSITION_DURATION === 'number'
+                ? GALAXY_MUSIC_PLAYER_TRANSITION_DURATION
+                : 1.08;
+            const rawProgress = Math.max(0, Math.min(1, ((now || performance.now()) - (transition.startedAt || 0)) / 1000 / duration));
+            const progress = easeGalaxyWarp(rawProgress);
+            const musicIndex = getGalaxySelectMusicPlayerIndex();
+            const layout = getGalaxySelectMiniVisualizerLayout();
+            const accent = transition.color || '#ffd95a';
+
+            drawGalaxySelectBackground(now);
+            drawGalaxySelectContentDirect(now, musicIndex, false);
+
+            const panelW = Math.min(640, width - 72);
+            const panelH = 306;
+            const panelX = Math.round((width - panelW) / 2);
+            const panelY = Math.round(Math.max(54, height * 0.20));
+            const endRect = {
+                x: panelX + 16,
+                y: panelY + 58,
+                w: panelW - 32,
+                h: Math.min(panelY + panelH - 116, panelY + 178) - (panelY + 58)
+            };
+            const startRect = {
+                x: layout.displayX,
+                y: layout.displayY,
+                w: layout.displayW,
+                h: layout.displayH
+            };
+            const rect = {
+                x: lerpGalaxyWarp(startRect.x, endRect.x, progress),
+                y: lerpGalaxyWarp(startRect.y, endRect.y, progress),
+                w: lerpGalaxyWarp(startRect.w, endRect.w, progress),
+                h: lerpGalaxyWarp(startRect.h, endRect.h, progress)
+            };
+            const panelAlpha = easeGalaxyWarp(Math.max(0, Math.min(1, (rawProgress - 0.04) / 0.84)));
+            const morphAlpha = easeGalaxyWarp(Math.max(0, Math.min(1, (rawProgress - 0.12) / 0.68)));
+            const beamAlpha = Math.max(0, Math.min(1, (0.82 - rawProgress) / 0.82));
+            const signal = typeof getMusicPlayerReactiveSignal === 'function'
+                ? getMusicPlayerReactiveSignal()
+                : (typeof getGameAudioReactiveSignal === 'function' ? getGameAudioReactiveSignal() : null);
+            const status = typeof getMusicPlayerStatus === 'function'
+                ? getMusicPlayerStatus()
+                : {
+                    isPlaying: true,
+                    isLoaded: true,
+                    trackName: 'MAIN THEME',
+                    trackIndex: 0,
+                    trackCount: 12,
+                    position: 0,
+                    duration: 1,
+                    volume: 1,
+                    selection: 2,
+                    positionText: '0:00',
+                    durationText: '5:09'
+                };
+
+            galaxyCtx.save();
+            galaxyCtx.globalCompositeOperation = 'source-over';
+            galaxyCtx.fillStyle = `rgba(0, 3, 10, ${0.08 + progress * 0.34})`;
+            galaxyCtx.fillRect(0, 0, width | 0, height | 0);
+
+            galaxyCtx.globalAlpha = beamAlpha * 0.55;
+            galaxyCtx.strokeStyle = colorWithAlpha(accent, 0.62);
+            galaxyCtx.lineWidth = 1.2 + progress * 2.2;
+            galaxyCtx.setLineDash([6, 12]);
+            galaxyCtx.beginPath();
+            galaxyCtx.moveTo(layout.centerX, layout.centerY);
+            galaxyCtx.quadraticCurveTo(width * 0.66, height * 0.12, rect.x + rect.w * 0.5, rect.y + rect.h * 0.52);
+            galaxyCtx.stroke();
+            galaxyCtx.setLineDash([]);
+            galaxyCtx.globalAlpha = 1;
+
+            if (panelAlpha > 0.01) {
+                galaxyCtx.globalAlpha = panelAlpha;
+                if (typeof drawPauseHudPanel === 'function') {
+                    drawPauseHudPanel(panelX, panelY, panelW, panelH, accent, true, {
+                        fillAlpha: 0.86,
+                        borderAlpha: 0.68,
+                        edgeWashAlpha: 0.010,
+                        innerSheenAlpha: 0.004,
+                        rail: true
+                    });
+                } else {
+                    galaxyCtx.fillStyle = 'rgba(0, 5, 12, 0.86)';
+                    galaxyCtx.fillRect(panelX, panelY, panelW, panelH);
+                    galaxyCtx.strokeStyle = colorWithAlpha(accent, 0.62);
+                    galaxyCtx.strokeRect(panelX + 0.5, panelY + 0.5, panelW, panelH);
+                }
+                galaxyCtx.globalAlpha = panelAlpha * 0.80;
+                galaxyCtx.textAlign = 'left';
+                galaxyCtx.textBaseline = 'middle';
+                galaxyCtx.font = `bold 10px 'Electrolize', sans-serif`;
+                galaxyCtx.fillStyle = colorWithAlpha('#ffffff', 0.60);
+                galaxyCtx.fillText('MUSIC PLAYER', panelX + 18, panelY + 22);
+                const trackCountLabel = `${String((status.trackIndex || 0) + 1).padStart(2, '0')} / ${String(status.trackCount || 1).padStart(2, '0')}`;
+                galaxyCtx.textAlign = 'right';
+                galaxyCtx.font = `bold 18px 'Electrolize', sans-serif`;
+                galaxyCtx.fillStyle = colorWithAlpha(accent, 0.86);
+                galaxyCtx.fillText(trackCountLabel, panelX + panelW - 18, panelY + 38);
+                galaxyCtx.textAlign = 'left';
+                galaxyCtx.font = `bold 24px 'Electrolize', sans-serif`;
+                galaxyCtx.fillStyle = status.isLoaded === false ? '#ff88a6' : mixGalaxySelectLabelColor(accent, '#ffffff', 0.42);
+                const trackName = String(status.trackName || 'MAIN THEME').toUpperCase();
+                galaxyCtx.fillText(trackName, panelX + 18, panelY + 38);
+
+                const seekX = panelX + 18;
+                const seekY = panelY + 190;
+                const seekW = panelW - 36;
+                const seekH = 13;
+                const duration = Math.max(0.001, status.duration || 0.001);
+                const fillRatio = Math.max(0, Math.min(1, (status.position || 0) / duration));
+                galaxyCtx.globalAlpha = panelAlpha * 0.72;
+                galaxyCtx.fillStyle = 'rgba(3, 8, 18, 0.72)';
+                galaxyCtx.fillRect(seekX | 0, seekY | 0, seekW | 0, seekH | 0);
+                galaxyCtx.strokeStyle = colorWithAlpha(accent, 0.34);
+                galaxyCtx.lineWidth = 1;
+                galaxyCtx.strokeRect((seekX + 0.5) | 0, (seekY + 0.5) | 0, seekW | 0, seekH | 0);
+                galaxyCtx.fillStyle = colorWithAlpha(accent, 0.82);
+                galaxyCtx.fillRect((seekX + 2) | 0, (seekY + 2) | 0, Math.max(0, (seekW - 4) * fillRatio) | 0, Math.max(0, seekH - 4) | 0);
+                galaxyCtx.fillStyle = colorWithAlpha('#dcecff', 0.78);
+                galaxyCtx.fillRect((seekX + seekW * fillRatio - 2) | 0, (seekY - 3) | 0, 4, seekH + 6);
+                galaxyCtx.font = `bold 11px 'Electrolize', sans-serif`;
+                galaxyCtx.fillStyle = colorWithAlpha('#dcecff', 0.76);
+                galaxyCtx.textAlign = 'left';
+                galaxyCtx.fillText(status.positionText || '0:00', seekX, seekY + 30);
+                galaxyCtx.textAlign = 'right';
+                galaxyCtx.fillText(status.durationText || '5:09', seekX + seekW, seekY + 30);
+
+                const rowY = panelY + 230;
+                const buttonW = 58;
+                const buttonH = 28;
+                const gap = 8;
+                const rowX = Math.round(panelX + (panelW - (buttonW * 3 + gap * 2)) / 2);
+                if (typeof drawMusicPlayerButton === 'function') {
+                    galaxyCtx.globalAlpha = panelAlpha * (0.64 + morphAlpha * 0.36);
+                    drawMusicPlayerButton('|<', rowX, rowY, buttonW, buttonH, false, accent);
+                    drawMusicPlayerButton(status.isPlaying ? 'PAUSE' : 'PLAY', rowX + buttonW + gap, rowY, buttonW, buttonH, true, accent);
+                    drawMusicPlayerButton('>|', rowX + (buttonW + gap) * 2, rowY, buttonW, buttonH, false, accent);
+                }
+
+                const volumeW = Math.min(272, panelW - 36);
+                const volumeH = 24;
+                const volX = Math.round(panelX + (panelW - volumeW) / 2);
+                const volY = rowY + buttonH + 7;
+                const meterX = volX + 50;
+                const meterY = volY + Math.round((volumeH - 8) / 2);
+                const meterW = volumeW - 102;
+                galaxyCtx.globalAlpha = panelAlpha * 0.68;
+                galaxyCtx.fillStyle = 'rgba(5, 12, 24, 0.58)';
+                galaxyCtx.fillRect(volX | 0, volY | 0, volumeW | 0, volumeH | 0);
+                galaxyCtx.strokeStyle = colorWithAlpha(accent, 0.34);
+                galaxyCtx.strokeRect((volX + 0.5) | 0, (volY + 0.5) | 0, volumeW | 0, volumeH | 0);
+                galaxyCtx.textAlign = 'left';
+                galaxyCtx.textBaseline = 'middle';
+                galaxyCtx.font = `bold 12px 'Electrolize', sans-serif`;
+                galaxyCtx.fillStyle = colorWithAlpha('#dcecff', 0.76);
+                galaxyCtx.fillText('VOL', volX + 10, volY + volumeH / 2 + 1);
+                galaxyCtx.fillStyle = 'rgba(2, 7, 16, 0.8)';
+                galaxyCtx.fillRect(meterX, meterY, meterW, 8);
+                galaxyCtx.fillStyle = colorWithAlpha(accent, 0.82);
+                galaxyCtx.fillRect(meterX, meterY, Math.max(0, meterW * Math.max(0, Math.min(1, status.volume || 0))), 8);
+                galaxyCtx.textAlign = 'right';
+                galaxyCtx.font = `bold 10px 'Electrolize', sans-serif`;
+                galaxyCtx.fillStyle = colorWithAlpha('#ffffff', 0.74);
+                galaxyCtx.fillText(`${Math.round(Math.max(0, Math.min(1, status.volume || 0)) * 100)}%`, volX + volumeW - 10, volY + volumeH / 2 + 1);
+                galaxyCtx.globalAlpha = 1;
+            }
+
+            if (typeof drawMusicPlayerVisualizer === 'function') {
+                const sourceW = 640;
+                const sourceH = 132;
+                const drawTransitionVisualizer = (embedded, alpha, motionScale) => {
+                    if (alpha <= 0.01) return;
+                    galaxyCtx.save();
+                    galaxyCtx.globalAlpha = alpha;
+                    galaxyCtx.translate(rect.x, rect.y);
+                    galaxyCtx.scale(Math.max(0.01, rect.w / sourceW), Math.max(0.01, rect.h / sourceH));
+                    drawMusicPlayerVisualizer(0, 0, sourceW, sourceH, accent, status, {
+                        embedded,
+                        forceActive: true,
+                        signal,
+                        alphaScale: (0.58 + progress * 0.28) * alpha,
+                        motionScale,
+                        context: galaxyCtx,
+                        left: 0,
+                        right: sourceW,
+                        topY: 0,
+                        bottomY: sourceH
+                    });
+                    galaxyCtx.restore();
+                };
+                drawTransitionVisualizer(true, Math.max(0, 1 - morphAlpha * 0.92), 1.10);
+                drawTransitionVisualizer(false, Math.max(0, morphAlpha), 1.00);
+            }
+
+            const shipT = easeGalaxyWarp(Math.max(0, Math.min(1, rawProgress / 0.68)));
+            const shipX = lerpGalaxyWarp(transition.fromX, transition.toX, shipT);
+            const shipY = lerpGalaxyWarp(transition.fromY, transition.toY, shipT);
+            const shipTarget = {
+                x: shipX,
+                y: shipY,
+                faceX: transition.toX,
+                faceY: transition.toY,
+                scale: lerpGalaxyWarp(transition.fromScale || 0.22, 0.17, shipT),
+                key: 'music-player-transition',
+                color: accent,
+                floaty: true
+            };
+            drawGalaxySelectCursor(shipTarget, { suppressTrail: rawProgress > 0.72 });
+
+            galaxyCtx.restore();
+            galaxyCtx.globalAlpha = 1;
+            galaxyCtx.globalCompositeOperation = 'source-over';
+            galaxyCtx.shadowBlur = 0;
         }
 
         function easeGalaxyWarp(t) {
