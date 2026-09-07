@@ -1083,9 +1083,11 @@
             ctx.restore();
         }
 
+        const PAUSE_POWERUP_DETAIL_PANEL_H = 90;
+
         function drawPausePowerupDetail(powerup, panelX, panelY, panelW) {
             if (!powerup) return;
-            const panelH = 76;
+            const panelH = PAUSE_POWERUP_DETAIL_PANEL_H;
 
             ctx.save();
             ctx.textAlign = 'left';
@@ -2026,7 +2028,7 @@
             const focused = pauseSelection === -1 && player.weapons.length > 0;
             const selectedIndex = Math.max(0, Math.min(Math.max(0, player.weapons.length - 1), pausePowerupSelection));
             pausePowerupSelection = selectedIndex;
-            const detailPanelH = 76;
+            const detailPanelH = PAUSE_POWERUP_DETAIL_PANEL_H;
             const detailGap = 14;
             const detailInset = 16;
             const detailBottomPad = 12;
@@ -2148,7 +2150,8 @@
             const tableW = cols * cell + (cols - 1) * gap;
             const tableH = 2 * cell + gap;
             const panelW = tableW + 24;
-            const panelH = tableH + 38 + 102;
+            const detailReserve = 14 + PAUSE_POWERUP_DETAIL_PANEL_H + 12;
+            const panelH = tableH + 38 + detailReserve;
             return {
                 x: Math.round(width / 2 - panelW / 2),
                 y: Math.round(Math.max(54, height * 0.072)),

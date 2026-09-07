@@ -75,10 +75,17 @@
             gameLoopStarted = true;
             resize();
             dismissInitialLoadScreen();
+            ensureGalaxySelectMusic(0.35);
             requestAnimationFrame(gameLoop);
         }
 
         window.addEventListener('resize', resize);
+        // Browsers that block autoplay can unlock the queued music on any interaction.
+        function unlockLaunchAudio() {
+            if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        }
+        window.addEventListener('pointerdown', unlockLaunchAudio, { capture: true });
+        window.addEventListener('keydown', unlockLaunchAudio, { capture: true });
         document.addEventListener('fullscreenchange', resize);
         resize();
         startGameLoop();
